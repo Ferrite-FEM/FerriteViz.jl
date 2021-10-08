@@ -1,5 +1,5 @@
 push!(LOAD_PATH,"../src/")
-using Documenter, FerriteVis, GLMakie
+using Documenter, FerriteVis, WGLMakie
 
 makedocs(sitename="FerriteVis",
          modules=[FerriteVis],

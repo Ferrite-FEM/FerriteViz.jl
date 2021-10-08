@@ -70,3 +70,27 @@ function warp_by_vector(plotter::MakiePlotter, args...; field::Int=1, scale=1.0,
     plot_color = color===nothing ? solution : color
     return Makie.mesh(plotter.coords .+ (scale .* u_matrix), color=plot_color, reshape_triangles(plotter), args...; scale_plot=scale_plot, shading=shading, kwargs...)
 end
+
+function Makie.poly(plotter::MakiePlotter{2}, args...; color=:transparent, strokecolor=:black, strokewidth=3, kwargs...) where dim
+    p = Makie.Polygon[] 
+    for cell in plotter.cells_connectivity
+        points = Makie.Point2f0[]
+        for node in cell
+            push!(points, Makie.Point2f0(plotter.coords[node,:]))
+        end
+        push!(p, Makie.Polygon(points))
+    end
+    return Makie.poly(p,args...;color=color,strokecolor=strokecolor, strokewidth=strokewidth, kwargs...)
+end
+
+function Makie.poly!(plotter::MakiePlotter{2}, args...; color=:transparent, strokecolor=:black, strokewidth=3, kwargs...) where dim
+    p = Makie.Polygon[] 
+    for cell in plotter.cells_connectivity
+        points = Makie.Point2f0[]
+        for node in cell
+            push!(points, Makie.Point2f0(plotter.coords[node,:]))
+        end
+        push!(p, Makie.Polygon(points))
+    end
+    return Makie.poly(p,args...;color=color,strokecolor=strokecolor, strokewidth=strokewidth, kwargs...)
+end

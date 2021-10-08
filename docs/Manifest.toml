@@ -259,7 +259,8 @@ uuid = "c061ca5d-56c9-439f-9c0e-210fe06d3992"
 version = "0.3.0"
 
 [[FerriteVis]]
-git-tree-sha1 = "b9cb6eef756c0354726336b89cbfb445e7a17a68"
+deps = ["Ferrite", "Makie"]
+git-tree-sha1 = "c006f431e318c664493cf034391c88a9cfc20781"
 repo-rev = "master"
 repo-url = ".."
 uuid = "59d0093e-b1f1-4fb7-ac85-ab57e45f39d9"

@@ -95,6 +95,23 @@ function Makie.poly!(plotter::MakiePlotter{2}, args...; color=:transparent, stro
     return Makie.poly(p,args...;color=color,strokecolor=strokecolor, strokewidth=strokewidth, kwargs...)
 end
 
-function Makie.poly(plotter::MakiePlotter{3},args...;color=:transparent, strokecolor=:black, strokewidth=3,kwargs...)
-    Makie.poly(plotter.coords,reshape_triangles(plotter),args...;color=:transparent, strokecolor=:black, strokewidth=3,kwargs...)
+function plot_mesh(plotter::MakiePlotter{3},args...;color=:transparent, strokecolor=:black, strokewidth=3,kwargs...)
+    fig = Makie.Figure()
+    tets = Makie.GeometryBasics.Tetrahedron{Float32}[]
+    hex = Makie.GeometryBasics.HyperRectangle[]
+    cells = Ferrite.getcells(plotter.dh.grid)
+    for (cellid,cell) in enumerate(plotter.cells_connectivity)
+        points = Makie.Point3f0[]
+        for node in cell
+            push!(points, Makie.Point3f0(plotter.coords[node,:]))
+        end
+        if refshape(cells[cellid]) == Ferrite.RefCube 
+            push!(hex, Makie.Rect(points)) 
+        else
+            push!(tets, Makie.Simplex(Makie.GeometryBasics.SVector{4}(points)))
+        end
+    end
+    !(isempty(hex)) && [Makie.wireframe!(h,args...;kwargs...) for h in hex]
+    !(isempty(tets)) && Makie.mesh(fig[1,1],Makie.GeometryBasics.Mesh(tets),args...; kwargs...)
+    return Makie.current_figure()
 end

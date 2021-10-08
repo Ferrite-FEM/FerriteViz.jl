@@ -1,5 +1,14 @@
 module FerriteVis
 
-# Write your package code here.
+import Makie
+import Ferrite
+
+abstract type AbstractPlotter end
+
+include("utils.jl")
+include("makieplotting.jl")
+
+export MakiePlotter
+export warp_by_vector
 
 end

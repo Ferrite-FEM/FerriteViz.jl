@@ -112,6 +112,6 @@ function plot_mesh(plotter::MakiePlotter{3},args...;color=:transparent, strokeco
         end
     end
     !(isempty(hex)) && [Makie.wireframe!(h,args...;kwargs...) for h in hex]
-    !(isempty(tets)) && Makie.mesh(fig[1,1],Makie.GeometryBasics.Mesh(tets),args...; kwargs...)
+    !(isempty(tets)) && Makie.poly(plotter.coords, reshape_triangles(plotter),args...;color=color, strokecolor=strokecolor, strokewidth=strokewidth,kwargs...)
     return Makie.current_figure()
 end

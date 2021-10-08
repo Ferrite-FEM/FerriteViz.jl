@@ -94,3 +94,7 @@ function Makie.poly!(plotter::MakiePlotter{2}, args...; color=:transparent, stro
     end
     return Makie.poly(p,args...;color=color,strokecolor=strokecolor, strokewidth=strokewidth, kwargs...)
 end
+
+function Makie.poly(plotter::MakiePlotter{3},args...;color=:transparent, strokecolor=:black, strokewidth=3,kwargs...)
+    Makie.poly(plotter.coords,reshape_triangles(plotter),args...;color=:transparent, strokecolor=:black, strokewidth=3,kwargs...)
+end

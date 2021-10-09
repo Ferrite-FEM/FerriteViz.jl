@@ -10,8 +10,6 @@ to_triangle(cell::Ferrite.AbstractCell{3,N,6}) where N = [Ferrite.vertices(cell)
                                                           Ferrite.vertices(cell)[[5,8,7]], Ferrite.vertices(cell)[[7,6,5]]]
 
 refshape(cell::Ferrite.AbstractCell) = typeof(Ferrite.default_interpolation(typeof(cell))).parameters[2]
-refshape_to_makieshape(::Type{Ferrite.RefCube}) = Makie.Rect
-refshape_to_makieshape(::Type{Ferrite.RefTetrahedron}) = Makie.Simplex
 
 function postprocess(node_values)
     dim = length(node_values)

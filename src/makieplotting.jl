@@ -95,7 +95,7 @@ function plot_grid(plotter::MakiePlotter{dim},args...;color=:black, strokewidth=
     return Makie.linesegments(lines,args...;color=color, strokewidth=strokewidth, kwargs...)
 end
 
-function plot_grid!(plotter::MakiePlotter{dim},args...;color=:black, strokwidth=3, plotnodes=true, markersize=(dim == 2 ? 20 : 70), kwargs...) where dim
+function plot_grid!(plotter::MakiePlotter{dim},args...;color=:black, strokewidth=3, plotnodes=true, markersize=(dim == 2 ? 20 : 70), kwargs...) where dim
     dim > 2 ? (lines = Makie.Point3f0[]) : (lines = Makie.Point2f0[])
     cells = Ferrite.getcells(plotter.dh.grid)
     for cell in Ferrite.getcells(plotter.dh.grid)
@@ -124,7 +124,7 @@ function plot_grid(grid::Ferrite.AbstractGrid{dim},args...;color=:black, strokew
     return Makie.linesegments(lines,args...;color=color, strokewidth=strokewidth, kwargs...)
 end
 
-function plot_grid!(grid::Ferrite.AbstractGrid{dim},args...;color=:black, strokwidth=3, plotnodes=true, markersize=(dim == 2 ? 20 : 70), kwargs...) where dim
+function plot_grid!(grid::Ferrite.AbstractGrid{dim},args...;color=:black, strokewidth=3, plotnodes=true, markersize=(dim == 2 ? 20 : 70), kwargs...) where dim
     dim > 2 ? (lines = Makie.Point3f0[]) : (lines = Makie.Point2f0[])
     coords = [node.x[i] for node in Ferrite.getnodes(grid), i in 1:Ferrite.getdim(grid)] 
     cells = Ferrite.getcells(grid)

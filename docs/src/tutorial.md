@@ -62,6 +62,6 @@ include("ferrite-examples/plasticity.jl")
 plotter = MakiePlotter(dh,u)
 
 warp_by_vector(plotter)
-plot_grid!(plotter,markersize=60)
+plot_grid!(plotter,markersize=30)
 WGLMakie.current_figure()
 ```

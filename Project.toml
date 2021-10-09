@@ -8,6 +8,7 @@ Ferrite = "c061ca5d-56c9-439f-9c0e-210fe06d3992"
 Makie = "ee78f7c6-11fb-53f2-987a-cfe4a2b5a57a"
 
 [compat]
+Makie = "0.15"
 julia = "1"
 
 [extras]

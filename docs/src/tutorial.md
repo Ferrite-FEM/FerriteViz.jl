@@ -60,4 +60,5 @@ so there is a custom function `warp_by_vector`, which does the same as `warp by 
 ```@example 1
 warp_by_vector(plotter)
 plot_mesh!(plotter,markersize=10)
+WGLMakie.current_figure()
 ```

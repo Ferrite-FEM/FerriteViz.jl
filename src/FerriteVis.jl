@@ -9,6 +9,6 @@ include("utils.jl")
 include("makieplotting.jl")
 
 export MakiePlotter
-export warp_by_vector, plot_grid
+export warp_by_vector, plot_grid, plot_grid!
 
 end

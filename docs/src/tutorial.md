@@ -58,7 +58,10 @@ However, in structural mechanics we often would like to see the deformed configu
 so there is a custom function `warp_by_vector`, which does the same as `warp by glyph` in Paraview.
 
 ```@example 1
+include("ferrite-examples/plasticity.jl")
+plotter = MakiePlotter(dh,u)
+
 warp_by_vector(plotter)
-plot_grid!(plotter,markersize=8)
+plot_grid!(plotter,markersize=60)
 WGLMakie.current_figure()
 ```

@@ -1,5 +1,5 @@
-struct MakiePlotter{dim} <: AbstractPlotter
-    dh::Ferrite.DofHandler{dim}
+struct MakiePlotter{dim,DH<:Ferrite.AbstractDofHandler} <: AbstractPlotter
+    dh::DH
     u::Vector #sorted
     cells_connectivity::Vector
     coords::Matrix{Float64}
@@ -8,13 +8,14 @@ end
 
 function MakiePlotter(dh::Ferrite.AbstractDofHandler, u::Vector) 
     cells = Ferrite.getcells(dh.grid)
+    dim = Ferrite.getdim(dh.grid)
     coords = [node.x[i] for node in Ferrite.getnodes(dh.grid), i in 1:Ferrite.getdim(dh.grid)] 
     connectivity = getproperty.(cells, :nodes) #TODO, needs interface function getnodes(::AbstractCell)
     triangle_cells = Vector{NTuple{3,Int}}()
     for cell in cells
         append!(triangle_cells, to_triangle(cell))
     end
-    return MakiePlotter(dh,u,connectivity,coords,triangle_cells)
+    return MakiePlotter{dim,typeof(dh)}(dh,u,connectivity,coords,triangle_cells)
 end
 
 function reshape_triangles(plotter::MakiePlotter)
@@ -69,4 +70,70 @@ function warp_by_vector(plotter::MakiePlotter, args...; field::Int=1, scale=1.0,
     solution = reshape(dof_to_node(plotter.dh, plotter.u; field=field, process=process), Ferrite.getnnodes(plotter.dh.grid))
     plot_color = color===nothing ? solution : color
     return Makie.mesh(plotter.coords .+ (scale .* u_matrix), color=plot_color, reshape_triangles(plotter), args...; scale_plot=scale_plot, shading=shading, kwargs...)
+end
+
+function warp_by_vector!(plotter::MakiePlotter, args...; field::Int=1, scale=1.0, process::Function=postprocess, scale_plot=false, shading=false, color=nothing, kwargs...) where T
+    @assert Ferrite.getfielddim(plotter.dh,field) > 1
+    u_matrix = dof_to_node(plotter.dh, plotter.u; field=field, process=identity)
+    solution = reshape(dof_to_node(plotter.dh, plotter.u; field=field, process=process), Ferrite.getnnodes(plotter.dh.grid))
+    plot_color = color===nothing ? solution : color
+    return Makie.mesh!(plotter.coords .+ (scale .* u_matrix), color=plot_color, reshape_triangles(plotter), args...; scale_plot=scale_plot, shading=shading, kwargs...)
+end
+
+function plot_grid(plotter::MakiePlotter{dim},args...;color=:black, strokewidth=3, plotnodes=true, markersize=(dim == 2 ? 20 : 70), kwargs...) where dim
+    dim > 2 ? (lines = Makie.Point3f0[]) : (lines = Makie.Point2f0[])
+    cells = Ferrite.getcells(plotter.dh.grid)
+    for cell in Ferrite.getcells(plotter.dh.grid)
+        boundaryentities = dim < 3 ? Ferrite.faces(cell) : Ferrite.edges(cell)
+        append!(lines, [plotter.coords[e,:] for boundary in boundaryentities for e in boundary]) 
+    end
+    if plotnodes 
+        Makie.scatter(plotter.coords, args...; markersize=markersize, color=color, kwargs...) 
+        Makie.linesegments!(lines,args...;color=color, strokewidth=strokewidth, kwargs...)
+        return Makie.current_figure()
+    end        
+    return Makie.linesegments(lines,args...;color=color, strokewidth=strokewidth, kwargs...)
+end
+
+function plot_grid!(plotter::MakiePlotter{dim},args...;color=:black, strokewidth=3, plotnodes=true, markersize=(dim == 2 ? 20 : 70), kwargs...) where dim
+    dim > 2 ? (lines = Makie.Point3f0[]) : (lines = Makie.Point2f0[])
+    cells = Ferrite.getcells(plotter.dh.grid)
+    for cell in Ferrite.getcells(plotter.dh.grid)
+        boundaryentities = dim < 3 ? Ferrite.faces(cell) : Ferrite.edges(cell)
+        append!(lines, [plotter.coords[e,:] for boundary in boundaryentities for e in boundary]) 
+    end
+    if plotnodes 
+        Makie.scatter!(plotter.coords, args...; markersize=markersize, color=color, kwargs...) 
+    end        
+    return Makie.linesegments!(lines,args...;color=color, strokewidth=strokewidth, kwargs...)
+end
+
+function plot_grid(grid::Ferrite.AbstractGrid{dim},args...;color=:black, strokewidth=3, plotnodes=true, markersize=(dim == 2 ? 20 : 70), kwargs...) where dim
+    dim > 2 ? (lines = Makie.Point3f0[]) : (lines = Makie.Point2f0[])
+    coords = [node.x[i] for node in Ferrite.getnodes(grid), i in 1:Ferrite.getdim(grid)] 
+    cells = Ferrite.getcells(grid)
+    for cell in Ferrite.getcells(grid)
+        boundaryentities = dim < 3 ? Ferrite.faces(cell) : Ferrite.edges(cell)
+        append!(lines, [coords[e,:] for boundary in boundaryentities for e in boundary]) 
+    end
+    if plotnodes 
+        Makie.scatter(coords, args...; markersize=markersize, color=color, kwargs...) 
+        Makie.linesegments!(lines,args...;color=color, strokewidth=strokewidth, kwargs...)
+        return Makie.current_figure()
+    end        
+    return Makie.linesegments(lines,args...;color=color, strokewidth=strokewidth, kwargs...)
+end
+
+function plot_grid!(grid::Ferrite.AbstractGrid{dim},args...;color=:black, strokewidth=3, plotnodes=true, markersize=(dim == 2 ? 20 : 70), kwargs...) where dim
+    dim > 2 ? (lines = Makie.Point3f0[]) : (lines = Makie.Point2f0[])
+    coords = [node.x[i] for node in Ferrite.getnodes(grid), i in 1:Ferrite.getdim(grid)] 
+    cells = Ferrite.getcells(grid)
+    for cell in Ferrite.getcells(grid)
+        boundaryentities = dim < 3 ? Ferrite.faces(cell) : Ferrite.edges(cell)
+        append!(lines, [coords[e,:] for boundary in boundaryentities for e in boundary]) 
+    end
+    if plotnodes 
+        Makie.scatter!(coords, args...; markersize=markersize, color=color, kwargs...) 
+    end        
+    return Makie.linesegments!(lines,args...;color=color, strokewidth=strokewidth, kwargs...)
 end

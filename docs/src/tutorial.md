@@ -16,14 +16,25 @@ import JSServe # hide
 JSServe.Page(exportable=true, offline=true) # hide
 ```
 
+You can start by plotting your mesh
+
+```@example 1
+using FerriteVis
+using Ferrite
+import WGLMakie
+WGLMakie.set_theme!(resolution=(800, 400)) # hide
+
+grid = generate_grid(Hexahedron,(3,3,3))
+plot_grid(grid)
+```
+
+If you solve some boundary value problem with Ferrite.jl keep in mind to safe your `dh::DofHandler` and solution vector `u::Vector{T}` in some variable.
+With them, we create the `MakiePlotter` struct that dispatches on `Makie.surface`, `Makie.mesh`, `Makie.arrows`, `warp_by_vector` and `plot_grid`
+
 ```@example 1
 include("ferrite-examples/incompressible-elasticity.jl")
 
-using FerriteVis
-import WGLMakie
-WGLMakie.set_theme!(resolution=(800, 400)) # hide
 plotter = MakiePlotter(dh,u)
-
 WGLMakie.arrows(plotter)
 ```
 
@@ -47,5 +58,10 @@ However, in structural mechanics we often would like to see the deformed configu
 so there is a custom function `warp_by_vector`, which does the same as `warp by glyph` in Paraview.
 
 ```@example 1
+include("ferrite-examples/plasticity.jl")
+plotter = MakiePlotter(dh,u)
+
 warp_by_vector(plotter)
+plot_grid!(plotter,markersize=30)
+WGLMakie.current_figure()
 ```

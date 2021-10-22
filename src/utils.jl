@@ -1,3 +1,9 @@
+# Helper... Refactoring needed.
+Ferrite.vertices(cell::Ferrite.Cell{3,3,1}) = cell.nodes
+Ferrite.default_interpolation(::Type{Ferrite.Cell{3,3,1}}) = Ferrite.Lagrange{2,Ferrite.RefTetrahedron,1}()
+face_cell(cell::Ferrite.Tetrahedron, i::Int) =  Ferrite.Cell{3,3,1}(Ferrite.faces(cell)[i])
+face_cell(cell::Ferrite.Hexahedron, i::Int) = Ferrite.Quadrilateral3D(Ferrite.faces(cell)[i])
+
 struct MakiePlotter{dim,DH<:Ferrite.AbstractDofHandler} <: AbstractPlotter
     dh::DH
     u::Vector # original solution on the original mesh (i.e. dh.mesh)
@@ -53,7 +59,8 @@ to_triangle(cell::Ferrite.AbstractCell{3,N,6}) where N = [Ferrite.vertices(cell)
 TODO this looks faulty...think harder.
 """
 # Helper to count triangles e.g. for preallocations.
-ntriangles(cell::Ferrite.AbstractCell{dim,N,3}) where {dim,N} = 1 # Tris in 3D and 3D
+ntriangles(cell::Ferrite.AbstractCell{2,N,3}) where {N} = 1 # Tris in 2D
+ntriangles(cell::Ferrite.AbstractCell{3,N,1}) where {N} = 1 # Tris in 3D
 ntriangles(cell::Ferrite.AbstractCell{dim,N,4}) where {dim,N} = 4 # Quads in 2D and 3D
 ntriangles(cell::Ferrite.AbstractCell{3,N,1})   where {dim,N} = 4 # Tets as a special case of a Quad, obviously :)
 ntriangles(cell::Ferrite.AbstractCell{3,N,6}) where {dim,N} = 6*4 # Hex
@@ -182,11 +189,11 @@ end
 
 using Tensors
 """
-Transfer the solution of a plotter to the new mesh.
+Transfer the solution of a plotter to the new mesh in 2D.
 
 @TODO refactor. This is peak inefficiency.
 """
-function transfer_solution(plotter::MakiePlotter{2}; field::Int=1, process::Function=FerriteVis.postprocess) where T
+function transfer_solution(plotter::MakiePlotter{2}; field::Int=1, process::Function=FerriteVis.postprocess)
     dh = plotter.dh
     u = plotter.u
     ref_coords = plotter.reference_coords
@@ -200,6 +207,7 @@ function transfer_solution(plotter::MakiePlotter{2}; field::Int=1, process::Func
     for (cell_index, cell) in enumerate(Ferrite.CellIterator(dh))
         cell_geo = dh.grid.cells[cell.current_cellid.x]
         _celldofs = Ferrite.celldofs(cell)
+        # Loop over vertices
         for i in 1:(ntriangles(cell_geo)*3)
             ξ = Vec(ref_coords[current_vertex_index, :]...)
             for d in 1:field_dim
@@ -218,13 +226,19 @@ function transfer_solution(plotter::MakiePlotter{2}; field::Int=1, process::Func
     return mapslices(process, data, dims=[2])
 end
 
-function transfer_solution(plotter::MakiePlotter{3}; field::Int=1, process::Function=FerriteVis.postprocess) where T
+"""
+Transfer the solution of a plotter to the new mesh in 3D. We just evaluate the faces.
+
+@TODO refactor. This is peak inefficiency.
+"""
+function transfer_solution(plotter::MakiePlotter{3}; field::Int=1, process::Function=FerriteVis.postprocess)
     dh = plotter.dh
     u = plotter.u
     ref_coords = plotter.reference_coords
     fieldnames = Ferrite.getfieldnames(dh)
     field_dim = Ferrite.getfielddim(dh, field)
-    ip = getlowerdim(dh.field_interpolations[field])
+    ip_cell = dh.field_interpolations[field]
+    ip_face = Ferrite.getlowerdim(dh.field_interpolations[field])
     data = fill(0.0, num_vertices(plotter), field_dim)
     offset = Ferrite.field_offset(dh, fieldnames[field])
 
@@ -232,19 +246,24 @@ function transfer_solution(plotter::MakiePlotter{3}; field::Int=1, process::Func
     for (cell_index, cell) in enumerate(Ferrite.CellIterator(dh))
         cell_geo = dh.grid.cells[cell.current_cellid.x]
         _celldofs = Ferrite.celldofs(cell)
-        for i in 1:(ntriangles(cell_geo)*3)
-            ξ = Vec(ref_coords[current_vertex_index, :]...)
-            for d in 1:field_dim
-                ndofs = length(_celldofs) ÷ field_dim
+        for (face_i,_) in enumerate(Ferrite.faces(cell_geo))
+            face_geo = face_cell(cell_geo, face_i)
+            _facedofs = _celldofs[[Ferrite.faces(ip_cell)[face_i]...]]
+            # Loop over vertices
+            for i in 1:(ntriangles(face_geo)*3)
+                ξ = Vec(ref_coords[current_vertex_index, :]...)
+                for d in 1:field_dim
+                    ndofs = length(_facedofs) ÷ field_dim
 
-                field_dof_indices = [field_dim*(dofi-1)+d for dofi in 1:ndofs]
+                    field_dof_indices = [field_dim*(dofi-1)+d for dofi in 1:ndofs]
 
-                actual_dofs = _celldofs[field_dof_indices]
-                for i in 1:ndofs
-                    data[current_vertex_index, d] += Ferrite.value(ip, field_dim*(i-1)+d, ξ) ⋅ u[actual_dofs[i]]
+                    actual_dofs = _facedofs[field_dof_indices]
+                    for i in 1:ndofs
+                        data[current_vertex_index, d] += Ferrite.value(ip_face, field_dim*(i-1)+d, ξ) ⋅ u[actual_dofs[i]]
+                    end
                 end
+                current_vertex_index += 1
             end
-            current_vertex_index += 1
         end
     end
     return mapslices(process, data, dims=[2])

@@ -264,6 +264,8 @@ Transfer the solution of a plotter to the new mesh in 3D. We just evaluate the f
 @TODO Refactor. This is peak inefficiency.
 """
 function transfer_solution(plotter::MakiePlotter{3}; field_idx::Int=1, process::Function=FerriteVis.postprocess)
+    n_vertices = 3 # we have 3 vertices per triangle...
+
     # select objects from plotter
     dh = plotter.dh
     u = plotter.u
@@ -274,37 +276,35 @@ function transfer_solution(plotter::MakiePlotter{3}; field_idx::Int=1, process::
     field_name = Ferrite.getfieldnames(dh)[field_idx]
     field_dim = Ferrite.getfielddim(dh, field_idx)
     ip_cell = dh.field_interpolations[field_idx]
-    faces_ = Ferrite.faces(ip_cell) # faces of the cell with local dofs
+    _faces = Ferrite.faces(ip_cell) # faces of the cell with local dofs
 
     # face related variables
     ip_face = Ferrite.getlowerdim(ip_cell)
 
     # actual data
     data = fill(0.0, num_vertices(plotter), field_dim)
-    offset = Ferrite.field_offset(dh, field_name)
+    local_dof_range = Ferrite.dof_range(dh, field_name)
 
     current_vertex_index = 1
     for (cell_index, cell) in enumerate(Ferrite.CellIterator(dh))
-        cell_geo = Ferrite.getcells(grid)[cell.current_cellid.x]
-        celldofs_ = Ferrite.celldofs(cell)
+        cell_idx = cell.current_cellid.x
+
+        cell_geo = dh.grid.cells[cell_idx]
+        _celldofs_field = reshape(Ferrite.celldofs(cell)[local_dof_range], (field_dim, Ferrite.getnbasefunctions(ip_cell)))
+
         for (local_face_idx,_) in enumerate(Ferrite.faces(cell_geo))
             # extract face vertex dofs
-            face_vertex_incides = faces_[local_face_idx][1:2]
-            facedofs_ = celldofs_[[face_vertex_incides...].+ offset]
+            face_vertex_incides = _faces[local_face_idx][1:n_vertices]
+            _facedofs_field = _celldofs_field[:,[face_vertex_incides...]]
 
             face_geo = face_cell(cell_geo, local_face_idx)
 
             # Loop over vertices
-            for i in 1:(ntriangles(face_geo)*3)
+            for i in 1:(ntriangles(face_geo)*n_vertices)
                 ξ = Vec(ref_coords[current_vertex_index, :]...)
                 for d in 1:field_dim
-                    ndofs = length(facedofs_) ÷ field_dim
-
-                    field_dof_indices = [field_dim*(dofi-1)+d for dofi in 1:ndofs]
-
-                    actual_dofs = facedofs_[field_dof_indices]
-                    for i in 1:ndofs
-                        data[current_vertex_index, d] += Ferrite.value(ip_face, field_dim*(i-1)+d, ξ) ⋅ u[actual_dofs[i]]
+                    for node_idx ∈ 1:Ferrite.getnbasefunctions(ip_face)
+                        data[current_vertex_index, d] += Ferrite.value(ip_face, node_idx, ξ) ⋅ u[_facedofs_field[d, node_idx]]
                     end
                 end
                 current_vertex_index += 1

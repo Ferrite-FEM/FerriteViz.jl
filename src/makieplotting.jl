@@ -99,16 +99,21 @@ function Makie.plot!(DP::DeformedPlot{<:Tuple{<:MakiePlotter}})
     return Makie.mesh!(DP, deformed_coords, reshape_triangles(plotter), color=solution, scale_plot=DP.attributes[:scale_plot], shading=DP.attributes[:shading], colormap=DP.attributes[:colormap])
 end
 
-function Makie.surface(plotter::MakiePlotter{2}, args...; field::Int=1, process::Function=postprocess, scale_plot=false, shading=false, kwargs...) where T
-    solution = reshape(dof_to_node(plotter.dh, plotter.u; field=field, process=process), Ferrite.getnnodes(plotter.dh.grid))
-    points = [Makie.Point3f0(coord[1], coord[2], solution[idx]) for (idx, coord) in enumerate(eachrow(plotter.coords))]
-    return Makie.mesh(points, reshape_triangles(plotter), color=solution, args...; scale_plot=scale_plot, shading=shading, kwargs...)
+@recipe(Surface) do scene
+    Attributes(
+    field_idx = 1,
+    process = postprocess,
+    scale_plot = false,
+    shading = false,
+    colormap = :viridis,
+    )
 end
-
-function Makie.surface!(plotter::MakiePlotter{2}, args...; field::Int=1, process::Function=postprocess, scale_plot=false, shading=false, kwargs...) where T
-    solution = reshape(dof_to_node(plotter.dh, plotter.u; field=field, process=process), Ferrite.getnnodes(plotter.dh.grid))
-    points = [Makie.Point3f0(coord[1], coord[2], solution[idx]) for (idx, coord) in enumerate(eachrow(plotter.coords))]
-    return Makie.mesh!(points, reshape_triangles(plotter), color=solution, args...; scale_plot=scale_plot, shading=shading, kwargs...)
+ 
+function Makie.plot!(SF::Surface{<:Tuple{<:MakiePlotter{2}}})
+    plotter = SF[1][]
+    solution = lift((x,y)->reshape(dof_to_node(plotter.dh, plotter.u; field=x, process=y), Ferrite.getnnodes(plotter.dh.grid)),SF.attributes[:field_idx],SF.attributes[:process])
+    points = lift(x->[Makie.Point3f0(coord[1], coord[2], x[idx]) for (idx, coord) in enumerate(eachrow(plotter.coords))],solution)
+    return Makie.mesh!(SF,points, reshape_triangles(plotter), color=solution, scale_plot=SF.attributes[:scale_plot], shading=SF.attributes[:shading], colormap=SF.attributes[:colormap])
 end
 
 function Makie.arrows(plotter::MakiePlotter, args...; field::Int=1, arrowsize=0.08, normalize=true, kwargs...) where T

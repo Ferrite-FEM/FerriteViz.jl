@@ -25,11 +25,11 @@ import WGLMakie
 WGLMakie.set_theme!(resolution=(800, 400)) # hide
 
 grid = generate_grid(Hexahedron,(3,3,3))
-plot_grid(grid)
+WGLMakie.wireframe(grid)
 ```
 
 If you solve some boundary value problem with Ferrite.jl keep in mind to safe your `dh::DofHandler` and solution vector `u::Vector{T}` in some variable.
-With them, we create the `MakiePlotter` struct that dispatches on `Makie.surface`, `Makie.mesh`, `Makie.arrows`, `warp_by_vector` and `plot_grid`
+With them, we create the `MakiePlotter` struct that dispatches on `Makie.surface`, `Makie.mesh`, `Makie.arrows`, `warp_by_vector` and `WGLMakie.wireframe`
 
 ```@example 1
 include("ferrite-examples/incompressible-elasticity.jl")
@@ -62,6 +62,6 @@ include("ferrite-examples/plasticity.jl")
 plotter = MakiePlotter(dh,u)
 
 warp_by_vector(plotter)
-plot_grid!(plotter,markersize=30)
+WGLMakie.wireframe!(plotter,markersize=30)
 WGLMakie.current_figure()
 ```

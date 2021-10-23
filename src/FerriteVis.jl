@@ -1,6 +1,6 @@
 module FerriteVis
 
-import Makie
+using Makie
 import Ferrite
 
 abstract type AbstractPlotter end

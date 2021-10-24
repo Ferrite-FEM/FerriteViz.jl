@@ -43,7 +43,7 @@ Per default, all plotting functions grab the first field in the `DofHandler`, bu
 The next plot will show the pressure instead of the displacement
 
 ```@example 1
-FerriteVis.solutionplot(plotter,field_idx=2)
+FerriteVis.solutionplot(plotter,field=:p)
 ```
 
 For certain 2D problems it makes sense to visualize the result as a `surface` plot. To showcase the combination with the mutating versions of the plotting functions,
@@ -62,7 +62,7 @@ so there is a custom function `warp_by_vector`, which does the same as `warp by 
 include("ferrite-examples/plasticity.jl")
 plotter = FerriteVis.MakiePlotter(dh,u)
 
-FerriteVis.deformedplot(plotter,colormap=:thermal)
-FerriteVis.wireframe!(plotter,deformed=true,markersize=25,strokewidth=1)
+FerriteVis.solutionplot(plotter,colormap=:thermal,deformation_field=:u)
+FerriteVis.wireframe!(plotter,deformation_field=:u,markersize=25,strokewidth=1)
 WGLMakie.current_figure()
 ```

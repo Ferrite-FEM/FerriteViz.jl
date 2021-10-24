@@ -19,13 +19,13 @@ JSServe.Page(exportable=true, offline=true) # hide
 You can start by plotting your mesh
 
 ```@example 1
-using FerriteVis
+import FerriteVis
 using Ferrite
 import WGLMakie
 WGLMakie.set_theme!(resolution=(800, 400)) # hide
 
 grid = generate_grid(Hexahedron,(3,3,3))
-plot_grid(grid)
+FerriteVis.wireframe(grid,markersize=60,strokewidth=2)
 ```
 
 If you solve some boundary value problem with Ferrite.jl keep in mind to safe your `dh::DofHandler` and solution vector `u::Vector{T}` in some variable.
@@ -34,23 +34,23 @@ With them, we create the `MakiePlotter` struct that dispatches on `Makie.surface
 ```@example 1
 include("ferrite-examples/incompressible-elasticity.jl")
 
-plotter = MakiePlotter(dh,u)
-WGLMakie.arrows(plotter)
+plotter = FerriteVis.MakiePlotter(dh,u)
+FerriteVis.arrows(plotter)
 ```
 
 Per default, all plotting functions grab the first field in the `DofHandler`, but of course you can plot a different field as well.
 The next plot will show the pressure instead of the displacement
 
 ```@example 1
-WGLMakie.mesh(plotter,field=2)
+FerriteVis.solutionplot(plotter,field=:p)
 ```
 
 For certain 2D problems it makes sense to visualize the result as a `surface` plot. To showcase the combination with the mutating versions of the plotting functions,
 the `mesh` function is plotted below the `surface` plot
 
 ```@example 1
-WGLMakie.surface(plotter)
-WGLMakie.mesh!(plotter)
+FerriteVis.surface(plotter)
+FerriteVis.solutionplot!(plotter,colormap=:magma)
 WGLMakie.current_figure()
 ```
 
@@ -59,9 +59,9 @@ so there is a custom function `warp_by_vector`, which does the same as `warp by 
 
 ```@example 1
 include("ferrite-examples/plasticity.jl")
-plotter = MakiePlotter(dh,u)
+plotter = FerriteVis.MakiePlotter(dh,u)
 
-warp_by_vector(plotter)
-plot_grid!(plotter,markersize=30)
+FerriteVis.solutionplot(plotter,colormap=:thermal,deformation_field=:u)
+FerriteVis.wireframe!(plotter,deformation_field=:u,markersize=25,strokewidth=1)
 WGLMakie.current_figure()
 ```

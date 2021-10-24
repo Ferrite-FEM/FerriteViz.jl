@@ -116,23 +116,30 @@ function Makie.plot!(SF::Surface{<:Tuple{<:MakiePlotter{2}}})
     return Makie.mesh!(SF,points, reshape_triangles(plotter), color=solution, scale_plot=SF.attributes[:scale_plot], shading=SF.attributes[:shading], colormap=SF.attributes[:colormap])
 end
 
-function Makie.arrows(plotter::MakiePlotter, args...; field::Int=1, arrowsize=0.08, normalize=true, kwargs...) where T
-    @assert Ferrite.getfielddim(plotter.dh,field) > 1
-    solution = dof_to_node(plotter.dh, plotter.u; field=field, process=identity)
-    if Ferrite.getdim(plotter.dh.grid) == 2
-        Makie.arrows(plotter.coords[:,1], plotter.coords[:,2], solution[:,1], solution[:,2], args...; arrowsize=arrowsize, normalize=normalize, kwargs...)
-    elseif Ferrite.getdim(plotter.dh.grid) == 3
-        Makie.arrows(plotter.coords[:,1], plotter.coords[:,2], plotter.coords[:,3], solution[:,1], solution[:,2], solution[:,3], args...; arrowsize=arrowsize, normalize=normalize, kwargs...)
-    end
+@recipe(Arrows) do scene
+    Attributes(
+    arrowsize = 0.08,
+    normalize = true,
+    field_idx = 1,
+    color = nothing,
+    colormap = :viridis,
+    process=postprocess,
+    lengthscale = 1f0,
+    )
 end
 
-function Makie.arrows!(plotter::MakiePlotter, args...; field::Int=1, arrowsize=0.08, normalize=false, kwargs...) where T
-    @assert Ferrite.getfielddim(plotter.dh,field) > 1
-    solution = dof_to_node(plotter.dh, plotter.u; field=field, process=identity)
-    if Ferrite.getdim(plotter.dh.grid) == 2
-        Makie.arrows!(plotter.coords[:,1], plotter.coords[:,2], solution[:,1], solution[:,2], args...; arrowsize=arrowsize, normalize=normalize, kwargs...)
-    elseif Ferrite.getdim(plotter.dh.grid) == 3
-        Makie.arrows!(plotter.coords[:,1], plotter.coords[:,2], plotter.coords[:,3], solution[:,1], solution[:,2], solution[:,3], args...; arrowsize=arrowsize, normalize=normalize, kwargs...)
+function Makie.plot!(AR::Arrows{<:Tuple{<:MakiePlotter{dim}}}) where dim
+    plotter = AR[1][]
+    @assert Ferrite.getfielddim(plotter.dh,AR.attributes[:field_idx][]) > 1
+    solution = lift(x->dof_to_node(plotter.dh, plotter.u; field=x, process=identity),AR.attributes[:field_idx])
+    if dim  == 2
+        ps = [Point2f0(i) for i in eachrow(plotter.coords)]
+        ns = lift(x->[Vec2f(i) for i in eachrow(x)],solution)
+        lengths = lift((x,y,z)-> z===nothing ? x.(y) : ones(length(y))*z, AR.attributes[:process], ns, AR.attributes[:color])
+    elseif dim  == 3
+        ps = [Point3f0(i) for i in eachrow(plotter.coords)]
+        ns = lift(x->[Vec3f(i) for i in eachrow(x)],solution)
+        lengths = lift((x,y,z)-> z===nothing ? x.(y) : ones(length(y))*z, AR.attributes[:process], ns, AR.attributes[:color])
     end
+    Makie.arrows!(AR, ps, ns, arrowsize=AR.attributes[:arrowsize], normalize=AR.attributes[:normalize], colormap=AR.attributes[:colormap], color=lengths, lengthscale=AR.attributes[:lengthscale])
 end
-

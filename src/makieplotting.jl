@@ -41,8 +41,8 @@ end
 
 function Makie.plot!(SP::SolutionPlot{<:Tuple{<:MakiePlotter}})
     plotter = SP[1][]
-    solution = lift((x,y) -> x===nothing ? reshape(dof_to_node(plotter.dh, plotter.u; field=1, process=y), Ferrite.getnnodes(plotter.dh.grid)) : reshape(dof_to_node(plotter.dh, plotter.u; field=Ferrite.find_field(x), process=y), Ferrite.getnnodes(plotter.dh.grid)),SP[:field], SP[:process])
-    u_matrix = lift(x->x===nothing ? 0 : dof_to_node(plotter.dh, plotter.u; field=Ferrite.find_field(plotter.dh,x), process=identity), SP[:deformation_field])
+    solution = lift((x,y) -> x===nothing ? reshape(dof_to_node(plotter.dh, plotter.u; field=1, process=y), Ferrite.getnnodes(plotter.dh.grid)) : reshape(dof_to_node(plotter.dh, plotter.u; field=Ferrite.find_field(plotter.dh,x), process=y), Ferrite.getnnodes(plotter.dh.grid)),SP[:field], SP[:process])
+    u_matrix = lift(x->x===nothing ? zeros(0,3) : dof_to_node(plotter.dh, plotter.u; field=Ferrite.find_field(plotter.dh,x), process=identity), SP[:deformation_field])
     coords = lift((x,y,z) -> z===nothing ? plotter.coords : plotter.coords .+ (x .* y) , SP[:deformation_scale], u_matrix, SP[:deformation_field])
     return Makie.mesh!(SP, coords, reshape_triangles(plotter), color=solution, shading=SP[:shading], scale_plot=SP[:scale_plot], colormap=SP[:colormap], transparent=SP[:transparent])
 end
@@ -61,7 +61,7 @@ end
 function Makie.plot!(WF::Wireframe{<:Tuple{<:MakiePlotter{dim}}}) where dim
     plotter = WF[1][]
     physical_coords = [node.x[i] for node in Ferrite.getnodes(plotter.dh.grid), i in 1:dim] 
-    u_matrix = lift(x->x===nothing ? 0 : dof_to_node(plotter.dh, plotter.u; field=Ferrite.find_field(plotter.dh,x), process=identity), WF[:deformation_field])
+    u_matrix = lift(x->x===nothing ? zeros(0,3) : dof_to_node(plotter.dh, plotter.u; field=Ferrite.find_field(plotter.dh,x), process=identity), WF[:deformation_field])
     coords = lift((x,y,z) -> z===nothing ? physical_coords : physical_coords .+ (x .* y) , WF[:scale], u_matrix, WF[:deformation_field])
     lines = @lift begin
         dim > 2 ? (lines = Makie.Point3f0[]) : (lines = Makie.Point2f0[])

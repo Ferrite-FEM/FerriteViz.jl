@@ -26,7 +26,7 @@ WGLMakie.activate!() # activate Makie backend
 WGLMakie.set_theme!(resolution=(800, 400)) # hide
 
 grid = generate_grid(Hexahedron,(3,3,3))
-FerriteVis.wireframe(grid,markersize=90,strokewidth=2)
+FerriteVis.wireframe(grid,markersize=60,strokewidth=2)
 ```
 
 If you solve some boundary value problem with Ferrite.jl keep in mind to safe your `dh::DofHandler` and solution vector `u::Vector{T}` in some variable.
@@ -63,6 +63,6 @@ include("ferrite-examples/plasticity.jl")
 plotter = FerriteVis.MakiePlotter(dh,u)
 
 FerriteVis.deformedplot(plotter,colormap=:thermal)
-FerriteVis.wireframe!(plotter,deformed=true,markersize=65,strokewidth=2)
+FerriteVis.wireframe!(plotter,deformed=true,markersize=25,strokewidth=1)
 WGLMakie.current_figure()
 ```

@@ -51,8 +51,7 @@ the `mesh` function is plotted below the `surface` plot
 
 ```@example 1
 FerriteVis.surface(plotter)
-FerriteVis.solutionplot!(plotter)
-FerriteVis.wireframe!(plotter)
+FerriteVis.solutionplot!(plotter,colormap=:magma)
 WGLMakie.current_figure()
 ```
 
@@ -64,6 +63,6 @@ include("ferrite-examples/plasticity.jl")
 plotter = FerriteVis.MakiePlotter(dh,u)
 
 FerriteVis.solutionplot(plotter)
-FerriteVis.wireframe!(plotter,markersize=70)
+FerriteVis.wireframe!(plotter,plotnodes=false)
 WGLMakie.current_figure()
 ```

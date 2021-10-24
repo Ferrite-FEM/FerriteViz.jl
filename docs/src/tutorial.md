@@ -62,7 +62,7 @@ so there is a custom function `warp_by_vector`, which does the same as `warp by 
 include("ferrite-examples/plasticity.jl")
 plotter = FerriteVis.MakiePlotter(dh,u)
 
-FerriteVis.deformedplot(plotter,colormap:thermal)
+FerriteVis.deformedplot(plotter,colormap=:thermal)
 FerriteVis.wireframe!(plotter,deformed=true,markersize=65,strokewidth=2)
 WGLMakie.current_figure()
 ```

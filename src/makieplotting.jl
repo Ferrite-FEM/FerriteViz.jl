@@ -33,13 +33,14 @@ end
         field_idx=1,
         process=postprocess,
         colormap=:viridis,
+        transparent=false,
     )
 end
 
 function Makie.plot!(SP::SolutionPlot{<:Tuple{<:MakiePlotter}})
     plotter = SP[1][]
     solution = lift((x,y) -> reshape(dof_to_node(plotter.dh, plotter.u; field=x, process=y), Ferrite.getnnodes(plotter.dh.grid)),SP.attributes[:field_idx], SP.attributes[:process])
-    return Makie.mesh!(SP,plotter, color=solution, shading=SP.attributes[:shading], scale_plot=SP.attributes[:scale_plot], colormap=SP.attributes[:colormap])
+    return Makie.mesh!(SP,plotter, color=solution, shading=SP.attributes[:shading], scale_plot=SP.attributes[:scale_plot], colormap=SP.attributes[:colormap], transparent=SP.attributes[:transparent])
 end
 
 @recipe(Wireframe) do scene
@@ -94,6 +95,7 @@ end
     color = nothing,
     colormap = :viridis,
     scale = 1.0,
+    transparent = false,
     )
 end
 
@@ -104,7 +106,7 @@ function Makie.plot!(DP::DeformedPlot{<:Tuple{<:MakiePlotter}})
     u_matrix = lift(x->dof_to_node(plotter.dh, plotter.u; field=x, process=identity), DP[:field_idx])
     solution = lift((x,y,z)-> z === nothing ? reshape(dof_to_node(plotter.dh, plotter.u; field=x, process=y), Ferrite.getnnodes(plotter.dh.grid)) : ones(length(solution[]))*x, DP.attributes[:field_idx], DP.attributes[:process], DP.attributes[:color])
     deformed_coords = lift((x,y) -> plotter.coords .+ (x .* y), DP.attributes[:scale], u_matrix)
-    return Makie.mesh!(DP, deformed_coords, reshape_triangles(plotter), color=solution, scale_plot=DP.attributes[:scale_plot], shading=DP.attributes[:shading], colormap=DP.attributes[:colormap])
+    return Makie.mesh!(DP, deformed_coords, reshape_triangles(plotter), color=solution, scale_plot=DP.attributes[:scale_plot], shading=DP.attributes[:shading], colormap=DP.attributes[:colormap], transparent=DP.attributes[:transparent])
 end
 
 @recipe(Surface) do scene

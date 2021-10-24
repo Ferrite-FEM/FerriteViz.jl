@@ -22,7 +22,6 @@ You can start by plotting your mesh
 import FerriteVis
 using Ferrite
 import WGLMakie
-WGLMakie.activate!() # activate Makie backend
 WGLMakie.set_theme!(resolution=(800, 400)) # hide
 
 grid = generate_grid(Hexahedron,(3,3,3))

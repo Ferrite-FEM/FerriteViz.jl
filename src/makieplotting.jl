@@ -47,20 +47,25 @@ end
     plotnodes = true,
     strokewidth = 2,
     color=:black,
-    markersize=30    
+    markersize=30,
+    deformed = false,
+    field_idx = 1,
+    scale = 1,
     )
 end
 
 function Makie.plot!(WF::Wireframe{<:Tuple{<:MakiePlotter{dim}}}) where dim
     plotter = WF[1][]
-    coords = [node.x[i] for node in Ferrite.getnodes(plotter.dh.grid), i in 1:dim] 
+    physical_coords = [node.x[i] for node in Ferrite.getnodes(plotter.dh.grid), i in 1:dim] 
+    u_matrix = lift(x->dof_to_node(plotter.dh, plotter.u; field=x, process=identity), WF[:field_idx])
+    coords = lift((x,y,z) -> z ? physical_coords .+ (x .* y) : physical_coords, WF.attributes[:scale], u_matrix, WF[:deformed])
     dim > 2 ? (lines = Makie.Point3f0[]) : (lines = Makie.Point2f0[])
     for cell in Ferrite.getcells(plotter.dh.grid)
         boundaryentities = dim < 3 ? Ferrite.faces(cell) : Ferrite.edges(cell)
-        append!(lines, [coords[e,:] for boundary in boundaryentities for e in boundary])
+        lift(x->append!(lines, [x[e,:] for boundary in boundaryentities for e in boundary]),coords)
     end
-    nodes = lift(x->x ? plotter.coords : zeros(Float32,0,3),WF.attributes[:plotnodes])
-    Makie.scatter!(WF,nodes,markersize=WF.attributes[:markersize], color=WF.attributes[:color])
+    nodes = lift((x,y)->x ? y : zeros(Float32,0,3),WF.attributes[:plotnodes], coords)
+    Makie.scatter!(WF,coords,markersize=WF.attributes[:markersize], color=WF.attributes[:color])
     return Makie.linesegments!(WF,lines,color=WF.attributes[:color], linewidth=WF.attributes[:strokewidth])
 end
 

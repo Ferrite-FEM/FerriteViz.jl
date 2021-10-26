@@ -137,21 +137,28 @@ function Makie.plot!(AR::Arrows{<:Tuple{<:MakiePlotter{dim}}}) where dim
     Makie.arrows!(AR, ps, ns, arrowsize=AR[:arrowsize], normalize=AR[:normalize], colormap=AR[:colormap], color=lengths, lengthscale=AR[:lengthscale])
 end
 
-function ferriteviewer(plotter)
+function ferriteviewer(plotter::MakiePlotter{dim}) where dim
     fig = Figure()
-    ax = LScene(fig[1,1])
+    dim > 2 ? (ax = LScene(fig[1,1])) : (ax = Axis(fig[1,1]))
     toggles = [Toggle(fig, active=active) for active in [true,true]]
     labels = [Label(fig,label) for label in ["mesh", "deformation"]]
-    fig[1,3] = grid!(hcat(toggles,labels), tellheight=false)
     solutionp = solutionplot!(plotter,colormap=:cividis,deformation_field=@lift $(toggles[2].active) ? :u : :default)
-    wireframep = wireframe!(plotter,markersize=50,strokewidth=1,deformation_field= @lift $(toggles[2].active) ? :u : :default)
+    markersize = dim > 2 ? 30 : 5
+    wireframep = wireframe!(plotter,markersize=markersize,strokewidth=1,deformation_field= @lift $(toggles[2].active) ? :u : :default)
     connect!(wireframep.visible,toggles[1].active)
-    menu = Menu(fig[2,3], options=["cividis", "inferno", "thermal"])
+    menu_cm = Menu(fig, options=["cividis", "inferno", "thermal"],label="colormap")
+    menu_field = Menu(fig, options=Ferrite.getfieldnames(plotter.dh))
+    fig[1,3] = vgrid!(grid!(hcat(toggles,labels), tellheight=false), Label(fig,"field",width=nothing), menu_field, Label(fig, "colormap",width=nothing),menu_cm)
     cb = Colorbar(fig[1,2], colormap=:cividis)
 
-    on(menu.selection) do s
+    on(menu_cm.selection) do s
         cb.colormap = s
         solutionp.colormap = s
     end
+
+    on(menu_field.selection) do field
+        solutionp.field = field
+    end
+
     return fig
 end

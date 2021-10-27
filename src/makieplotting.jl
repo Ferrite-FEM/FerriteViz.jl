@@ -142,13 +142,23 @@ function ferriteviewer(plotter::MakiePlotter{dim}) where dim
     dim > 2 ? (ax = LScene(fig[1,1])) : (ax = Axis(fig[1,1]))
     toggles = [Toggle(fig, active=active) for active in [true,true]]
     labels = [Label(fig,label) for label in ["mesh", "deformation"]]
-    solutionp = solutionplot!(plotter,colormap=:cividis,deformation_field=@lift $(toggles[2].active) ? :u : :default)
-    markersize = dim > 2 ? 30 : 5
-    wireframep = wireframe!(plotter,markersize=markersize,strokewidth=1,deformation_field= @lift $(toggles[2].active) ? :u : :default)
+    deformation_field = Node(Ferrite.getfieldnames(plotter.dh)[1])
+    solutionp = solutionplot!(plotter,colormap=:cividis,deformation_field=@lift $(toggles[2].active) ? $(deformation_field) : :default)
+    markerslider = Slider(fig, range = 0:1:100, startvalue=5)
+    strokewidthslider = Slider(fig, range = 0:1:10, startvalue=1)
+    markersize = lift(x->x,markerslider.value)
+    strokewidth = lift(x->x,strokewidthslider.value)
+    wireframep = wireframe!(plotter,markersize=markersize,strokewidth=strokewidth,deformation_field= @lift $(toggles[2].active) ? $(deformation_field) : :default)
     connect!(wireframep.visible,toggles[1].active)
-    menu_cm = Menu(fig, options=["cividis", "inferno", "thermal"],label="colormap")
+    menu_cm = Menu(fig, options=["cividis", "inferno", "thermal"],label="colormap", direction=:up)
     menu_field = Menu(fig, options=Ferrite.getfieldnames(plotter.dh))
-    fig[1,3] = vgrid!(grid!(hcat(toggles,labels), tellheight=false), Label(fig,"field",width=nothing), menu_field, Label(fig, "colormap",width=nothing),menu_cm)
+    menu_deformation_field = Menu(fig, options=Ferrite.getfieldnames(plotter.dh))
+    fig[1,3] = vgrid!(grid!(hcat(toggles,labels), tellheight=false),
+                      Label(fig,"nodesize",width=nothing), markerslider,
+                      Label(fig,"strokewidth",width=nothing), strokewidthslider,
+                      Label(fig,"field",width=nothing), menu_field,
+                      Label(fig, "deformation field",width=nothing),menu_deformation_field,
+                      Label(fig, "colormap",width=nothing),menu_cm)
     cb = Colorbar(fig[1,2], colormap=:cividis)
 
     on(menu_cm.selection) do s
@@ -158,6 +168,11 @@ function ferriteviewer(plotter::MakiePlotter{dim}) where dim
 
     on(menu_field.selection) do field
         solutionp.field = field
+    end
+    
+    on(menu_deformation_field.selection) do field
+        solutionp.deformation_field = field
+        wireframep.deformation_field = field
     end
 
     return fig

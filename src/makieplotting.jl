@@ -34,6 +34,7 @@ end
     deformation_field=:default,
     process=postprocess,
     colormap=:viridis,
+    colorrange=(0,1),
     transparent=false,
     deformation_scale = 1.0,
     )
@@ -44,6 +45,9 @@ function Makie.plot!(SP::SolutionPlot{<:Tuple{<:MakiePlotter}})
     solution = lift((x,y) -> x===:default ? reshape(dof_to_node(plotter.dh, plotter.u; field=1, process=y), Ferrite.getnnodes(plotter.dh.grid)) : reshape(dof_to_node(plotter.dh, plotter.u; field=Ferrite.find_field(plotter.dh,x), process=y), Ferrite.getnnodes(plotter.dh.grid)),SP[:field], SP[:process])
     u_matrix = lift(x->x===:default ? zeros(0,3) : dof_to_node(plotter.dh, plotter.u; field=Ferrite.find_field(plotter.dh,x), process=identity), SP[:deformation_field])
     coords = lift((x,y,z) -> z===:default ? plotter.coords : plotter.coords .+ (x .* y) , SP[:deformation_scale], u_matrix, SP[:deformation_field])
+    mins = @lift(minimum($solution))
+    maxs = @lift(maximum($solution))
+    SP[:colorrange] = @lift(($mins,$maxs))
     return Makie.mesh!(SP, coords, reshape_triangles(plotter), color=solution, shading=SP[:shading], scale_plot=SP[:scale_plot], colormap=SP[:colormap], transparent=SP[:transparent])
 end
 
@@ -153,7 +157,7 @@ function ferriteviewer(plotter::MakiePlotter{dim}) where dim
     menu_cm = Menu(fig, options=["cividis", "inferno", "thermal"],label="colormap", direction=:up)
     menu_field = Menu(fig, options=Ferrite.getfieldnames(plotter.dh))
     menu_deformation_field = Menu(fig, options=Ferrite.getfieldnames(plotter.dh))
-    menu_process = Menu(fig, options=[x₁,x₂,x₃,l2,l1])
+    menu_process = Menu(fig, options=[x₁,x₂,x₃,l2,l1,identity])
     fig[1,3] = vgrid!(grid!(hcat(toggles,labels), tellheight=false),
                       Label(fig,"nodesize",width=nothing), markerslider,
                       Label(fig,"strokewidth",width=nothing), strokewidthslider,
@@ -161,7 +165,7 @@ function ferriteviewer(plotter::MakiePlotter{dim}) where dim
                       Label(fig,"field",width=nothing), menu_field,
                       Label(fig, "deformation field",width=nothing),menu_deformation_field,
                       Label(fig, "colormap",width=nothing),menu_cm)
-    cb = Colorbar(fig[1,2], colormap=:cividis)
+    cb = Colorbar(fig[1,2], solutionp)
 
     on(menu_cm.selection) do s
         cb.colormap = s

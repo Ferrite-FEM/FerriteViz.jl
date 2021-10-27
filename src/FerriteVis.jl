@@ -2,6 +2,7 @@ module FerriteVis
 
 using Makie
 import Ferrite
+import LinearAlgebra
 
 abstract type AbstractPlotter end
 

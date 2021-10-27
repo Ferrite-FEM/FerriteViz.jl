@@ -10,6 +10,11 @@ to_triangle(cell::Ferrite.AbstractCell{3,N,6}) where N = [Ferrite.vertices(cell)
                                                           Ferrite.vertices(cell)[[5,8,7]], Ferrite.vertices(cell)[[7,6,5]]]
 
 refshape(cell::Ferrite.AbstractCell) = typeof(Ferrite.default_interpolation(typeof(cell))).parameters[2]
+x₁(x) = x[1]
+x₂(x) = x[2]
+x₃(x) = x[3]
+l2(x) = LinearAlgebra.norm(x,2)
+l1(x) = LinearAlgebra.norm(x,1)
 
 function postprocess(node_values)
     dim = length(node_values)

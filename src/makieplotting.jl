@@ -153,9 +153,11 @@ function ferriteviewer(plotter::MakiePlotter{dim}) where dim
     menu_cm = Menu(fig, options=["cividis", "inferno", "thermal"],label="colormap", direction=:up)
     menu_field = Menu(fig, options=Ferrite.getfieldnames(plotter.dh))
     menu_deformation_field = Menu(fig, options=Ferrite.getfieldnames(plotter.dh))
+    menu_process = Menu(fig, options=[x₁,x₂,x₃,l2,l1])
     fig[1,3] = vgrid!(grid!(hcat(toggles,labels), tellheight=false),
                       Label(fig,"nodesize",width=nothing), markerslider,
                       Label(fig,"strokewidth",width=nothing), strokewidthslider,
+                      Label(fig,"processing function",width=nothing), menu_process,
                       Label(fig,"field",width=nothing), menu_field,
                       Label(fig, "deformation field",width=nothing),menu_deformation_field,
                       Label(fig, "colormap",width=nothing),menu_cm)
@@ -173,6 +175,10 @@ function ferriteviewer(plotter::MakiePlotter{dim}) where dim
     on(menu_deformation_field.selection) do field
         solutionp.deformation_field = field
         wireframep.deformation_field = field
+    end
+
+    on(menu_process.selection) do process_function
+        solutionp.process=process_function
     end
 
     return fig

@@ -11,8 +11,8 @@ to_triangle(cell::Ferrite.AbstractCell{3,N,6}) where N = [Ferrite.vertices(cell)
 
 refshape(cell::Ferrite.AbstractCell) = typeof(Ferrite.default_interpolation(typeof(cell))).parameters[2]
 midpoint(cell::Ferrite.AbstractCell{2,N,3}, points) where N = Point2f0((1/3) * (points[cell.nodes[1],:] + points[cell.nodes[2],:] + points[cell.nodes[3],:]))
-midpoint(cell::Ferrite.AbstractCell{2,N,4}, points) where N = Point2f0(0.5 * (points[cell.nodes[1],:] + points[cell.nodes[4],:]))
-midpoint(cell::Ferrite.AbstractCell{3,N,4}, points) where N = Point3f0((1/4) * (points[cell.nodes[1],:] + points[cell.nodes[2],:] + points[cell.nodes[3],:] + points[cell.nodes[3],:]))
+midpoint(cell::Ferrite.AbstractCell{2,N,4}, points) where N = Point2f0(0.5 * (points[cell.nodes[1],:] + points[cell.nodes[3],:]))
+midpoint(cell::Ferrite.AbstractCell{3,N,4}, points) where N = Point3f0((1/4) * (points[cell.nodes[1],:] + points[cell.nodes[2],:] + points[cell.nodes[3],:] + points[cell.nodes[4],:]))
 midpoint(cell::Ferrite.AbstractCell{3,N,6}, points) where N = Point3f0(0.5 * (points[cell.nodes[1],:] + points[cell.nodes[7],:]))
 
 function postprocess(node_values)

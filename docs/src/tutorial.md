@@ -25,7 +25,7 @@ import WGLMakie
 WGLMakie.set_theme!(resolution=(800, 400)) # hide
 
 grid = generate_grid(Hexahedron,(3,3,3))
-FerriteVis.wireframe(grid,markersize=60,strokewidth=2)
+FerriteVis.wireframe(grid,markersize=50,strokewidth=2,nodelabels=true,celllabels=true)
 ```
 
 If you solve some boundary value problem with Ferrite.jl keep in mind to safe your `dh::DofHandler` and solution vector `u::Vector{T}` in some variable.

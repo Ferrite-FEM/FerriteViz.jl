@@ -60,6 +60,12 @@ end
     deformation_field=:default,
     visible=true,
     scale=1,
+    textsize=15,
+    offset=(0.0,0.0),
+    nodelabels=false,
+    nodelabelcolor=:darkblue,
+    celllabels=false,
+    celllabelcolor=:darkred
     )
 end
 
@@ -77,7 +83,17 @@ function Makie.plot!(WF::Wireframe{<:Tuple{<:MakiePlotter{dim}}}) where dim
         lines
     end
     nodes = lift((x,y)->x ? y : zeros(Float32,0,3),WF[:plotnodes], coords)
+    #plot the nodes
     Makie.scatter!(WF,coords,markersize=WF[:markersize], color=WF[:color], visible=WF[:visible])
+    #set up nodelabels
+    nodelabels = @lift $(WF[:nodelabels]) ? ["$i" for i in 1:size($coords,1)] : [""]
+    nodepositions = @lift $(WF[:nodelabels]) ? [dim < 3 ? Point2f0(row) : Point3f0(row) for row in eachrow($coords)] : (dim < 3 ? [Point2f0((0,0))] : [Point3f0((0,0,0))])
+    #set up celllabels
+    celllabels = @lift $(WF[:celllabels]) ? ["$i" for i in 1:Ferrite.getncells(plotter.dh.grid)] : [""]
+    cellpositions = @lift $(WF[:celllabels]) ? [midpoint(cell,physical_coords) for cell in Ferrite.getcells(plotter.dh.grid)] : (dim < 3 ? [Point2f0((0,0))] : [Point3f0((0,0,0))])
+    Makie.text!(WF,nodelabels, position=nodepositions, textsize=WF[:textsize], offset=WF[:offset],color=WF[:nodelabelcolor])
+    Makie.text!(WF,celllabels, position=cellpositions, textsize=WF[:textsize], color=WF[:celllabelcolor], align=(:center,:center))
+    #plot edges (3D) /faces (2D) of the mesh
     return Makie.linesegments!(WF,lines,color=WF[:color], linewidth=WF[:strokewidth], visible=WF[:visible])
 end
 
@@ -91,6 +107,12 @@ function Makie.plot!(WF::Wireframe{<:Tuple{<:Ferrite.AbstractGrid{dim}}}) where 
     end
     nodes = lift(x->x ? coords : zeros(Float32,0,3),WF[:plotnodes])
     Makie.scatter!(WF,nodes,markersize=WF[:markersize], color=WF[:color])
+    nodelabels = @lift $(WF[:nodelabels]) ? ["$i" for i in 1:size(coords,1)] : [""]
+    nodepositions = @lift $(WF[:nodelabels]) ? [dim < 3 ? Point2f0(row) : Point3f0(row) for row in eachrow(coords)] : (dim < 3 ? [Point2f0((0,0))] : [Point3f0((0,0,0))])
+    celllabels = @lift $(WF[:celllabels]) ? ["$i" for i in 1:Ferrite.getncells(grid)] : [""]
+    cellpositions = @lift $(WF[:celllabels]) ? [midpoint(cell,coords) for cell in Ferrite.getcells(grid)] : (dim < 3 ? [Point2f0((0,0))] : [Point3f0((0,0,0))])
+    Makie.text!(WF,nodelabels, position=nodepositions, textsize=WF[:textsize], offset=WF[:offset],color=WF[:nodelabelcolor])
+    Makie.text!(WF,celllabels, position=cellpositions, textsize=WF[:textsize], color=WF[:celllabelcolor], align=(:center,:center))
     return Makie.linesegments!(WF,lines,color=WF[:color], strokewidth=WF[:strokewidth])
 end
 

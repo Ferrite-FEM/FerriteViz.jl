@@ -28,6 +28,13 @@ grid = generate_grid(Hexahedron,(3,3,3))
 FerriteVis.wireframe(grid,markersize=50,strokewidth=2)
 ```
 
+FerriteVis.jl also supports showing labels for `Ferrite.AbstractGrid` entities, such as node- and celllabels.
+
+```@example 1
+grid = generate_grid(Quadrilateral,(3,3))
+FerriteVis.wireframe(grid,markersize=5,strokewidth=1,nodelabels=true,celllabels=true)
+```
+
 If you solve some boundary value problem with Ferrite.jl keep in mind to safe your `dh::DofHandler` and solution vector `u::Vector{T}` in some variable.
 With them, we create the `MakiePlotter` struct that dispatches on `Makie.surface`, `Makie.mesh`, `Makie.arrows`, `warp_by_vector` and `plot_grid`
 

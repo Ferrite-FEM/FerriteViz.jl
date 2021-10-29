@@ -90,7 +90,7 @@ function Makie.plot!(WF::Wireframe{<:Tuple{<:MakiePlotter{dim}}}) where dim
     nodepositions = @lift $(WF[:nodelabels]) ? [dim < 3 ? Point2f0(row) : Point3f0(row) for row in eachrow($coords)] : (dim < 3 ? [Point2f0((0,0))] : [Point3f0((0,0,0))])
     #set up celllabels
     celllabels = @lift $(WF[:celllabels]) ? ["$i" for i in 1:Ferrite.getncells(plotter.dh.grid)] : [""]
-    cellpositions = @lift $(WF[:celllabels]) ? [midpoint(cell,physical_coords) for cell in Ferrite.getcells(plotter.dh.grid)] : (dim < 3 ? [Point2f0((0,0))] : [Point3f0((0,0,0))])
+    cellpositions = @lift $(WF[:celllabels]) ? [midpoint(cell,$coords) for cell in Ferrite.getcells(plotter.dh.grid)] : (dim < 3 ? [Point2f0((0,0))] : [Point3f0((0,0,0))])
     Makie.text!(WF,nodelabels, position=nodepositions, textsize=WF[:textsize], offset=WF[:offset],color=WF[:nodelabelcolor])
     Makie.text!(WF,celllabels, position=cellpositions, textsize=WF[:textsize], color=WF[:celllabelcolor], align=(:center,:center))
     #plot edges (3D) /faces (2D) of the mesh
@@ -164,22 +164,36 @@ function Makie.plot!(AR::Arrows{<:Tuple{<:MakiePlotter{dim}}}) where dim
 end
 
 function ferriteviewer(plotter::MakiePlotter{dim}) where dim
+    #set up figure and axis, axis either LScene in 3D or Axis if dim < 2
     fig = Figure()
     dim > 2 ? (ax = LScene(fig[1,1])) : (ax = Axis(fig[1,1]))
-    toggles = [Toggle(fig, active=active) for active in [true,true]]
-    labels = [Label(fig,label) for label in ["mesh", "deformation"]]
+    #toggles and their labels for switching plot types on/off
+    toggles = [Toggle(fig, active=active) for active in [true,true,false]]
+    labels = [Label(fig,label) for label in ["mesh", "deformation", "labels"]]
+    #setup the deformation_field as Node (Observable)
     deformation_field = Node(Ferrite.getfieldnames(plotter.dh)[1])
+    #solutionplot main plot of the viewer
     solutionp = solutionplot!(plotter,colormap=:cividis,deformation_field=@lift $(toggles[2].active) ? $(deformation_field) : :default)
+
+    #setting up various sliders
     markerslider = Slider(fig, range = 0:1:100, startvalue=5)
     strokewidthslider = Slider(fig, range = 0:1:10, startvalue=1)
     markersize = lift(x->x,markerslider.value)
     strokewidth = lift(x->x,strokewidthslider.value)
+
+    #plot the fe-mesh
     wireframep = wireframe!(plotter,markersize=markersize,strokewidth=strokewidth,deformation_field= @lift $(toggles[2].active) ? $(deformation_field) : :default)
+    #connect fe-mesh plot to the toggle
     connect!(wireframep.visible,toggles[1].active)
+    connect!(wireframep.nodelabels,toggles[3].active)
+    connect!(wireframep.celllabels,toggles[3].active)
+
+    #set up dropdown menus for colormap, field, deformation field and processing function
     menu_cm = Menu(fig, options=["cividis", "inferno", "thermal"],label="colormap", direction=:up)
     menu_field = Menu(fig, options=Ferrite.getfieldnames(plotter.dh))
     menu_deformation_field = Menu(fig, options=Ferrite.getfieldnames(plotter.dh))
-    menu_process = Menu(fig, options=[x₁,x₂,x₃,l2,l1,identity])
+    menu_process = Menu(fig, options=[x₁,x₂,x₃,("magnitude",l2),("manhatten norm",l1),identity])
+    #align all menus as a vgrid under each other
     fig[1,3] = vgrid!(grid!(hcat(toggles,labels), tellheight=false),
                       Label(fig,"nodesize",width=nothing), markerslider,
                       Label(fig,"strokewidth",width=nothing), strokewidthslider,
@@ -187,8 +201,10 @@ function ferriteviewer(plotter::MakiePlotter{dim}) where dim
                       Label(fig,"field",width=nothing), menu_field,
                       Label(fig, "deformation field",width=nothing),menu_deformation_field,
                       Label(fig, "colormap",width=nothing),menu_cm)
+    #add colorbar
     cb = Colorbar(fig[1,2], solutionp)
 
+    #event handling for selecting stuff from the menus
     on(menu_cm.selection) do s
         cb.colormap = s
         solutionp.colormap = s

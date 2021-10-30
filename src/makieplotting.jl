@@ -55,7 +55,7 @@ end
     Attributes(
     plotnodes=true,
     strokewidth=2,
-    color=:black,
+    color=theme(scene, :linecolor),
     markersize=30,
     deformation_field=:default,
     visible=true,
@@ -159,6 +159,8 @@ function Makie.plot!(AR::Arrows{<:Tuple{<:MakiePlotter{dim}}}) where dim
         ps = [Point3f0(i) for i in eachrow(plotter.coords)]
         ns = lift(x->[Vec3f(i) for i in eachrow(x)],solution)
         lengths = lift((x,y,z)-> z===:default ? x.(y) : ones(length(y))*z, AR[:process], ns, AR[:color])
+    else
+        error("Arrows plots are only available in dim ≥ 2")
     end
     Makie.arrows!(AR, ps, ns, arrowsize=AR[:arrowsize], normalize=AR[:normalize], colormap=AR[:colormap], color=lengths, lengthscale=AR[:lengthscale])
 end

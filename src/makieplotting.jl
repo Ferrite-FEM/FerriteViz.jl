@@ -26,12 +26,6 @@ function Makie.convert_arguments(P::Type{<:Makie.Mesh}, plotter::MakiePlotter)
     return Makie.convert_arguments(P,plotter.coords,reshape_triangles(plotter))
 end
 
-const FerriteVisPlots = Union{Type{<:Wireframe},Type{<:SolutionPlot},Type{<:Arrows}}
-
-function Makie.convert_arguments(P::FerriteVisPlots, dh::Ferrite.AbstractDofHandler, u::Vector)
-    return (MakiePlotter(dh,u),)
-end
-
 @recipe(SolutionPlot) do scene
     Attributes(
     scale_plot=false,
@@ -232,4 +226,11 @@ function ferriteviewer(plotter::MakiePlotter{dim}) where dim
     end
 
     return fig
+end
+
+####### One Shot Methods ####### 
+const FerriteVisPlots = Union{Type{<:Wireframe},Type{<:SolutionPlot},Type{<:Arrows}}
+
+function Makie.convert_arguments(P::FerriteVisPlots, dh::Ferrite.AbstractDofHandler, u::Vector)
+    return (MakiePlotter(dh,u),)
 end

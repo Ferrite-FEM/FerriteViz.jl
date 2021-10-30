@@ -227,3 +227,10 @@ function ferriteviewer(plotter::MakiePlotter{dim}) where dim
 
     return fig
 end
+
+####### One Shot Methods ####### 
+const FerriteVisPlots = Union{Type{<:Wireframe},Type{<:SolutionPlot},Type{<:Arrows}}
+
+function Makie.convert_arguments(P::FerriteVisPlots, dh::Ferrite.AbstractDofHandler, u::Vector)
+    return (MakiePlotter(dh,u),)
+end

@@ -9,6 +9,12 @@ the observable `plotter.u`.
 For this purpose the function [`FerriteVis.update!`](@ref) is provided. It takes a `plotter:MakiePlotter`
 and a new solutiuon vector `u_new` and updates `plotter.u`, thereby all open plots called with `plotter` are updated.
 
+A summary of the needed steps for live plotting:
+1. Create a plotter before your time stepping begins
+2. Call a plot or the `ferriteviewer` and save the return in a variable, e.g. `fig`
+3. `display(fig)` in order to force the plot/viewer to pop up, even if its called inside a function body
+4. `FerriteVis.update!(plotter,u_new)` where `u_new` corresponds to your new solution of the time step
+
 As an illustrative example, let's consider the [plasticity example of Ferrite.jl](https://ferrite-fem.github.io/Ferrite.jl/dev/examples/plasticity/).
 In order to have live plotting we only need a few changes in the `solve` function.
 
@@ -316,10 +322,12 @@ u, dh, traction_magnitude = solve();
 ```
 
 Note that we create `plotter::MakiePlotter` object before the time stepping begins, as well as calling `ferriteviewer` on the `plotter`.
-The next function call is crucial to have the live plotting working `display(fig)` forces the viewer to pop up, even if it's inside a function body.
-Now, the only missing piece is the `FerriteVis.update!` of the plotter, which happens directly after the Newton iteration.
+The next function call is crucial to get the live plotting working. `display(fig)` forces the viewer to pop up, even if it's inside a function body.
+Now, the only missing piece is the `FerriteVis.update!` of the plotter, which happens directly after the Newton iteration. The result for this code looks like this:
 
-Since the computational load of one time step is in this example to low, the plotter would just update all the time and never displays something, so we artificially increate the load of one time step by
+![liveplot](assets/liveplotting.gif)
+
+Since the computational load of one time step is in this example too low, the plotter would just update all the time and likely never display something, so we artificially increate the load of one time step by
 `sleep`ing for 0.1s.
 
 If you don't need the full viewer as a live plot, you can of course call instead `solutionplot` (or any other plot/plot combination) with appropriate keyword arguments to only have a specific live plot.

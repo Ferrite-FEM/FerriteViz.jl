@@ -233,6 +233,14 @@ function ferriteviewer(plotter::MakiePlotter{dim}) where dim
     return fig
 end
 
+function ferriteviewer(plotter::MakiePlotter, data::Vector{Vector{T}}) where T
+    fig = ferriteviewer(plotter)
+    timeslider = Slider(fig, range=1:length(data),startvalue=1)
+    fig[2,1] = vgrid!(Label(fig,"timestep",width=nothing), timeslider)
+    @lift(FerriteVis.update!(plotter,data[$(timeslider.value)]))
+    display(fig)
+end
+
 ####### One Shot Methods ####### 
 const FerriteVisPlots = Union{Type{<:Wireframe},Type{<:SolutionPlot},Type{<:Arrows}}
 

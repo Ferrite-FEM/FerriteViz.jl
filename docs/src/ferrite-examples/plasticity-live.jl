@@ -276,7 +276,7 @@ function solve()
             u -= Δu
         end
         FerriteVis.update!(plotter,u)
-        sleep(1)
+        sleep(0.1)
 
         # Update all the material states after we have reached equilibrium
         for cell_states in states

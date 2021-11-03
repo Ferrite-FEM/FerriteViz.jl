@@ -6,6 +6,7 @@ makedocs(sitename="FerriteVis",
          authors="Maximilian Köhler",
          pages=["Home"=> "index.md",
                 "Tutorial" => "tutorial.md",
+                "Advanced Topics" => "atopics.md",
                 "API Reference" => "api.md",]
 )
 

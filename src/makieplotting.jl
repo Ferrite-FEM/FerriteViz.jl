@@ -22,6 +22,10 @@ function reshape_triangles(plotter::MakiePlotter)
     reinterpret(reshape, Int, plotter.triangle_cells)'
 end
 
+"""
+    FerriteVis.update!(plotter::MakiePlotter, u::Vector)
+Updates the Observable `plotter.u` and thereby, triggers the plot to update.
+"""
 function update!(plotter::MakiePlotter, u::Vector)
     @assert length(plotter.u[]) == length(u)
     plotter.u[] = u
@@ -34,6 +38,8 @@ end
 """
     solutionplot(plotter::MakiePlotter; kwargs...)
     solutionplot(dh::AbstractDofHandler, u::Vector; kwargs...)
+    solutionplot!(plotter::MakiePlotter; kwargs...)
+    solutionplot!(dh::AbstractDofHandler, u::Vector; kwargs...)
 Solutionplot produces the classical contour plot onto the finite element mesh. Most important
 keyword arguments are:
 
@@ -158,6 +164,20 @@ function Makie.plot!(WF::Wireframe{<:Tuple{<:Ferrite.AbstractGrid{dim}}}) where 
     return Makie.linesegments!(WF,lines,color=WF[:color], strokewidth=WF[:strokewidth])
 end
 
+"""
+    surface(plotter::MakiePlotter; kwargs...)
+    surface(dh::AbstractDofHandler, u::Vector; kwargs...)
+    surface!(plotter::MakiePlotter; kwargs...)
+    surface!(dh::AbstractDofHandler, u::Vector; kwargs...)
+Uses the given `field` and plots the scalar values as a surface. If it's a vector valued problem, the nodal vector
+values are transformed to a scalar based on `process` which defaults to the magnitude. Only availble in `dim=2`.
+ 
+- `field = :default`
+- `process = postprocess`
+- `scale_plot = false`
+- `shading = false`
+- `colormap = :cividis`
+"""
 @recipe(Surface) do scene
     Attributes(
     field = :default,
@@ -176,6 +196,22 @@ function Makie.plot!(SF::Surface{<:Tuple{<:MakiePlotter{2}}})
     return Makie.mesh!(SF,points, reshape_triangles(plotter), color=solution, scale_plot=SF[:scale_plot], shading=SF[:shading], colormap=SF[:colormap])
 end
 
+"""
+    arrows(plotter::MakiePlotter; kwargs...)
+    arrows(dh::AbstractDofHandler, u::Vector; kwargs...)
+    arrows!(plotter::MakiePlotter; kwargs...)
+    arrows!(dh::AbstractDofHandler, u::Vector; kwargs...)
+At every node position a arrows is drawn, where the arrow tip ends at the node. Only works in `dim >=2`. If a `color` is specified
+the arrows are unicolored. Otherwise the color corresponds to the magnitude, or any other scalar value based on the `process` function.
+
+- `arrowsize = 0.08`
+- `normalize = true`
+- `field = :default`
+- `color = :default`
+- `colormap = :cividis`
+- `process=postprocess`
+- `lengthscale = 1f0`
+"""
 @recipe(Arrows) do scene
     Attributes(
     arrowsize = 0.08,
@@ -207,6 +243,12 @@ function Makie.plot!(AR::Arrows{<:Tuple{<:MakiePlotter{dim}}}) where dim
     Makie.arrows!(AR, ps, ns, arrowsize=AR[:arrowsize], normalize=AR[:normalize], colormap=AR[:colormap], color=lengths, lengthscale=AR[:lengthscale])
 end
 
+"""
+    ferriteviewer(plotter::MakiePlotter)
+    ferriteviewer(plotter::MakiePlotter, u_history::Vector{Vector{T}}})
+Constructs a viewer with a `solutionplot`, `Colorbar` as well as sliders,toggles and menus to change the current view.
+If the second dispatch is called a timeslider is added, in order to step through a set of solutions obtained from a simulation.
+"""
 function ferriteviewer(plotter::MakiePlotter{dim}) where dim
     #set up figure and axis, axis either LScene in 3D or Axis if dim < 2
     fig = Figure()

@@ -8,4 +8,5 @@ FerriteVis.wireframe
 FerriteVis.arrows
 FerriteVis.surface
 FerriteVis.ferriteviewer
+FerriteVis.update!
 ```

@@ -31,6 +31,21 @@ function Makie.convert_arguments(P::Type{<:Makie.Mesh}, plotter::MakiePlotter)
     return Makie.convert_arguments(P,plotter.coords,reshape_triangles(plotter))
 end
 
+"""
+    solutionplot(plotter::MakiePlotter; kwargs...)
+    solutionplot(dh::AbstractDofHandler, u::Vector; kwargs...)
+Solutionplot produces the classical contour plot onto the finite element mesh. Most important
+keyword arguments are:
+
+- `field::Symbol=:default` representing the field which gets plotted, defaults to the first field in the `dh`.
+- `deformation_field::Symbol=:default` field that transforms the mesh by the given deformation, defaults to no deformation
+- `process::Function=postprocess` function to construct nodal scalar values from a vector valued problem
+- `colormap::Symbol=:cividis`
+- `deformation_scale=1.0`
+- `shading=false`
+- `scale_plot=false`
+- `transparent=false`
+"""
 @recipe(SolutionPlot) do scene
     Attributes(
     scale_plot=false,
@@ -38,7 +53,7 @@ end
     field=:default,
     deformation_field=:default,
     process=postprocess,
-    colormap=:viridis,
+    colormap=:cividis,
     colorrange=(0,1),
     transparent=false,
     deformation_scale = 1.0,
@@ -56,6 +71,25 @@ function Makie.plot!(SP::SolutionPlot{<:Tuple{<:MakiePlotter}})
     return Makie.mesh!(SP, coords, reshape_triangles(plotter), color=solution, shading=SP[:shading], scale_plot=SP[:scale_plot], colormap=SP[:colormap], transparent=SP[:transparent])
 end
 
+"""
+    wireframe(plotter::MakiePlotter; kwargs...)
+    wireframe(dh::AbstractDofHandler, u::Vector; kwargs...)
+Solutionplot produces the classical contour plot onto the finite element mesh. Most important
+keyword arguments are:
+
+- `plotnodes::Bool=true` plots the nodes as circles/spheres
+- `strokewidth::Int=2` how thick faces/edges are drawn
+- `color::Symbol=theme(scene,:linecolor)` color of the faces/edges and nodes
+- `markersize::Int=30` size of the nodes
+- `deformation_field::Symbol=:default` field that transforms the mesh by the given deformation, defaults to no deformation
+- `nodelables=false` global node id labels
+- `nodelabelcolor=:darkblue`
+- `celllabels=false` global cell id labels
+- `celllabelcolor=:darkred`
+- `textsize::Int=15` size of the label's text
+- `visible=true`
+- `scale=1`
+"""
 @recipe(Wireframe) do scene
     Attributes(
     plotnodes=true,
@@ -127,7 +161,7 @@ end
     process = postprocess,
     scale_plot = false,
     shading = false,
-    colormap = :viridis,
+    colormap = :cividis,
     )
 end
  
@@ -145,7 +179,7 @@ end
     normalize = true,
     field = :default,
     color = :default,
-    colormap = :viridis,
+    colormap = :cividis,
     process=postprocess,
     lengthscale = 1f0,
     )

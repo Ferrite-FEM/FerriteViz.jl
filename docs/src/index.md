@@ -21,4 +21,13 @@ the `MakiePlotter` constructor
 plotter = MakiePlotter(dh,u)
 ```
 
-Now, you can use all common Makie plotting functionalities, such as `mesh`, `surface` and `arrows`. For a more detailed example, check out the tutorial page.
+Now, you can use `solutionplot`, `wireframe`, `arrows`, `surface` or the viewer via `ferriteviewer`. 
+Note that the mutating `solutionplot!`, `wireframe!`, `arrows!` and `surface!` are available as well.
+
+## Unique features
+
+This package offers a set of unique features that are not easily reproducible with other export options of Ferrite.jl:
+
+- live plotting while your simulation runs
+- discontinuous plotting
+- `<: Ferrite.AbstractGrid` entity labeling

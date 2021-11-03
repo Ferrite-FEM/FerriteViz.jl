@@ -74,8 +74,11 @@ end
 """
     wireframe(plotter::MakiePlotter; kwargs...)
     wireframe(dh::AbstractDofHandler, u::Vector; kwargs...)
-Solutionplot produces the classical contour plot onto the finite element mesh. Most important
-keyword arguments are:
+    wireframe(grid::AbstractGrid; kwargs...)
+    wireframe!(plotter::MakiePlotter; kwargs...)
+    wireframe!(dh::AbstractDofHandler, u::Vector; kwargs...)
+    wireframe!(grid::AbstractGrid; kwargs...)
+Plots the finite element mesh, optionally labels it and transforms it if a suitable `deformation_field` is given.
 
 - `plotnodes::Bool=true` plots the nodes as circles/spheres
 - `strokewidth::Int=2` how thick faces/edges are drawn

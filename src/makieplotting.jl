@@ -28,7 +28,8 @@ Updates the Observable `plotter.u` and thereby, triggers the plot to update.
 """
 function update!(plotter::MakiePlotter, u::Vector)
     @assert length(plotter.u[]) == length(u)
-    plotter.u[] = u
+    plotter.u[] .= u
+    Makie.notify(plotter.u)
 end
 
 function Makie.convert_arguments(P::Type{<:Makie.Mesh}, plotter::MakiePlotter)

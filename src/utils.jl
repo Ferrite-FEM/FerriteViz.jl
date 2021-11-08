@@ -28,9 +28,9 @@ Ferrite.default_interpolation(::Type{Ferrite.Cell{3,3,1}}) = Ferrite.Lagrange{2,
 face_cell(cell::Ferrite.Tetrahedron, i::Int) =  Ferrite.Cell{3,3,1}(Ferrite.faces(cell)[i])
 face_cell(cell::Ferrite.Hexahedron, i::Int) = Ferrite.Quadrilateral3D(Ferrite.faces(cell)[i])
 
-struct MakiePlotter{dim,DH<:Ferrite.AbstractDofHandler} <: AbstractPlotter
+struct MakiePlotter{dim,DH<:Ferrite.AbstractDofHandler,T} <: AbstractPlotter
     dh::DH
-    u::Vector # original solution on the original mesh (i.e. dh.mesh)
+    u::Makie.Observable{Vector{T}} # original solution on the original mesh (i.e. dh.mesh)
 
     cells_connectivity::Vector
 
@@ -60,7 +60,7 @@ function MakiePlotter(dh::Ferrite.AbstractDofHandler, u::Vector)
     for cell in cells
         (coord_offset, triangle_offset) = decompose!(coord_offset, physical_coords, reference_coords, triangle_offset, triangles, dh.grid, cell)
     end
-    return MakiePlotter{dim,typeof(dh)}(dh,u,[],physical_coords,triangles,reference_coords);
+    return MakiePlotter{dim,typeof(dh),eltype(u)}(dh,Node(u),[],physical_coords,triangles,reference_coords);
 end
 
 """
@@ -201,6 +201,17 @@ end
 
 refshape(cell::Ferrite.AbstractCell) = typeof(Ferrite.default_interpolation(typeof(cell))).parameters[2]
 
+x₁(x) = x[1]
+x₂(x) = x[2]
+x₃(x) = x[3]
+l2(x) = LinearAlgebra.norm(x,2)
+l1(x) = LinearAlgebra.norm(x,1)
+
+midpoint(cell::Ferrite.AbstractCell{2,N,3}, points) where N = Point2f0((1/3) * (points[cell.nodes[1],:] + points[cell.nodes[2],:] + points[cell.nodes[3],:]))
+midpoint(cell::Ferrite.AbstractCell{2,N,4}, points) where N = Point2f0(0.5 * (points[cell.nodes[1],:] + points[cell.nodes[3],:]))
+midpoint(cell::Ferrite.AbstractCell{3,N,4}, points) where N = Point3f0((1/4) * (points[cell.nodes[1],:] + points[cell.nodes[2],:] + points[cell.nodes[3],:] + points[cell.nodes[4],:]))
+midpoint(cell::Ferrite.AbstractCell{3,N,6}, points) where N = Point3f0(0.5 * (points[cell.nodes[1],:] + points[cell.nodes[7],:]))
+
 function postprocess(node_values)
     dim = length(node_values)
     if dim == 1
@@ -210,8 +221,6 @@ function postprocess(node_values)
     end
 end
 
-
-using Tensors
 """
 Transfer the solution of a plotter to the new mesh in 2D.
 
@@ -234,28 +243,31 @@ function transfer_solution(plotter::MakiePlotter{2}; field_idx::Int=1, process::
     ip = dh.field_interpolations[field_idx]
 
     # actual data
-    data = fill(0.0, num_vertices(plotter), field_dim)
     local_dof_range = Ferrite.dof_range(dh, field_name)
 
-    current_vertex_index = 1
-    for cell in Ferrite.CellIterator(dh)
-        cell_idx = cell.current_cellid.x
+    soldata = @lift begin
+        data = fill(0.0, num_vertices(plotter), field_dim)
+        current_vertex_index = 1
+        for cell in Ferrite.CellIterator(dh)
+            cell_idx = cell.current_cellid.x
 
-        cell_geo = dh.grid.cells[cell_idx]
-        _celldofs_field = reshape(Ferrite.celldofs(cell)[local_dof_range], (field_dim, Ferrite.getnbasefunctions(ip)))
+            cell_geo = dh.grid.cells[cell_idx]
+            _celldofs_field = reshape(Ferrite.celldofs(cell)[local_dof_range], (field_dim, Ferrite.getnbasefunctions(ip)))
 
-        # Loop over vertices
-        for i in 1:(ntriangles(cell_geo)*n_vertices)
-            ξ = Vec(ref_coords[current_vertex_index, :]...)
-            for d in 1:field_dim
-                for node_idx ∈ 1:Ferrite.getnbasefunctions(ip)
-                    data[current_vertex_index, d] += Ferrite.value(ip, node_idx, ξ) ⋅ u[_celldofs_field[d, node_idx]]
+            # Loop over vertices
+            for i in 1:(ntriangles(cell_geo)*n_vertices)
+                ξ = Tensors.Vec(ref_coords[current_vertex_index, :]...)
+                for d in 1:field_dim
+                    for node_idx ∈ 1:Ferrite.getnbasefunctions(ip)
+                        data[current_vertex_index, d] += Ferrite.value(ip, node_idx, ξ) ⋅ $u[_celldofs_field[d, node_idx]]
+                    end
                 end
+                current_vertex_index += 1
             end
-            current_vertex_index += 1
         end
+        data
     end
-    return mapslices(process, data, dims=[2])
+    return mapslices(process, soldata[], dims=[2])
 end
 
 """
@@ -282,34 +294,37 @@ function transfer_solution(plotter::MakiePlotter{3}; field_idx::Int=1, process::
     ip_face = Ferrite.getlowerdim(ip_cell)
 
     # actual data
-    data = fill(0.0, num_vertices(plotter), field_dim)
     local_dof_range = Ferrite.dof_range(dh, field_name)
 
-    current_vertex_index = 1
-    for (cell_index, cell) in enumerate(Ferrite.CellIterator(dh))
-        cell_idx = cell.current_cellid.x
+    soldata = @lift begin
+        current_vertex_index = 1
+        data = fill(0.0, num_vertices(plotter), field_dim)
+        for (cell_index, cell) in enumerate(Ferrite.CellIterator(dh))
+            cell_idx = cell.current_cellid.x
 
-        cell_geo = dh.grid.cells[cell_idx]
-        _celldofs_field = reshape(Ferrite.celldofs(cell)[local_dof_range], (field_dim, Ferrite.getnbasefunctions(ip_cell)))
+            cell_geo = dh.grid.cells[cell_idx]
+            _celldofs_field = reshape(Ferrite.celldofs(cell)[local_dof_range], (field_dim, Ferrite.getnbasefunctions(ip_cell)))
 
-        for (local_face_idx,_) in enumerate(Ferrite.faces(cell_geo))
-            # extract face vertex dofs
-            face_vertex_incides = _faces[local_face_idx][1:n_vertices]
-            _facedofs_field = _celldofs_field[:,[face_vertex_incides...]]
+            for (local_face_idx,_) in enumerate(Ferrite.faces(cell_geo))
+                # extract face vertex dofs
+                face_vertex_incides = _faces[local_face_idx][1:n_vertices]
+                _facedofs_field = _celldofs_field[:,[face_vertex_incides...]]
 
-            face_geo = face_cell(cell_geo, local_face_idx)
+                face_geo = face_cell(cell_geo, local_face_idx)
 
-            # Loop over vertices
-            for i in 1:(ntriangles(face_geo)*n_vertices)
-                ξ = Vec(ref_coords[current_vertex_index, :]...)
-                for d in 1:field_dim
-                    for node_idx ∈ 1:Ferrite.getnbasefunctions(ip_face)
-                        data[current_vertex_index, d] += Ferrite.value(ip_face, node_idx, ξ) ⋅ u[_facedofs_field[d, node_idx]]
+                # Loop over vertices
+                for i in 1:(ntriangles(face_geo)*n_vertices)
+                    ξ = Tensors.Vec(ref_coords[current_vertex_index, :]...)
+                    for d in 1:field_dim
+                        for node_idx ∈ 1:Ferrite.getnbasefunctions(ip_face)
+                            data[current_vertex_index, d] += Ferrite.value(ip_face, node_idx, ξ) ⋅ $u[_facedofs_field[d, node_idx]]
+                        end
                     end
+                    current_vertex_index += 1
                 end
-                current_vertex_index += 1
             end
         end
+        data
     end
-    return mapslices(process, data, dims=[2])
+    return mapslices(process, soldata[], dims=[2])
 end

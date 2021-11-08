@@ -1,7 +1,9 @@
 module FerriteVis
 
-import Makie
+using Makie
+using Tensors
 import Ferrite
+import LinearAlgebra
 
 abstract type AbstractPlotter end
 
@@ -9,6 +11,6 @@ include("utils.jl")
 include("makieplotting.jl")
 
 export MakiePlotter
-export warp_by_vector, warp_by_vector!, plot_grid, plot_grid!
+export ferriteviewer
 
 end

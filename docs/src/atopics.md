@@ -19,6 +19,7 @@ As an illustrative example, let's consider the [plasticity example of Ferrite.jl
 In order to have live plotting we only need a few changes in the `solve` function.
 
 ```julia
+import GLMakie #activate the Makie backend
 using Ferrite, SparseArrays, LinearAlgebra, FerriteVis
 
 struct J2Plasticity{T, S <: SymmetricTensor{4, 3, T}}
@@ -327,7 +328,7 @@ Now, the only missing piece is the `FerriteVis.update!` of the plotter, which ha
 
 ![liveplot](assets/liveplotting.gif)
 
-Since the computational load of one time step is in this example too low, the plotter would just update all the time and likely never display something, so we artificially increate the load of one time step by
+Since the computational load of one time step is in this example too low, the plotter would just update all the time and likely never display something, so we artificially increase the load of one time step by
 `sleep`ing for 0.1s.
 
 If you don't need the full viewer as a live plot, you can of course call instead `solutionplot` (or any other plot/plot combination) with appropriate keyword arguments to only have a specific live plot.

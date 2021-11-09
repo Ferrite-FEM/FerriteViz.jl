@@ -40,7 +40,7 @@ If you solve some boundary value problem with Ferrite.jl keep in mind to safe yo
 With them, we create the `MakiePlotter` struct that dispatches on the plotting functions.
 
 ```@example 1
-include("ferrite-examples/incompressible-elasticity.jl")
+include("ferrite-examples/incompressible-elasticity.jl") #defines variables dh and u
 
 plotter = FerriteVis.MakiePlotter(dh,u)
 FerriteVis.arrows(plotter)
@@ -66,7 +66,8 @@ However, in structural mechanics we often would like to see the deformed configu
 which can be achieved by providing a `deformation_field::Symbol` as a keyword argument.
 
 ```@example 1
-include("ferrite-examples/plasticity.jl")
+include("ferrite-examples/plasticity.jl") #only defines solving function
+u, dh = solve()
 plotter = FerriteVis.MakiePlotter(dh,u)
 
 FerriteVis.solutionplot(plotter,colormap=:thermal,deformation_field=:u)

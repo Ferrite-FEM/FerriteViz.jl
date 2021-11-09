@@ -27,7 +27,7 @@ pkg> add FerriteVis
 - `wireframe` plots the finite element mesh and optionally labels nodes and cells
 - `arrows` - also called `quiver` plots, in paraview `glyph` filter
 - `surface` 2D solutions in 3D space as surface, in paraview `warp by scalar` filter
-- live plotting while your simulation runs with any of the above listed options
+- synchronous plotting while your simulation runs with any of the above listed options
 - mutating versions of the above listed functions (except for the viewer)
 - deformed plots available for `solutionplot` and `wireframe` deformed plots available for `solutionplot` and `wireframe` 
 - full integration into the Makie ecosystem, e.g. themes, layouts etc. 
@@ -38,5 +38,5 @@ pkg> add FerriteVis
 - correct visualization of nonlinear geometry faces/edges
 - visualization of boundary conditions
 - subdomain entity plotting, e.g. cellsets, facesets, edgesets and so on
-- labels for face, edge, vertex and dof numbering
+- labels for face, edge, vertex and dof numbering (technically there is no face and edge numbering in Ferrite.jl)
 - plotting gradient, divergence or other fields that can be derived from the FE solution

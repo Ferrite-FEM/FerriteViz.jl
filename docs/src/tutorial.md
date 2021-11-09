@@ -8,8 +8,9 @@ and solution vector because we need to pass those objects to `MakiePlotter`.
 
 ## Plot your results
 
-Currently, [`FerriteVis.solutionplot`](@ref), [`FerriteVis.wireframe`](@ref), [`FerriteVis.surface`](@ref), [`FerriteVis.arrows`](@ref) and their mutating analogues with `!` are defined for `MakiePlotter`.
-Due to the nature of the documentation we need `WGLMakie`, however, you can simply exchange any `WGLMakie` call by `GLMakie`.
+!!! tip "Plotting Functions"
+    Currently, [`FerriteVis.solutionplot`](@ref), [`FerriteVis.wireframe`](@ref), [`FerriteVis.surface`](@ref), [`FerriteVis.arrows`](@ref) and their mutating analogues with `!` are defined for `MakiePlotter`.
+    Due to the nature of the documentation we need `WGLMakie`, however, you can simply exchange any `WGLMakie` call by `GLMakie`.
 
 ```@example 1
 import JSServe # hide

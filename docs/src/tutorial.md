@@ -8,8 +8,9 @@ and solution vector because we need to pass those objects to `MakiePlotter`.
 
 ## Plot your results
 
-Currently, [`FerriteVis.solutionplot`](@ref), [`FerriteVis.wireframe`](@ref), [`FerriteVis.surface`](@ref), [`FerriteVis.arrows`](@ref) and their mutating analogues with `!` are defined for `MakiePlotter`.
-Due to the nature of the documentation we need `WGLMakie`, however, you can simply exchange any `WGLMakie` call by `GLMakie`.
+!!! tip "Plotting Functions"
+    Currently, [`FerriteVis.solutionplot`](@ref), [`FerriteVis.wireframe`](@ref), [`FerriteVis.surface`](@ref), [`FerriteVis.arrows`](@ref) and their mutating analogues with `!` are defined for `MakiePlotter`.
+    Due to the nature of the documentation we need `WGLMakie`, however, you can simply exchange any `WGLMakie` call by `GLMakie`.
 
 ```@example 1
 import JSServe # hide
@@ -39,7 +40,7 @@ If you solve some boundary value problem with Ferrite.jl keep in mind to safe yo
 With them, we create the `MakiePlotter` struct that dispatches on the plotting functions.
 
 ```@example 1
-include("ferrite-examples/incompressible-elasticity.jl")
+include("ferrite-examples/incompressible-elasticity.jl") #defines variables dh and u
 
 plotter = FerriteVis.MakiePlotter(dh,u)
 FerriteVis.arrows(plotter)
@@ -65,7 +66,8 @@ However, in structural mechanics we often would like to see the deformed configu
 which can be achieved by providing a `deformation_field::Symbol` as a keyword argument.
 
 ```@example 1
-include("ferrite-examples/plasticity.jl")
+include("ferrite-examples/plasticity.jl") #only defines solving function
+u, dh = solve()
 plotter = FerriteVis.MakiePlotter(dh,u)
 
 FerriteVis.solutionplot(plotter,colormap=:thermal,deformation_field=:u)

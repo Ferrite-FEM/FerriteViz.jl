@@ -19,18 +19,20 @@ As an illustrative example, let's consider a slightly modified [plasticity examp
 For the full source code, please refer to the link. In the following code we only highlight the necessary changes.
 
 ```julia
-function solve()
+function solve(liveplotting=false)
     # set up your problem 
     # lots of code
     dh = create_dofhandler(grid, interpolation) #helper function from script file
     n_dofs = ndofs(dh)  # total number of dofs
     u  = zeros(n_dofs)
-    
-    ####### Here we take care of the conceptual steps 1, 2 and 3 ####### 
-    plotter = MakiePlotter(dh,u)
-    fig = ferriteviewer(plotter)
-    display(fig)
-    ####################################################################
+
+    if liveplotting
+        ####### Here we take care of the conceptual steps 1, 2 and 3 #######
+        plotter = MakiePlotter(dh,u)
+        fig = ferriteviewer(plotter)
+        display(fig)
+        ####################################################################
+    end
     
     Δu = zeros(n_dofs)  # displacement correction
     r = zeros(n_dofs)   # residual
@@ -63,11 +65,13 @@ function solve()
             Δu = Symmetric(K) \ r
             u -= Δu
         end
-        ####### Step 4 updating the current solution vector in plotter ####### 
-        FerriteVis.update!(plotter,u)
-        ######################################################################
-        
-        sleep(0.1)
+
+        if liveplotting
+            ####### Step 4 updating the current solution vector in plotter ####### 
+            FerriteVis.update!(plotter,u)
+            ###################################################################### 
+            sleep(0.1)
+        end
 
         # Update all the material states after we have reached equilibrium
         for cell_states in states

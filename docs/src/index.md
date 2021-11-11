@@ -21,4 +21,20 @@ the `MakiePlotter` constructor
 plotter = MakiePlotter(dh,u)
 ```
 
-Now, you can use all common Makie plotting functionalities, such as `mesh`, `surface` and `arrows`. For a more detailed example, check out the tutorial page.
+Now, you can use `solutionplot`, `wireframe`, `arrows`, `surface` or the viewer via `ferriteviewer`. 
+Note that the mutating `solutionplot!`, `wireframe!`, `arrows!` and `surface!` are available as well.
+
+## Unique features
+
+This package offers a set of unique features that are not easily reproducible with other export options of Ferrite.jl:
+
+- [`FerriteVis.solutionplot`](@ref) FE solution contour plot on arbitrary finite element mesh (in Makie called `mesh` plots)
+- [`FerriteVis.ferriteviewer`](@ref) viewer with toggles and menus that update the plot
+- [`FerriteVis.wireframe`](@ref) plots the finite element mesh and optionally labels nodes and cells
+- [`FerriteVis.arrows`](@ref) - also called `quiver` plots, in paraview `glyph` filter
+- [`FerriteVis.surface`](@ref) 2D solutions in 3D space as surface, in paraview `warp by scalar` filter
+- synchronous plotting while your simulation runs with any of the above listed options
+- mutating versions of the above listed functions (except for the viewer)
+- deformed plots available for `solutionplot` and `wireframe`
+- full integration into the Makie ecosystem, e.g. themes, layouts etc. 
+- GPU powered plotting with GLMakie.jl, jupyter/pluto notebook plotting with WGLMakie.jl and vector graphics with CairoMakie.jl

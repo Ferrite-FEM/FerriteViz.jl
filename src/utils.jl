@@ -34,6 +34,7 @@ struct MakiePlotter{dim,DH<:Ferrite.AbstractDofHandler,T} <: AbstractPlotter
 
     cells_connectivity::Vector
 
+    gridnodes::Matrix{AbstractFloat} # coordinates of grid nodes in matrix form
     physical_coords::Matrix{AbstractFloat} # coordinates in physical space of a vertex
     triangles::Matrix{Int} # each row carries a triple with the indices into the coords matrix defining the triangle
     reference_coords::Matrix{AbstractFloat} # coordinates on the reference cell for the corresponding vertex
@@ -52,6 +53,7 @@ function MakiePlotter(dh::Ferrite.AbstractDofHandler, u::Vector)
     # Preallocate the matrices carrying the triangulation information
     triangles = Matrix{Int}(undef, num_triangles, 3)
     physical_coords = Matrix{Float64}(undef, num_triangles*3, dim)
+    gridnodes = [node[i] for node in Ferrite.getcoordinates.(Ferrite.getnodes(dh.grid)), i in 1:dim]
     reference_coords = Matrix{Float64}(undef, num_triangles*3, 2) # for now no 1D
 
     # Decompose does the heavy lifting for us
@@ -60,7 +62,7 @@ function MakiePlotter(dh::Ferrite.AbstractDofHandler, u::Vector)
     for cell in cells
         (coord_offset, triangle_offset) = decompose!(coord_offset, physical_coords, reference_coords, triangle_offset, triangles, dh.grid, cell)
     end
-    return MakiePlotter{dim,typeof(dh),eltype(u)}(dh,Node(u),[],physical_coords,triangles,reference_coords);
+    return MakiePlotter{dim,typeof(dh),eltype(u)}(dh,Node(u),[],gridnodes,physical_coords,triangles,reference_coords);
 end
 
 """
@@ -327,4 +329,23 @@ function transfer_solution(plotter::MakiePlotter{3}; field_idx::Int=1, process::
         data
     end
     return mapslices(process, soldata[], dims=[2])
+end
+
+function dof_to_node(dh::Ferrite.AbstractDofHandler, u::Array{T,1}; field::Int=1, process::Function=postprocess) where T
+    fieldnames = Ferrite.getfieldnames(dh)  
+    field_dim = Ferrite.getfielddim(dh, field)
+    data = fill(NaN, Ferrite.getnnodes(dh.grid), field_dim) 
+    offset = Ferrite.field_offset(dh, fieldnames[field])
+
+    for cell in Ferrite.CellIterator(dh)
+        _celldofs = Ferrite.celldofs(cell)
+        counter = 1
+        for node in cell.nodes
+            for d in 1:field_dim
+                data[node, d] = u[_celldofs[counter + offset]]
+                counter += 1
+            end
+        end
+    end
+    return mapslices(process, data, dims=[2])
 end

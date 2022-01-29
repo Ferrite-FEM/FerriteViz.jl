@@ -96,26 +96,31 @@ end
 
 function Makie.plot!(WF::Wireframe{<:Tuple{<:MakiePlotter{dim}}}) where dim
     plotter = WF[1][]
-    node_coords = [node.x[i] for node in Ferrite.getnodes(plotter.dh.grid), i in 1:dim] 
-    u_matrix = @lift($(WF[:deformation_field])===:default ? zeros(0,3) : transfer_solution(plotter; field_idx=Ferrite.find_field(plotter.dh,$(WF[:deformation_field])), process=identity))
-    coords = @lift($(WF[:deformation_field])===:default ? plotter.physical_coords : plotter.physical_coords .+ ($(WF[:scale]) .* $(u_matrix)))
+    #triangle representation
+    # can't use triangle representation, since we don't know by this information which edges to draw
+    # further it would be in the incompressible example 2600 nodes vs 15000 in triangle representation
+    # u_matrix = @lift($(WF[:deformation_field])===:default ? zeros(0,3) : transfer_solution(plotter; field_idx=Ferrite.find_field(plotter.dh,$(WF[:deformation_field])), process=identity))
+    # coords = @lift($(WF[:deformation_field])===:default ? plotter.physical_coords : plotter.physical_coords .+ ($(WF[:scale]) .* $(u_matrix)))
+    #original representation
+    nodal_u_matrix = @lift($(WF[:deformation_field])===:default ? zeros(0,3) : dof_to_node(plotter.dh, $(WF[1][].u); field=Ferrite.find_field(plotter.dh,$(WF[:deformation_field])), process=identity))
+    gridnodes = @lift($(WF[:deformation_field])===:default ? plotter.gridnodes : plotter.gridnodes .+ ($(WF[:scale]) .* $(nodal_u_matrix))) 
     lines = @lift begin
         dim > 2 ? (lines = Makie.Point3f0[]) : (lines = Makie.Point2f0[])
         for cell in Ferrite.getcells(plotter.dh.grid)
             boundaryentities = dim < 3 ? Ferrite.faces(cell) : Ferrite.edges(cell)
-            append!(lines, [$coords[e,:] for boundary in boundaryentities for e in boundary])
+            append!(lines, [$gridnodes[e,:] for boundary in boundaryentities for e in boundary])
         end
         lines
     end
-    nodes = @lift($(WF[:plotnodes]) ? $(coords) : zeros(Float32,0,3))
+    nodes = @lift($(WF[:plotnodes]) ? $(gridnodes) : zeros(Float32,0,3))
     #plot the nodes
-    Makie.scatter!(WF,coords,markersize=WF[:markersize], color=WF[:color], visible=WF[:visible])
+    Makie.scatter!(WF,gridnodes,markersize=WF[:markersize], color=WF[:color], visible=WF[:visible])
     #set up nodelabels
-    nodelabels = @lift $(WF[:nodelabels]) ? ["$i" for i in 1:size($coords,1)] : [""]
-    nodepositions = @lift $(WF[:nodelabels]) ? [dim < 3 ? Point2f0(row) : Point3f0(row) for row in eachrow($coords)] : (dim < 3 ? [Point2f0((0,0))] : [Point3f0((0,0,0))])
+    nodelabels = @lift $(WF[:nodelabels]) ? ["$i" for i in 1:size($gridnodes,1)] : [""]
+    nodepositions = @lift $(WF[:nodelabels]) ? [dim < 3 ? Point2f0(row) : Point3f0(row) for row in eachrow($gridnodes)] : (dim < 3 ? [Point2f0((0,0))] : [Point3f0((0,0,0))])
     #set up celllabels
     celllabels = @lift $(WF[:celllabels]) ? ["$i" for i in 1:Ferrite.getncells(plotter.dh.grid)] : [""]
-    cellpositions = @lift $(WF[:celllabels]) ? [midpoint(cell,$coords) for cell in Ferrite.getcells(plotter.dh.grid)] : (dim < 3 ? [Point2f0((0,0))] : [Point3f0((0,0,0))])
+    cellpositions = @lift $(WF[:celllabels]) ? [midpoint(cell,$gridnodes) for cell in Ferrite.getcells(plotter.dh.grid)] : (dim < 3 ? [Point2f0((0,0))] : [Point3f0((0,0,0))])
     Makie.text!(WF,nodelabels, position=nodepositions, textsize=WF[:textsize], offset=WF[:offset],color=WF[:nodelabelcolor])
     Makie.text!(WF,celllabels, position=cellpositions, textsize=WF[:textsize], color=WF[:celllabelcolor], align=(:center,:center))
     #plot edges (3D) /faces (2D) of the mesh

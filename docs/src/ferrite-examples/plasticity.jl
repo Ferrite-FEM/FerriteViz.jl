@@ -1,4 +1,4 @@
-using Ferrite, SparseArrays, LinearAlgebra
+using Ferrite, SparseArrays, LinearAlgebra, FerriteVis
 
 struct J2Plasticity{T, S <: SymmetricTensor{4, 3, T}}
     G::T  # Shear modulus
@@ -201,7 +201,7 @@ function symmetrize_lower!(K)
     end
 end;
 
-function solve()
+function solve(liveplotting=false)
     # Define material parameters
     E = 200.0e9 # [Pa]
     H = E/20   # [Pa]
@@ -212,7 +212,7 @@ function solve()
     L = 10.0 # beam length [m]
     w = 1.0  # beam width [m]
     h = 1.0  # beam height[m]
-    n_timesteps = 10
+    n_timesteps = 100
     u_max = zeros(n_timesteps)
     traction_magnitude = 1.e7 * range(0.5, 1.0, length=n_timesteps)
 
@@ -232,6 +232,12 @@ function solve()
     # Pre-allocate solution vectors, etc.
     n_dofs = ndofs(dh)  # total number of dofs
     u  = zeros(n_dofs)  # solution vector
+    u_history = Vector{Vector{Float64}}()
+    if liveplotting
+        plotter = MakiePlotter(dh,u)
+        fig = ferriteviewer(plotter)
+        display(fig)
+    end
     Δu = zeros(n_dofs)  # displacement correction
     r = zeros(n_dofs)   # residual
     K = create_sparsity_pattern(dh); # tangent stiffness matrix
@@ -272,6 +278,11 @@ function solve()
             Δu = Symmetric(K) \ r
             u -= Δu
         end
+        if liveplotting
+            FerriteVis.update!(plotter,u)
+            sleep(0.1)
+        end
+        push!(u_history,u)
 
         # Update all the material states after we have reached equilibrium
         for cell_states in states
@@ -294,10 +305,5 @@ function solve()
         mises_values[el] /= length(cell_states) # average von Mises stress
         κ_values[el] /= length(cell_states)     # average drag stress
     end
-    return u, dh, traction_magnitude
+    return u, dh, u_history
 end
-
-u, dh, traction_magnitude = solve();
-
-# This file was generated using Literate.jl, https://github.com/fredrikekre/Literate.jl
-

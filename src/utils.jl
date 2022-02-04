@@ -230,12 +230,11 @@ Transfer the solution of a plotter to the new mesh in 2D.
 
 @TODO Refactor. This is peak inefficiency.
 """
-function transfer_solution(plotter::MakiePlotter{2}; field_idx::Int=1, process::Function=FerriteVis.postprocess)
+function transfer_solution(plotter::MakiePlotter{2}, u::Vector; field_idx::Int=1, process::Function=FerriteVis.postprocess)
     n_vertices = 3 # we have 3 vertices per triangle...
 
     # select objects from plotter
     dh = plotter.dh
-    u = plotter.u
     ref_coords = plotter.reference_coords
     grid = dh.grid
 
@@ -247,29 +246,26 @@ function transfer_solution(plotter::MakiePlotter{2}; field_idx::Int=1, process::
     # actual data
     local_dof_range = Ferrite.dof_range(dh, field_name)
 
-    soldata = @lift begin
-        data = fill(0.0, num_vertices(plotter), field_dim)
-        current_vertex_index = 1
-        for cell in Ferrite.CellIterator(dh)
-            cell_idx = cell.current_cellid.x
+    data = fill(0.0, num_vertices(plotter), field_dim)
+    current_vertex_index = 1
+    for cell in Ferrite.CellIterator(dh)
+        cell_idx = cell.current_cellid.x
 
-            cell_geo = dh.grid.cells[cell_idx]
-            _celldofs_field = reshape(Ferrite.celldofs(cell)[local_dof_range], (field_dim, Ferrite.getnbasefunctions(ip)))
+        cell_geo = dh.grid.cells[cell_idx]
+        _celldofs_field = reshape(Ferrite.celldofs(cell)[local_dof_range], (field_dim, Ferrite.getnbasefunctions(ip)))
 
-            # Loop over vertices
-            for i in 1:(ntriangles(cell_geo)*n_vertices)
-                ξ = Tensors.Vec(ref_coords[current_vertex_index, :]...)
-                for d in 1:field_dim
-                    for node_idx ∈ 1:Ferrite.getnbasefunctions(ip)
-                        data[current_vertex_index, d] += Ferrite.value(ip, node_idx, ξ) ⋅ $u[_celldofs_field[d, node_idx]]
-                    end
+        # Loop over vertices
+        for i in 1:(ntriangles(cell_geo)*n_vertices)
+            ξ = Tensors.Vec(ref_coords[current_vertex_index, :]...)
+            for d in 1:field_dim
+                for node_idx ∈ 1:Ferrite.getnbasefunctions(ip)
+                    data[current_vertex_index, d] += Ferrite.value(ip, node_idx, ξ) ⋅ u[_celldofs_field[d, node_idx]]
                 end
-                current_vertex_index += 1
             end
+            current_vertex_index += 1
         end
-        data
     end
-    return mapslices(process, soldata[], dims=[2])
+    return mapslices(process, data, dims=[2])
 end
 
 """
@@ -277,12 +273,11 @@ Transfer the solution of a plotter to the new mesh in 3D. We just evaluate the f
 
 @TODO Refactor. This is peak inefficiency.
 """
-function transfer_solution(plotter::MakiePlotter{3}; field_idx::Int=1, process::Function=FerriteVis.postprocess)
+function transfer_solution(plotter::MakiePlotter{3}, u::Vector; field_idx::Int=1, process::Function=FerriteVis.postprocess) where T
     n_vertices = 3 # we have 3 vertices per triangle...
 
     # select objects from plotter
     dh = plotter.dh
-    u = plotter.u
     ref_coords = plotter.reference_coords
     grid = dh.grid
 
@@ -298,37 +293,33 @@ function transfer_solution(plotter::MakiePlotter{3}; field_idx::Int=1, process::
     # actual data
     local_dof_range = Ferrite.dof_range(dh, field_name)
 
-    soldata = @lift begin
-        current_vertex_index = 1
-        data = fill(0.0, num_vertices(plotter), field_dim)
-        for (cell_index, cell) in enumerate(Ferrite.CellIterator(dh))
-            cell_idx = cell.current_cellid.x
+    current_vertex_index = 1
+    data = fill(0.0, num_vertices(plotter), field_dim)
+    for (cell_index, cell) in enumerate(Ferrite.getcells(plotter.dh.grid))
 
-            cell_geo = dh.grid.cells[cell_idx]
-            _celldofs_field = reshape(Ferrite.celldofs(cell)[local_dof_range], (field_dim, Ferrite.getnbasefunctions(ip_cell)))
+        cell_geo = dh.grid.cells[cell_index]
+        _celldofs_field = reshape(Ferrite.celldofs(plotter.dh,cell_index)[local_dof_range], (field_dim, Ferrite.getnbasefunctions(ip_cell)))
 
-            for (local_face_idx,_) in enumerate(Ferrite.faces(cell_geo))
-                # extract face vertex dofs
-                face_vertex_incides = _faces[local_face_idx][1:n_vertices]
-                _facedofs_field = _celldofs_field[:,[face_vertex_incides...]]
+        for (local_face_idx,_) in enumerate(Ferrite.faces(cell_geo))
+            # extract face vertex dofs
+            face_vertex_incides = _faces[local_face_idx][1:n_vertices]
+            _facedofs_field = _celldofs_field[:,[face_vertex_incides...]]
 
-                face_geo = face_cell(cell_geo, local_face_idx)
-
-                # Loop over vertices
-                for i in 1:(ntriangles(face_geo)*n_vertices)
-                    ξ = Tensors.Vec(ref_coords[current_vertex_index, :]...)
-                    for d in 1:field_dim
-                        for node_idx ∈ 1:Ferrite.getnbasefunctions(ip_face)
-                            data[current_vertex_index, d] += Ferrite.value(ip_face, node_idx, ξ) ⋅ $u[_facedofs_field[d, node_idx]]
-                        end
+            face_geo = face_cell(cell_geo, local_face_idx)
+            # Loop over vertices
+            for i in 1:(ntriangles(face_geo)*n_vertices)
+                ξ = Tensors.Vec(ref_coords[current_vertex_index, :]...)
+                for d in 1:field_dim
+                    for node_idx ∈ 1:Ferrite.getnbasefunctions(ip_face)
+                        data[current_vertex_index, d] += Ferrite.value(ip_face, node_idx, ξ) ⋅ u[_facedofs_field[d, node_idx]]
                     end
-                    current_vertex_index += 1
                 end
+                current_vertex_index += 1
             end
         end
-        data
     end
-    return mapslices(process, soldata[], dims=[2])
+
+    return mapslices(process, data, dims=[2])
 end
 
 function dof_to_node(dh::Ferrite.AbstractDofHandler, u::Array{T,1}; field::Int=1, process::Function=postprocess) where T

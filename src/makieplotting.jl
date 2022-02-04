@@ -45,8 +45,8 @@ end
 
 function Makie.plot!(SP::SolutionPlot{<:Tuple{<:MakiePlotter}})
     plotter = SP[1][]
-    solution = @lift($(SP[:field])===:default ? reshape(transfer_solution(plotter; field_idx=1, process=$(SP[:process])), num_vertices(plotter)) : reshape(transfer_solution(plotter; field_idx=Ferrite.find_field(plotter.dh,$(SP[:field])), process=$(SP[:process])), num_vertices(plotter)))
-    u_matrix = @lift($(SP[:deformation_field])===:default ? zeros(0,3) : transfer_solution(plotter; field_idx=Ferrite.find_field(plotter.dh,$(SP[:deformation_field])), process=identity))
+    solution = @lift($(SP[:field])===:default ? reshape(transfer_solution(plotter,$(plotter.u); field_idx=1, process=$(SP[:process])), num_vertices(plotter)) : reshape(transfer_solution(plotter,$(plotter.u); field_idx=Ferrite.find_field(plotter.dh,$(SP[:field])), process=$(SP[:process])), num_vertices(plotter)))
+    u_matrix = @lift($(SP[:deformation_field])===:default ? zeros(0,3) : transfer_solution(plotter,$(plotter.u); field_idx=Ferrite.find_field(plotter.dh,$(SP[:deformation_field])), process=identity))
     coords = @lift($(SP[:deformation_field])===:default ? plotter.physical_coords : plotter.physical_coords .+ ($(SP[:deformation_scale]) .* $(u_matrix)))
     mins = @lift(minimum($solution))
     maxs = @lift(maximum($solution))

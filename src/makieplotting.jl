@@ -174,7 +174,7 @@ end
 function Makie.plot!(SF::Surface{<:Tuple{<:MakiePlotter{2}}})
     plotter = SF[1][]
     field = @lift($(SF[:field])===:default ? 1 : Ferrite.find_field(plotter.dh,$(SF[:field])))
-    solution = @lift(reshape(transfer_solution(plotter; field_idx=$(field), process=$(SF[:process])), num_vertices(plotter)))
+    solution = @lift(reshape(transfer_solution(plotter, $(plotter.u); field_idx=$(field), process=$(SF[:process])), num_vertices(plotter)))
     points = @lift([Makie.Point3f0(coord[1], coord[2], $(solution)[idx]) for (idx, coord) in enumerate(eachrow(plotter.physical_coords))])
     return Makie.mesh!(SF,points, plotter.triangles, color=solution, scale_plot=SF[:scale_plot], shading=SF[:shading], colormap=SF[:colormap])
 end
@@ -211,7 +211,7 @@ function Makie.plot!(AR::Arrows{<:Tuple{<:MakiePlotter{dim}}}) where dim
     plotter = AR[1][]
     field = @lift($(AR[:field])===:default ? 1 : Ferrite.find_field(plotter.dh,$(AR[:field])))
     @assert Ferrite.getfielddim(plotter.dh,field[]) > 1
-    solution = @lift(transfer_solution(plotter; field_idx=$(field), process=identity))
+    solution = @lift(transfer_solution(plotter, $(plotter.u); field_idx=$(field), process=identity))
     if dim  == 2
         ps = [Point2f0(i) for i in eachrow(plotter.physical_coords)]
         ns = @lift([Vec2f(i) for i in eachrow($(solution))])

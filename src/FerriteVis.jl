@@ -1,6 +1,7 @@
 module FerriteVis
 
 using Makie
+using Tensors
 import Ferrite
 import LinearAlgebra
 

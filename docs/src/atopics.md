@@ -45,8 +45,6 @@ function solve(liveplotting=false)
     NEWTON_TOL = 1 # 1 N
 
     for timestep in 1:n_timesteps
-    
-        #update time dependent stuff
         while true; newton_itr += 1
 
             if newton_itr > 8
@@ -65,7 +63,7 @@ function solve(liveplotting=false)
             Δu = Symmetric(K) \ r
             u -= Δu
         end
-
+        
         if liveplotting
             ####### Step 4 updating the current solution vector in plotter ####### 
             FerriteVis.update!(plotter,u)

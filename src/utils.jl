@@ -248,10 +248,8 @@ function transfer_solution(plotter::MakiePlotter{2}, u::Vector; field_idx::Int=1
 
     data = fill(0.0, num_vertices(plotter), field_dim)
     current_vertex_index = 1
-    for cell in Ferrite.CellIterator(dh)
-        cell_idx = cell.current_cellid.x
-
-        cell_geo = dh.grid.cells[cell_idx]
+    for (cell_index, cell) in enumerate(Ferrite.getcells(plotter.dh.grid))
+        cell_geo = Ferrite.getcells(dh.grid,cell_index)
         _celldofs_field = reshape(Ferrite.celldofs(cell)[local_dof_range], (field_dim, Ferrite.getnbasefunctions(ip)))
 
         # Loop over vertices
@@ -295,10 +293,8 @@ function transfer_solution(plotter::MakiePlotter{3}, u::Vector; field_idx::Int=1
 
     current_vertex_index = 1
     data = fill(0.0, num_vertices(plotter), field_dim)
-    for cell in Ferrite.CellIterator(dh)
-        cell_index = cell.current_cellid.x
-
-        cell_geo = dh.grid.cells[cell_index]
+    for (cell_index, cell) in enumerate(Ferrite.getcells(plotter.dh.grid))
+        cell_geo = Ferrite.getcells(dh.grid,cell_index)
         _celldofs_field = reshape(Ferrite.celldofs(dh,cell_index)[local_dof_range], (field_dim, Ferrite.getnbasefunctions(ip_cell)))
 
         for (local_face_idx,_) in enumerate(Ferrite.faces(cell_geo))

@@ -294,10 +294,11 @@ function transfer_solution(plotter::MakiePlotter{3}, u::Vector; field_idx::Int=1
 
     current_vertex_index = 1
     data = fill(0.0, num_vertices(plotter), field_dim)
-    for (cell_index, cell) in enumerate(Ferrite.getcells(plotter.dh.grid))
+    for cell in Ferrite.CellIterator(dh)
+        cell_index = cell.current_cellid.x
 
         cell_geo = dh.grid.cells[cell_index]
-        _celldofs_field = reshape(Ferrite.celldofs(plotter.dh,cell_index)[local_dof_range], (field_dim, Ferrite.getnbasefunctions(ip_cell)))
+        _celldofs_field = reshape(Ferrite.celldofs(dh,cell_index)[local_dof_range], (field_dim, Ferrite.getnbasefunctions(ip_cell)))
 
         if order > 0
             for (local_face_idx,_) in enumerate(Ferrite.faces(cell_geo))
@@ -318,19 +319,14 @@ function transfer_solution(plotter::MakiePlotter{3}, u::Vector; field_idx::Int=1
                 end
             end
         else      
-            for (local_face_idx,_) in enumerate(Ferrite.faces(cell_geo))
-                # extract face vertex dofs
-                face_vertex_incides = 1
-                _facedofs_field = _celldofs_field[:,1]
-
-                face_geo = face_cell(cell_geo, local_face_idx)
-                # Loop over vertices
-                for i in 1:(ntriangles(face_geo)*n_vertices)
-                    for d in 1:field_dim
-                        data[current_vertex_index, d] += u[_facedofs_field[d, 1]]
+            for i in 1:(ntriangles(cell_geo)*n_vertices)
+                ξ = Tensors.Vec(ref_coords[current_vertex_index, :]...)
+                for d in 1:field_dim
+                    for node_idx ∈ 1:Ferrite.getnbasefunctions(ip_face)
+                        data[current_vertex_index, d] += Ferrite.value(ip_face, node_idx, ξ) ⋅ u[_celldofs_field[d, node_idx]]
                     end
-                    current_vertex_index += 1
                 end
+                current_vertex_index += 1
             end
         end
     end

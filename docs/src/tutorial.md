@@ -67,10 +67,17 @@ which can be achieved by providing a `deformation_field::Symbol` as a keyword ar
 
 ```@example 1
 include("ferrite-examples/plasticity.jl") #only defines solving function
-u, dh = solve()
+u, dh, uhistory, σ, κ = solve()
 plotter = FerriteVis.MakiePlotter(dh,u)
 
 FerriteVis.solutionplot(plotter,colormap=:thermal,deformation_field=:u)
+FerriteVis.wireframe!(plotter,deformation_field=:u,markersize=25,strokewidth=1)
+WGLMakie.current_figure()
+```
+
+FerriteVis.jl also supports to plot quadrature data, such as the von-Mises stress or the drag stress of the plasticity example.
+```@example 1
+FerriteVis.quadratureplot(plotter,σ,colormap=:thermal,deformation_field=:u,deformation_scale=2.0)
 FerriteVis.wireframe!(plotter,deformation_field=:u,markersize=25,strokewidth=1)
 WGLMakie.current_figure()
 ```

@@ -230,11 +230,10 @@ Transfer the solution of a plotter to the new mesh in 2D.
 
 @TODO Refactor. This is peak inefficiency.
 """
-function transfer_solution(plotter::MakiePlotter{2}, u::Vector; field_idx::Int=1, process::Function=FerriteVis.postprocess)
+function transfer_solution(plotter::MakiePlotter{2}, u::Vector; field_idx::Int=1, process::Function=FerriteVis.postprocess, dh=plotter.dh)
     n_vertices = 3 # we have 3 vertices per triangle...
 
     # select objects from plotter
-    dh = plotter.dh
     ref_coords = plotter.reference_coords
     grid = dh.grid
 
@@ -273,11 +272,10 @@ Transfer the solution of a plotter to the new mesh in 3D. We just evaluate the f
 
 @TODO Refactor. This is peak inefficiency.
 """
-function transfer_solution(plotter::MakiePlotter{3}, u::Vector; field_idx::Int=1, process::Function=FerriteVis.postprocess) where T
+function transfer_solution(plotter::MakiePlotter{3}, u::Vector; field_idx::Int=1, process::Function=FerriteVis.postprocess, dh=plotter.dh) where T
     n_vertices = 3 # we have 3 vertices per triangle...
 
     # select objects from plotter
-    dh = plotter.dh
     ref_coords = plotter.reference_coords
     grid = dh.grid
 
@@ -286,6 +284,7 @@ function transfer_solution(plotter::MakiePlotter{3}, u::Vector; field_idx::Int=1
     field_dim = Ferrite.getfielddim(dh, field_idx)
     ip_cell = dh.field_interpolations[field_idx]
     _faces = Ferrite.faces(ip_cell) # faces of the cell with local dofs
+    order = Ferrite.getorder(ip_cell)
 
     # face related variables
     ip_face = Ferrite.getlowerdim(ip_cell)
@@ -300,21 +299,38 @@ function transfer_solution(plotter::MakiePlotter{3}, u::Vector; field_idx::Int=1
         cell_geo = dh.grid.cells[cell_index]
         _celldofs_field = reshape(Ferrite.celldofs(plotter.dh,cell_index)[local_dof_range], (field_dim, Ferrite.getnbasefunctions(ip_cell)))
 
-        for (local_face_idx,_) in enumerate(Ferrite.faces(cell_geo))
-            # extract face vertex dofs
-            face_vertex_incides = _faces[local_face_idx][1:n_vertices]
-            _facedofs_field = _celldofs_field[:,[face_vertex_incides...]]
+        if order > 0
+            for (local_face_idx,_) in enumerate(Ferrite.faces(cell_geo))
+                # extract face vertex dofs
+                face_vertex_incides = _faces[local_face_idx][1:n_vertices]
+                _facedofs_field = _celldofs_field[:,[face_vertex_incides...]]
 
-            face_geo = face_cell(cell_geo, local_face_idx)
-            # Loop over vertices
-            for i in 1:(ntriangles(face_geo)*n_vertices)
-                ξ = Tensors.Vec(ref_coords[current_vertex_index, :]...)
-                for d in 1:field_dim
-                    for node_idx ∈ 1:Ferrite.getnbasefunctions(ip_face)
-                        data[current_vertex_index, d] += Ferrite.value(ip_face, node_idx, ξ) ⋅ u[_facedofs_field[d, node_idx]]
+                face_geo = face_cell(cell_geo, local_face_idx)
+                # Loop over vertices
+                for i in 1:(ntriangles(face_geo)*n_vertices)
+                    ξ = Tensors.Vec(ref_coords[current_vertex_index, :]...)
+                    for d in 1:field_dim
+                        for node_idx ∈ 1:Ferrite.getnbasefunctions(ip_face)
+                            data[current_vertex_index, d] += Ferrite.value(ip_face, node_idx, ξ) ⋅ u[_facedofs_field[d, node_idx]]
+                        end
                     end
+                    current_vertex_index += 1
                 end
-                current_vertex_index += 1
+            end
+        else      
+            for (local_face_idx,_) in enumerate(Ferrite.faces(cell_geo))
+                # extract face vertex dofs
+                face_vertex_incides = 1
+                _facedofs_field = _celldofs_field[:,1]
+
+                face_geo = face_cell(cell_geo, local_face_idx)
+                # Loop over vertices
+                for i in 1:(ntriangles(face_geo)*n_vertices)
+                    for d in 1:field_dim
+                        data[current_vertex_index, d] += u[_facedofs_field[d, 1]]
+                    end
+                    current_vertex_index += 1
+                end
             end
         end
     end

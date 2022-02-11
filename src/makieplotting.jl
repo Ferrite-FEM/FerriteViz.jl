@@ -54,6 +54,37 @@ function Makie.plot!(SP::SolutionPlot{<:Tuple{<:MakiePlotter}})
     return Makie.mesh!(SP, coords, plotter.triangles, color=solution, shading=SP[:shading], scale_plot=SP[:scale_plot], colormap=SP[:colormap], transparent=SP[:transparent])
 end
 
+@recipe(QuadraturePlot) do scene
+    Attributes(
+    scale_plot=false,
+    shading=false,
+    field=:default,
+    deformation_field=:default,
+    process=postprocess,
+    colormap=:cividis,
+    colorrange=(0,1),
+    transparent=false,
+    deformation_scale = 1.0,
+    )
+end
+
+function Makie.plot!(QP::QuadraturePlot{<:Tuple{<:MakiePlotter{dim},Vector}}) where dim
+    plotter = QP[1][]
+    qp_values = QP[2][]
+    u_matrix = @lift($(QP[:deformation_field])===:default ? zeros(0,3) : transfer_solution(plotter,$(plotter.u); field_idx=Ferrite.find_field(plotter.dh,$(QP[:deformation_field])), process=identity))
+    coords = @lift($(QP[:deformation_field])===:default ? plotter.physical_coords : plotter.physical_coords .+ ($(QP[:deformation_scale]) .* $(u_matrix)))
+    mins = minimum(qp_values)
+    maxs = maximum(qp_values)
+    QP[:colorrange] = isapprox(mins,maxs) ? (0,1e-8) : (mins,maxs) 
+    cache_dh = Ferrite.DofHandler(plotter.dh.grid)
+    shape = Ferrite.getfieldinterpolation(plotter.dh,1) |> Ferrite.getrefshape
+    push!(cache_dh, :(dis_cache), 1, Ferrite.DiscontinuousLagrange{dim,shape,0}())
+    Ferrite.close!(cache_dh)
+    dfield_idx = Ferrite.find_field(cache_dh,:(dis_cache))
+    solution =  reshape(transfer_solution(plotter, qp_values; field_idx=dfield_idx, process=identity, dh=cache_dh), num_vertices(plotter))
+    return Makie.mesh!(QP, coords, plotter.triangles, color=solution, shading=QP[:shading], scale_plot=QP[:scale_plot], colormap=QP[:colormap], transparent=QP[:transparent])
+end
+
 """
     wireframe(plotter::MakiePlotter; kwargs...)
     wireframe(dh::AbstractDofHandler, u::Vector; kwargs...)

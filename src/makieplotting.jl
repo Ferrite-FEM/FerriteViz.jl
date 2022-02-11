@@ -54,6 +54,22 @@ function Makie.plot!(SP::SolutionPlot{<:Tuple{<:MakiePlotter}})
     return Makie.mesh!(SP, coords, plotter.triangles, color=solution, shading=SP[:shading], scale_plot=SP[:scale_plot], colormap=SP[:colormap], transparent=SP[:transparent])
 end
 
+"""
+    cellplot(plotter::MakiePlotter,σ::Vector{T}; kwargs...) where T
+    cellplot!(plotter::MakiePlotter,σ::Vector{T}; kwargs...) where T
+`cellplot` plots constant scalar data on the cells of the finite element mesh. If `T` is not a number, the keyword argument `process`
+can be passed in order to reduce the elements of `σ` to a scalar.
+
+keyword arguments are:
+
+- `deformation_field::Symbol=:default` field that transforms the mesh by the given deformation, defaults to no deformation
+- `process::Function=identity` function to construct cell scalar values. Defaults to `identity`, i.e. scalar values.
+- `colormap::Symbol=:cividis`
+- `deformation_scale=1.0`
+- `shading=false`
+- `scale_plot=false`
+- `transparent=false`
+"""
 @recipe(CellPlot) do scene
     Attributes(
     scale_plot=false,

@@ -234,8 +234,8 @@ function transfer_solution(plotter::MakiePlotter{2}, u::Vector; field_idx::Int=1
     n_vertices = 3 # we have 3 vertices per triangle...
 
     # select objects from plotter
-    ref_coords = plotter.reference_coords
     dh = plotter.dh
+    ref_coords = plotter.reference_coords
     grid = dh.grid
 
     # field related variables
@@ -277,8 +277,8 @@ function transfer_solution(plotter::MakiePlotter{3}, u::Vector; field_idx::Int=1
     n_vertices = 3 # we have 3 vertices per triangle...
 
     # select objects from plotter
-    ref_coords = plotter.reference_coords
     dh = plotter.dh
+    ref_coords = plotter.reference_coords
     grid = dh.grid
 
     # field related variables
@@ -286,7 +286,6 @@ function transfer_solution(plotter::MakiePlotter{3}, u::Vector; field_idx::Int=1
     field_dim = Ferrite.getfielddim(dh, field_idx)
     ip_cell = dh.field_interpolations[field_idx]
     _faces = Ferrite.faces(ip_cell) # faces of the cell with local dofs
-    order = Ferrite.getorder(ip_cell)
 
     # face related variables
     ip_face = Ferrite.getlowerdim(ip_cell)

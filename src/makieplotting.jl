@@ -60,7 +60,7 @@ end
     shading=false,
     field=:default,
     deformation_field=:default,
-    process=postprocess,
+    process=identity,
     colormap=:cividis,
     colorrange=(0,1),
     transparent=false,
@@ -76,12 +76,7 @@ function Makie.plot!(CP::CellPlot{<:Tuple{<:MakiePlotter{dim},Vector}}) where di
     mins = minimum(qp_values)
     maxs = maximum(qp_values)
     CP[:colorrange] = isapprox(mins,maxs) ? (0,1e-8) : (mins,maxs) 
-    cache_dh = Ferrite.DofHandler(plotter.dh.grid)
-    shape = Ferrite.getfieldinterpolation(plotter.dh,1) |> Ferrite.getrefshape
-    push!(cache_dh, :(dis_cache), 1, Ferrite.DiscontinuousLagrange{dim,shape,0}())
-    Ferrite.close!(cache_dh)
-    dfield_idx = Ferrite.find_field(cache_dh,:(dis_cache))
-    solution =  reshape(transfer_solution(plotter, qp_values; field_idx=dfield_idx, process=identity, dh=cache_dh), num_vertices(plotter))
+    solution =  @lift(reshape(transfer_scalar_celldata(plotter, qp_values; process=$(CP[:process])), num_vertices(plotter)))
     return Makie.mesh!(CP, coords, plotter.triangles, color=solution, shading=CP[:shading], scale_plot=CP[:scale_plot], colormap=CP[:colormap], transparent=CP[:transparent])
 end
 

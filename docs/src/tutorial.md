@@ -78,7 +78,7 @@ WGLMakie.current_figure()
 FerriteVis.jl also supports to plot quadrature data, such as the von-Mises stress or the drag stress of the plasticity example.
 ```@example 1
 FerriteVis.quadratureplot(plotter,σ,colormap=:thermal,deformation_field=:u,deformation_scale=2.0)
-FerriteVis.wireframe!(plotter,deformation_field=:u,markersize=25,strokewidth=1)
+FerriteVis.wireframe!(plotter,deformation_field=:u,markersize=25,strokewidth=1,deformation_scale=2.0)
 WGLMakie.current_figure()
 ```
 

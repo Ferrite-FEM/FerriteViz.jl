@@ -10,5 +10,5 @@ makedocs(sitename="FerriteVis",
                 "API Reference" => "api.md",]
 )
 
-deploydocs(repo = "github.com/koehlerson/FerriteVis.jl.git",
+deploydocs(repo = "github.com/Ferrite-FEM/FerriteVis.jl.git",
            push_preview=true,)

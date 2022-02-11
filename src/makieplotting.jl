@@ -58,7 +58,6 @@ end
     Attributes(
     scale_plot=false,
     shading=false,
-    field=:default,
     deformation_field=:default,
     process=identity,
     colormap=:cividis,

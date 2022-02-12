@@ -250,7 +250,7 @@ function transfer_solution(plotter::MakiePlotter{2}, u::Vector; field_idx::Int=1
     current_vertex_index = 1
     for (cell_index, cell) in enumerate(Ferrite.getcells(plotter.dh.grid))
         cell_geo = Ferrite.getcells(dh.grid,cell_index)
-        _celldofs_field = reshape(Ferrite.celldofs(cell)[local_dof_range], (field_dim, Ferrite.getnbasefunctions(ip)))
+        _celldofs_field = reshape(Ferrite.celldofs(dh,cell_index)[local_dof_range], (field_dim, Ferrite.getnbasefunctions(ip)))
 
         # Loop over vertices
         for i in 1:(ntriangles(cell_geo)*n_vertices)

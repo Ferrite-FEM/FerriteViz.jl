@@ -90,7 +90,7 @@ Note that we create `plotter::MakiePlotter` object before the time stepping begi
 The next function call is crucial to get the live plotting working. `display(fig)` forces the viewer to pop up, even if it's inside a function body.
 Now, the only missing piece is the `FerriteVis.update!` of the plotter, which happens directly after the Newton iteration. The result for this code looks like this:
 
-![liveplot](https://media.githubusercontent.com/media/koehlerson/FerriteVis.jl/baefe3cab8502ecb69d9a760f8418143d5e1b147/docs/src/assets/liveplotting.gif)
+![liveplot](https://media.githubusercontent.com/media/Ferrite-FEM/FerriteVis.jl/master/docs/src/assets/liveplotting.gif)
 
 Since the computational load of one time step is in this example too low, the plotter would just update all the time and likely never display something, so we artificially increase the load of one time step by
 `sleep`ing for 0.1s.

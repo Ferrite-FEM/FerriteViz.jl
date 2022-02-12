@@ -55,6 +55,47 @@ function Makie.plot!(SP::SolutionPlot{<:Tuple{<:MakiePlotter}})
 end
 
 """
+    cellplot(plotter::MakiePlotter,σ::Vector{T}; kwargs...) where T
+    cellplot!(plotter::MakiePlotter,σ::Vector{T}; kwargs...) where T
+`cellplot` plots constant scalar data on the cells of the finite element mesh. If `T` is not a number, the keyword argument `process`
+can be passed in order to reduce the elements of `σ` to a scalar.
+
+keyword arguments are:
+
+- `deformation_field::Symbol=:default` field that transforms the mesh by the given deformation, defaults to no deformation
+- `process::Function=identity` function to construct cell scalar values. Defaults to `identity`, i.e. scalar values.
+- `colormap::Symbol=:cividis`
+- `deformation_scale=1.0`
+- `shading=false`
+- `scale_plot=false`
+- `transparent=false`
+"""
+@recipe(CellPlot) do scene
+    Attributes(
+    scale_plot=false,
+    shading=false,
+    deformation_field=:default,
+    process=identity,
+    colormap=:cividis,
+    colorrange=(0,1),
+    transparent=false,
+    deformation_scale = 1.0,
+    )
+end
+
+function Makie.plot!(CP::CellPlot{<:Tuple{<:MakiePlotter{dim},Vector}}) where dim
+    plotter = CP[1][]
+    qp_values = CP[2][]
+    u_matrix = @lift($(CP[:deformation_field])===:default ? zeros(0,3) : transfer_solution(plotter,$(plotter.u); field_idx=Ferrite.find_field(plotter.dh,$(CP[:deformation_field])), process=identity))
+    coords = @lift($(CP[:deformation_field])===:default ? plotter.physical_coords : plotter.physical_coords .+ ($(CP[:deformation_scale]) .* $(u_matrix)))
+    mins = minimum(qp_values)
+    maxs = maximum(qp_values)
+    CP[:colorrange] = isapprox(mins,maxs) ? (0,1e-8) : (mins,maxs) 
+    solution =  @lift(reshape(transfer_scalar_celldata(plotter, qp_values; process=$(CP[:process])), num_vertices(plotter)))
+    return Makie.mesh!(CP, coords, plotter.triangles, color=solution, shading=CP[:shading], scale_plot=CP[:scale_plot], colormap=CP[:colormap], transparent=CP[:transparent])
+end
+
+"""
     wireframe(plotter::MakiePlotter; kwargs...)
     wireframe(dh::AbstractDofHandler, u::Vector; kwargs...)
     wireframe(grid::AbstractGrid; kwargs...)
@@ -68,13 +109,13 @@ Plots the finite element mesh, optionally labels it and transforms it if a suita
 - `color::Symbol=theme(scene,:linecolor)` color of the faces/edges and nodes
 - `markersize::Int=30` size of the nodes
 - `deformation_field::Symbol=:default` field that transforms the mesh by the given deformation, defaults to no deformation
+- `deformation_scale::Number=1.0` scaling of the deformation
 - `nodelables=false` global node id labels
 - `nodelabelcolor=:darkblue`
 - `celllabels=false` global cell id labels
 - `celllabelcolor=:darkred`
 - `textsize::Int=15` size of the label's text
 - `visible=true`
-- `scale=1`
 """
 @recipe(Wireframe) do scene
     Attributes(
@@ -84,13 +125,13 @@ Plots the finite element mesh, optionally labels it and transforms it if a suita
     markersize=30,
     deformation_field=:default,
     visible=true,
-    scale=1,
+    deformation_scale=1,
     textsize=15,
     offset=(0.0,0.0),
     nodelabels=false,
     nodelabelcolor=:darkblue,
     celllabels=false,
-    celllabelcolor=:darkred
+    celllabelcolor=:darkred,
     )
 end
 
@@ -103,7 +144,7 @@ function Makie.plot!(WF::Wireframe{<:Tuple{<:MakiePlotter{dim}}}) where dim
     # coords = @lift($(WF[:deformation_field])===:default ? plotter.physical_coords : plotter.physical_coords .+ ($(WF[:scale]) .* $(u_matrix)))
     #original representation
     nodal_u_matrix = @lift($(WF[:deformation_field])===:default ? zeros(0,3) : dof_to_node(plotter.dh, $(WF[1][].u); field=Ferrite.find_field(plotter.dh,$(WF[:deformation_field])), process=identity))
-    gridnodes = @lift($(WF[:deformation_field])===:default ? plotter.gridnodes : plotter.gridnodes .+ ($(WF[:scale]) .* $(nodal_u_matrix))) 
+    gridnodes = @lift($(WF[:deformation_field])===:default ? plotter.gridnodes : plotter.gridnodes .+ ($(WF[:deformation_scale]) .* $(nodal_u_matrix))) 
     lines = @lift begin
         dim > 2 ? (lines = Makie.Point3f0[]) : (lines = Makie.Point2f0[])
         for cell in Ferrite.getcells(plotter.dh.grid)

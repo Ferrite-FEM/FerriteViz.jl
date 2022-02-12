@@ -248,10 +248,8 @@ function transfer_solution(plotter::MakiePlotter{2}, u::Vector; field_idx::Int=1
 
     data = fill(0.0, num_vertices(plotter), field_dim)
     current_vertex_index = 1
-    for cell in Ferrite.CellIterator(dh)
-        cell_idx = cell.current_cellid.x
-
-        cell_geo = dh.grid.cells[cell_idx]
+    for (cell_index, cell) in enumerate(Ferrite.getcells(plotter.dh.grid))
+        cell_geo = Ferrite.getcells(dh.grid,cell_index)
         _celldofs_field = reshape(Ferrite.celldofs(cell)[local_dof_range], (field_dim, Ferrite.getnbasefunctions(ip)))
 
         # Loop over vertices
@@ -296,9 +294,8 @@ function transfer_solution(plotter::MakiePlotter{3}, u::Vector; field_idx::Int=1
     current_vertex_index = 1
     data = fill(0.0, num_vertices(plotter), field_dim)
     for (cell_index, cell) in enumerate(Ferrite.getcells(plotter.dh.grid))
-
-        cell_geo = dh.grid.cells[cell_index]
-        _celldofs_field = reshape(Ferrite.celldofs(plotter.dh,cell_index)[local_dof_range], (field_dim, Ferrite.getnbasefunctions(ip_cell)))
+        cell_geo = Ferrite.getcells(dh.grid,cell_index)
+        _celldofs_field = reshape(Ferrite.celldofs(dh,cell_index)[local_dof_range], (field_dim, Ferrite.getnbasefunctions(ip_cell)))
 
         for (local_face_idx,_) in enumerate(Ferrite.faces(cell_geo))
             # extract face vertex dofs
@@ -321,6 +318,51 @@ function transfer_solution(plotter::MakiePlotter{3}, u::Vector; field_idx::Int=1
 
     return mapslices(process, data, dims=[2])
 end
+
+function transfer_scalar_celldata(plotter::MakiePlotter{3}, u::Vector; process::Function=FerriteVis.postprocess)
+    n_vertices = 3 # we have 3 vertices per triangle...
+
+    # select objects from plotter
+    dh = plotter.dh
+    grid = dh.grid
+
+    current_vertex_index = 1
+    data = fill(0.0, num_vertices(plotter), 1)
+    for (cell_index, cell) in enumerate(Ferrite.getcells(grid))
+        cell_geo = grid.cells[cell_index]
+        for (local_face_idx,_) in enumerate(Ferrite.faces(cell_geo))
+            face_geo = face_cell(cell_geo, local_face_idx)
+            # Loop over vertices
+            for i in 1:(ntriangles(face_geo)*n_vertices)
+                data[current_vertex_index, 1] = u[cell_index]
+                current_vertex_index += 1
+            end
+        end
+    end
+
+    return mapslices(process, data, dims=[2])
+end
+
+function transfer_scalar_celldata(plotter::MakiePlotter{2}, u::Vector;  process::Function=FerriteVis.postprocess)
+    n_vertices = 3 # we have 3 vertices per triangle...
+
+    # select objects from plotter
+    dh = plotter.dh
+    grid = dh.grid
+
+    current_vertex_index = 1
+    data = fill(0.0, num_vertices(plotter), 1)
+    for (cell_index, cell) in enumerate(Ferrite.getcells(grid))
+        cell_geo = grid.cells[cell_index]
+        for i in 1:(ntriangles(cell_geo)*n_vertices)
+            data[current_vertex_index, 1] = u[cell_index]
+            current_vertex_index += 1
+        end
+    end
+
+    return mapslices(process, data, dims=[2])
+end
+
 
 function dof_to_node(dh::Ferrite.AbstractDofHandler, u::Array{T,1}; field::Int=1, process::Function=postprocess) where T
     fieldnames = Ferrite.getfieldnames(dh)  

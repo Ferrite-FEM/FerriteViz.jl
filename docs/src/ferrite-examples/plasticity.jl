@@ -305,5 +305,5 @@ function solve(liveplotting=false)
         mises_values[el] /= length(cell_states) # average von Mises stress
         κ_values[el] /= length(cell_states)     # average drag stress
     end
-    return u, dh, u_history
+    return u, dh, u_history, mises_values, κ_values
 end

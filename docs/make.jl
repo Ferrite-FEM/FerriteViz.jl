@@ -11,4 +11,5 @@ makedocs(sitename="FerriteVis",
 )
 
 deploydocs(repo = "github.com/Ferrite-FEM/FerriteVis.jl.git",
-           push_preview=true,)
+           push_preview=true,
+           forcepush=true,)

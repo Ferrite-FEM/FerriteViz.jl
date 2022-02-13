@@ -132,6 +132,7 @@ Plots the finite element mesh, optionally labels it and transforms it if a suita
     nodelabelcolor=:darkblue,
     celllabels=false,
     celllabelcolor=:darkred,
+    cellsets=false,
     )
 end
 
@@ -165,7 +166,28 @@ function Makie.plot!(WF::Wireframe{<:Tuple{<:MakiePlotter{dim}}}) where dim
     Makie.text!(WF,nodelabels, position=nodepositions, textsize=WF[:textsize], offset=WF[:offset],color=WF[:nodelabelcolor])
     Makie.text!(WF,celllabels, position=cellpositions, textsize=WF[:textsize], color=WF[:celllabelcolor], align=(:center,:center))
     #plot edges (3D) /faces (2D) of the mesh
-    return Makie.linesegments!(WF,lines,color=WF[:color], linewidth=WF[:strokewidth], visible=WF[:visible])
+    Makie.linesegments!(WF,lines,color=WF[:color], linewidth=WF[:strokewidth], visible=WF[:visible])
+    #plot cellsets
+    if WF[:cellsets][]
+        cellsets = plotter.dh.grid.cellsets 
+        cellset_to_value = Dict{String,Int}()
+        for (cellsetidx,(cellsetname,cellset)) in enumerate(cellsets)
+            cellset_to_value[cellsetname] = cellsetidx 
+        end
+        cellset_u = zeros(Ferrite.getncells(plotter.dh.grid))
+        for (cellidx,cell) in enumerate(Ferrite.getcells(plotter.dh.grid))
+            for (cellsetname,cellsetvalue) in cellset_to_value
+                if cellidx in cellsets[cellsetname]
+                    cellset_u[cellidx] = cellsetvalue
+                end
+            end
+        end
+        u_matrix = @lift($(WF[:deformation_field])===:default ? zeros(0,3) : transfer_solution(plotter,$(plotter.u); field_idx=Ferrite.find_field(plotter.dh,$(WF[:deformation_field])), process=identity))
+        coords = @lift($(WF[:deformation_field])===:default ? plotter.physical_coords : plotter.physical_coords .+ ($(WF[:deformation_scale]) .* $(u_matrix)))
+        colorrange = (0,maximum(values(cellset_to_value)))
+        cellset_u =  reshape(transfer_scalar_celldata(plotter, cellset_u; process=identity), num_vertices(plotter))
+        Makie.mesh!(WF, coords, plotter.triangles, color=cellset_u, shading=false, scale_plot=false, colormap=:darktest, visible=WF[:visible])
+    end 
 end
 
 

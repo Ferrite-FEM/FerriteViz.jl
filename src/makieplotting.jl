@@ -205,7 +205,26 @@ function Makie.plot!(WF::Wireframe{<:Tuple{<:Ferrite.AbstractGrid{dim}}}) where 
     cellpositions = @lift $(WF[:celllabels]) ? [midpoint(cell,coords) for cell in Ferrite.getcells(grid)] : (dim < 3 ? [Point2f0((0,0))] : [Point3f0((0,0,0))])
     Makie.text!(WF,nodelabels, position=nodepositions, textsize=WF[:textsize], offset=WF[:offset],color=WF[:nodelabelcolor])
     Makie.text!(WF,celllabels, position=cellpositions, textsize=WF[:textsize], color=WF[:celllabelcolor], align=(:center,:center))
-    return Makie.linesegments!(WF,lines,color=WF[:color], strokewidth=WF[:strokewidth])
+    Makie.linesegments!(WF,lines,color=WF[:color], strokewidth=WF[:strokewidth])
+    #cellsetsplot
+    dh = Ferrite.DofHandler(grid)
+    cellsets = grid.cellsets 
+    cellset_to_value = Dict{String,Int}()
+    for (cellsetidx,(cellsetname,cellset)) in enumerate(cellsets)
+        cellset_to_value[cellsetname] = cellsetidx 
+    end
+    cellset_u = zeros(Ferrite.getncells(grid))
+    for (cellidx,cell) in enumerate(Ferrite.getcells(grid))
+        for (cellsetname,cellsetvalue) in cellset_to_value
+            if cellidx in cellsets[cellsetname]
+                cellset_u[cellidx] = cellsetvalue
+            end
+        end
+    end
+    plotter = MakiePlotter(dh,cellset_u)
+    cellset_u =  reshape(transfer_scalar_celldata(plotter, cellset_u; process=identity), num_vertices(plotter))
+    colorrange = isempty(cellset_to_value) ? (0,1) : (0,maximum(values(cellset_to_value)))
+    Makie.mesh!(WF, plotter.physical_coords, plotter.triangles, color=cellset_u, shading=false, scale_plot=false, colormap=:darktest, visible=WF[:cellsets])
 end
 
 """

@@ -110,6 +110,7 @@ Plots the finite element mesh, optionally labels it and transforms it if a suita
 - `markersize::Int=30` size of the nodes
 - `deformation_field::Symbol=:default` field that transforms the mesh by the given deformation, defaults to no deformation
 - `deformation_scale::Number=1.0` scaling of the deformation
+- `cellsets=false` Color cells based on their cellset association. If no cellset is found for a cell, the cell is marked blue.
 - `nodelables=false` global node id labels
 - `nodelabelcolor=:darkblue`
 - `celllabels=false` global cell id labels

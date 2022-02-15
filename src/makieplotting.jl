@@ -110,6 +110,7 @@ Plots the finite element mesh, optionally labels it and transforms it if a suita
 - `markersize::Int=30` size of the nodes
 - `deformation_field::Symbol=:default` field that transforms the mesh by the given deformation, defaults to no deformation
 - `deformation_scale::Number=1.0` scaling of the deformation
+- `cellsets=false` Color cells based on their cellset association. If no cellset is found for a cell, the cell is marked blue.
 - `nodelables=false` global node id labels
 - `nodelabelcolor=:darkblue`
 - `celllabels=false` global cell id labels
@@ -132,6 +133,7 @@ Plots the finite element mesh, optionally labels it and transforms it if a suita
     nodelabelcolor=:darkblue,
     celllabels=false,
     celllabelcolor=:darkred,
+    cellsets=false,
     )
 end
 
@@ -154,6 +156,25 @@ function Makie.plot!(WF::Wireframe{<:Tuple{<:MakiePlotter{dim}}}) where dim
         lines
     end
     nodes = @lift($(WF[:plotnodes]) ? $(gridnodes) : zeros(Float32,0,3))
+    #plot cellsets
+    cellsets = plotter.dh.grid.cellsets 
+    cellset_to_value = Dict{String,Int}()
+    for (cellsetidx,(cellsetname,cellset)) in enumerate(cellsets)
+        cellset_to_value[cellsetname] = cellsetidx 
+    end
+    cellset_u = zeros(Ferrite.getncells(plotter.dh.grid))
+    for (cellidx,cell) in enumerate(Ferrite.getcells(plotter.dh.grid))
+        for (cellsetname,cellsetvalue) in cellset_to_value
+            if cellidx in cellsets[cellsetname]
+                cellset_u[cellidx] = cellsetvalue
+            end
+        end
+    end
+    u_matrix = @lift($(WF[:deformation_field])===:default ? zeros(0,3) : transfer_solution(plotter,$(plotter.u); field_idx=Ferrite.find_field(plotter.dh,$(WF[:deformation_field])), process=identity))
+    coords = @lift($(WF[:deformation_field])===:default ? plotter.physical_coords : plotter.physical_coords .+ ($(WF[:deformation_scale]) .* $(u_matrix)))
+    colorrange = isempty(cellset_to_value) ? (0,1) : (0,maximum(values(cellset_to_value)))
+    cellset_u =  reshape(transfer_scalar_celldata(plotter, cellset_u; process=identity), num_vertices(plotter))
+    Makie.mesh!(WF, coords, plotter.triangles, color=cellset_u, shading=false, scale_plot=false, colormap=:darktest, visible=WF[:cellsets])
     #plot the nodes
     Makie.scatter!(WF,gridnodes,markersize=WF[:markersize], color=WF[:color], visible=WF[:visible])
     #set up nodelabels
@@ -165,7 +186,7 @@ function Makie.plot!(WF::Wireframe{<:Tuple{<:MakiePlotter{dim}}}) where dim
     Makie.text!(WF,nodelabels, position=nodepositions, textsize=WF[:textsize], offset=WF[:offset],color=WF[:nodelabelcolor])
     Makie.text!(WF,celllabels, position=cellpositions, textsize=WF[:textsize], color=WF[:celllabelcolor], align=(:center,:center))
     #plot edges (3D) /faces (2D) of the mesh
-    return Makie.linesegments!(WF,lines,color=WF[:color], linewidth=WF[:strokewidth], visible=WF[:visible])
+    Makie.linesegments!(WF,lines,color=WF[:color], linewidth=WF[:strokewidth], visible=WF[:visible])
 end
 
 
@@ -183,9 +204,28 @@ function Makie.plot!(WF::Wireframe{<:Tuple{<:Ferrite.AbstractGrid{dim}}}) where 
     nodepositions = @lift $(WF[:nodelabels]) ? [dim < 3 ? Point2f0(row) : Point3f0(row) for row in eachrow(coords)] : (dim < 3 ? [Point2f0((0,0))] : [Point3f0((0,0,0))])
     celllabels = @lift $(WF[:celllabels]) ? ["$i" for i in 1:Ferrite.getncells(grid)] : [""]
     cellpositions = @lift $(WF[:celllabels]) ? [midpoint(cell,coords) for cell in Ferrite.getcells(grid)] : (dim < 3 ? [Point2f0((0,0))] : [Point3f0((0,0,0))])
+    #cellsetsplot
+    dh = Ferrite.DofHandler(grid)
+    cellsets = grid.cellsets 
+    cellset_to_value = Dict{String,Int}()
+    for (cellsetidx,(cellsetname,cellset)) in enumerate(cellsets)
+        cellset_to_value[cellsetname] = cellsetidx 
+    end
+    cellset_u = zeros(Ferrite.getncells(grid))
+    for (cellidx,cell) in enumerate(Ferrite.getcells(grid))
+        for (cellsetname,cellsetvalue) in cellset_to_value
+            if cellidx in cellsets[cellsetname]
+                cellset_u[cellidx] = cellsetvalue
+            end
+        end
+    end
+    plotter = MakiePlotter(dh,cellset_u)
+    cellset_u =  reshape(transfer_scalar_celldata(plotter, cellset_u; process=identity), num_vertices(plotter))
+    colorrange = isempty(cellset_to_value) ? (0,1) : (0,maximum(values(cellset_to_value)))
+    Makie.mesh!(WF, plotter.physical_coords, plotter.triangles, color=cellset_u, shading=false, scale_plot=false, colormap=:darktest, visible=WF[:cellsets])
     Makie.text!(WF,nodelabels, position=nodepositions, textsize=WF[:textsize], offset=WF[:offset],color=WF[:nodelabelcolor])
     Makie.text!(WF,celllabels, position=cellpositions, textsize=WF[:textsize], color=WF[:celllabelcolor], align=(:center,:center))
-    return Makie.linesegments!(WF,lines,color=WF[:color], strokewidth=WF[:strokewidth])
+    Makie.linesegments!(WF,lines,color=WF[:color], strokewidth=WF[:strokewidth])
 end
 
 """

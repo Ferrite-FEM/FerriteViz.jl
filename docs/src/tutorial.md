@@ -29,11 +29,14 @@ grid = generate_grid(Hexahedron,(3,3,3))
 FerriteVis.wireframe(grid,markersize=50,strokewidth=2)
 ```
 
-FerriteVis.jl also supports showing labels for `Ferrite.AbstractGrid` entities, such as node- and celllabels.
+FerriteVis.jl also supports showing labels for `Ferrite.AbstractGrid` entities, such as node- and celllabels, as well as plotting cellsets.
 
 ```@example 1
 grid = generate_grid(Quadrilateral,(3,3))
-FerriteVis.wireframe(grid,markersize=5,strokewidth=1,nodelabels=true,celllabels=true)
+addcellset!(grid,"s1",Set((1,4,7)))
+addcellset!(grid,"s2",Set((2,5,8)))
+addcellset!(grid,"s3",Set((3,6,9)))
+FerriteVis.wireframe(grid,markersize=5,strokewidth=1,nodelabels=true,celllabels=true,cellsets=true)
 ```
 
 If you solve some boundary value problem with Ferrite.jl keep in mind to safe your `dh::DofHandler` and solution vector `u::Vector{T}` in some variable.

@@ -1,4 +1,4 @@
-using Ferrite, SparseArrays, LinearAlgebra, FerriteVis
+using Ferrite, SparseArrays, LinearAlgebra, FerriteViz
 
 struct J2Plasticity{T, S <: SymmetricTensor{4, 3, T}}
     G::T  # Shear modulus

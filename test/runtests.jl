@@ -1,6 +1,6 @@
-using FerriteVis
+using FerriteViz
 using Test
 
-@testset "FerriteVis.jl" begin
+@testset "FerriteViz.jl" begin
     # Write your tests here.
 end

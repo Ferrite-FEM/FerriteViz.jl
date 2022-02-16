@@ -1,5 +1,5 @@
 """
-    FerriteVis.update!(plotter::MakiePlotter, u::Vector)
+    FerriteViz.update!(plotter::MakiePlotter, u::Vector)
 Updates the Observable `plotter.u` and thereby, triggers the plot to update.
 """
 function update!(plotter::MakiePlotter, u::Vector)
@@ -380,13 +380,13 @@ function ferriteviewer(plotter::MakiePlotter, data::Vector{Vector{T}}) where T
     fig = ferriteviewer(plotter)
     timeslider = labelslider!(fig, "timestep n:", 1:length(data); format = x->"$x", sliderkw = Dict(:snap=>false))
     fig[2,1] = timeslider.layout
-    @lift(FerriteVis.update!(plotter,data[$(timeslider.slider.value)]))
+    @lift(FerriteViz.update!(plotter,data[$(timeslider.slider.value)]))
     display(fig)
 end
 
 ####### One Shot Methods ####### 
-const FerriteVisPlots = Union{Type{<:Wireframe},Type{<:SolutionPlot},Type{<:Arrows}}
+const FerriteVizPlots = Union{Type{<:Wireframe},Type{<:SolutionPlot},Type{<:Arrows}}
 
-function Makie.convert_arguments(P::FerriteVisPlots, dh::Ferrite.AbstractDofHandler, u::Vector)
+function Makie.convert_arguments(P::FerriteVizPlots, dh::Ferrite.AbstractDofHandler, u::Vector)
     return (MakiePlotter(dh,u),)
 end

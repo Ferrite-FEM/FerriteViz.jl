@@ -1,6 +1,6 @@
-# FerriteVis.jl
+# FerriteViz.jl
 
-FerriteVis.jl is a small package to visualize your Ferrite.jl results. Currently all Makie backends are supported and thus,
+FerriteViz.jl is a small package to visualize your Ferrite.jl results. Currently all Makie backends are supported and thus,
 you can visualize your results in a GLMakie window, inside Pluto/Jupyter notebooks via WGLMakie and produce nice vector graphics with
 CairoMakie.
 
@@ -8,10 +8,10 @@ In the future this package tries to adapt also other plotting packages, such as 
 
 ## Getting Started
 
-Install FerriteVis.jl with the in-built package manager of Julia
+Install FerriteViz.jl with the in-built package manager of Julia
 
 ```julia
-pkg> add FerriteVis
+pkg> add FerriteViz
 ```
 
 Do your computation with Ferrite.jl and save the used `DofHandler` and solution vector into a variable. Pass those two variables into
@@ -28,11 +28,11 @@ Note that the mutating `solutionplot!`, `wireframe!`, `arrows!` and `surface!` a
 
 This package offers a set of unique features that are not easily reproducible with other export options of Ferrite.jl:
 
-- [`FerriteVis.solutionplot`](@ref) FE solution contour plot on arbitrary finite element mesh (in Makie called `mesh` plots)
-- [`FerriteVis.ferriteviewer`](@ref) viewer with toggles and menus that update the plot
-- [`FerriteVis.wireframe`](@ref) plots the finite element mesh and optionally labels nodes and cells
-- [`FerriteVis.arrows`](@ref) - also called `quiver` plots, in paraview `glyph` filter
-- [`FerriteVis.surface`](@ref) 2D solutions in 3D space as surface, in paraview `warp by scalar` filter
+- [`FerriteViz.solutionplot`](@ref) FE solution contour plot on arbitrary finite element mesh (in Makie called `mesh` plots)
+- [`FerriteViz.ferriteviewer`](@ref) viewer with toggles and menus that update the plot
+- [`FerriteViz.wireframe`](@ref) plots the finite element mesh and optionally labels nodes and cells
+- [`FerriteViz.arrows`](@ref) - also called `quiver` plots, in paraview `glyph` filter
+- [`FerriteViz.surface`](@ref) 2D solutions in 3D space as surface, in paraview `warp by scalar` filter
 - synchronous plotting while your simulation runs with any of the above listed options
 - mutating versions of the above listed functions (except for the viewer)
 - deformed plots available for `solutionplot` and `wireframe`

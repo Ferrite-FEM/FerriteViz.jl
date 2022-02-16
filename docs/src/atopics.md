@@ -2,20 +2,20 @@
 
 ## Live plotting
 
-Plotting while a computational heavy simulation is performed can be easily achieved with FerriteVis.jl.
+Plotting while a computational heavy simulation is performed can be easily achieved with FerriteViz.jl.
 Every plotter object of type `MakiePlotter` holds a property called `u` which is a so called `Observable`.
 If an `Observable` changes, all its dependencies are triggered to change as well. So, all we need to do is to update
 the observable `plotter.u`.
-For this purpose the function [`FerriteVis.update!`](@ref) is provided. It takes a `plotter:MakiePlotter`
+For this purpose the function [`FerriteViz.update!`](@ref) is provided. It takes a `plotter:MakiePlotter`
 and a new solutiuon vector `u_new` and updates `plotter.u`, thereby all open plots called with `plotter` are updated.
 
 A summary of the needed steps for live plotting:
 1. Create a plotter before your time stepping begins
 2. Call a plot or the `ferriteviewer` and save the return in a variable, e.g. `fig`
 3. `display(fig)` in order to force the plot/viewer to pop up, even if its called inside a function body
-4. `FerriteVis.update!(plotter,u_new)` where `u_new` corresponds to your new solution of the time step
+4. `FerriteViz.update!(plotter,u_new)` where `u_new` corresponds to your new solution of the time step
 
-As an illustrative example, let's consider a slightly modified [plasticity example of Ferrite.jl](https://github.com/koehlerson/FerriteVis.jl/blob/master/docs/src/ferrite-examples/plasticity.jl).
+As an illustrative example, let's consider a slightly modified [plasticity example of Ferrite.jl](https://github.com/koehlerson/FerriteViz.jl/blob/master/docs/src/ferrite-examples/plasticity.jl).
 For the full source code, please refer to the link. In the following code we only highlight the necessary changes.
 
 ```julia
@@ -66,7 +66,7 @@ function solve(liveplotting=false)
         
         if liveplotting
             ####### Step 4 updating the current solution vector in plotter ####### 
-            FerriteVis.update!(plotter,u)
+            FerriteViz.update!(plotter,u)
             ###################################################################### 
             sleep(0.1)
         end
@@ -88,9 +88,9 @@ u, dh, traction_magnitude = solve();
 
 Note that we create `plotter::MakiePlotter` object before the time stepping begins, as well as calling `ferriteviewer` on the `plotter`.
 The next function call is crucial to get the live plotting working. `display(fig)` forces the viewer to pop up, even if it's inside a function body.
-Now, the only missing piece is the `FerriteVis.update!` of the plotter, which happens directly after the Newton iteration. The result for this code looks like this:
+Now, the only missing piece is the `FerriteViz.update!` of the plotter, which happens directly after the Newton iteration. The result for this code looks like this:
 
-![liveplot](https://media.githubusercontent.com/media/Ferrite-FEM/FerriteVis.jl/master/docs/src/assets/liveplotting.gif)
+![liveplot](https://media.githubusercontent.com/media/Ferrite-FEM/FerriteViz.jl/master/docs/src/assets/liveplotting.gif)
 
 Since the computational load of one time step is in this example too low, the plotter would just update all the time and likely never display something, so we artificially increase the load of one time step by
 `sleep`ing for 0.1s.

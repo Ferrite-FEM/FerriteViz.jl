@@ -230,7 +230,7 @@ Transfer the solution of a plotter to the new mesh in 2D.
 
 @TODO Refactor. This is peak inefficiency.
 """
-function transfer_solution(plotter::MakiePlotter{2}, u::Vector; field_idx::Int=1, process::Function=FerriteVis.postprocess)
+function transfer_solution(plotter::MakiePlotter{2}, u::Vector; field_idx::Int=1, process::Function=FerriteViz.postprocess)
     n_vertices = 3 # we have 3 vertices per triangle...
 
     # select objects from plotter
@@ -271,7 +271,7 @@ Transfer the solution of a plotter to the new mesh in 3D. We just evaluate the f
 
 @TODO Refactor. This is peak inefficiency.
 """
-function transfer_solution(plotter::MakiePlotter{3}, u::Vector; field_idx::Int=1, process::Function=FerriteVis.postprocess) where T
+function transfer_solution(plotter::MakiePlotter{3}, u::Vector; field_idx::Int=1, process::Function=FerriteViz.postprocess) where T
     n_vertices = 3 # we have 3 vertices per triangle...
 
     # select objects from plotter
@@ -319,7 +319,7 @@ function transfer_solution(plotter::MakiePlotter{3}, u::Vector; field_idx::Int=1
     return mapslices(process, data, dims=[2])
 end
 
-function transfer_scalar_celldata(plotter::MakiePlotter{3}, u::Vector; process::Function=FerriteVis.postprocess)
+function transfer_scalar_celldata(plotter::MakiePlotter{3}, u::Vector; process::Function=FerriteViz.postprocess)
     n_vertices = 3 # we have 3 vertices per triangle...
 
     # select objects from plotter
@@ -343,7 +343,7 @@ function transfer_scalar_celldata(plotter::MakiePlotter{3}, u::Vector; process::
     return mapslices(process, data, dims=[2])
 end
 
-function transfer_scalar_celldata(plotter::MakiePlotter{2}, u::Vector;  process::Function=FerriteVis.postprocess)
+function transfer_scalar_celldata(plotter::MakiePlotter{2}, u::Vector;  process::Function=FerriteViz.postprocess)
     n_vertices = 3 # we have 3 vertices per triangle...
 
     # select objects from plotter
@@ -363,7 +363,7 @@ function transfer_scalar_celldata(plotter::MakiePlotter{2}, u::Vector;  process:
     return mapslices(process, data, dims=[2])
 end
 
-function transfer_scalar_celldata(grid::Ferrite.AbstractGrid{3}, num_vertices::Number, u::Vector; process::Function=FerriteVis.postprocess)
+function transfer_scalar_celldata(grid::Ferrite.AbstractGrid{3}, num_vertices::Number, u::Vector; process::Function=FerriteViz.postprocess)
     n_vertices = 3 # we have 3 vertices per triangle...
     current_vertex_index = 1
     data = fill(0.0, num_vertices, 1)
@@ -381,7 +381,7 @@ function transfer_scalar_celldata(grid::Ferrite.AbstractGrid{3}, num_vertices::N
     return mapslices(process, data, dims=[2])
 end
 
-function transfer_scalar_celldata(grid::Ferrite.AbstractGrid{2}, num_vertices::Number, u::Vector;  process::Function=FerriteVis.postprocess)
+function transfer_scalar_celldata(grid::Ferrite.AbstractGrid{2}, num_vertices::Number, u::Vector;  process::Function=FerriteViz.postprocess)
     n_vertices = 3 # we have 3 vertices per triangle...
     current_vertex_index = 1
     data = fill(0.0, num_vertices, 1)

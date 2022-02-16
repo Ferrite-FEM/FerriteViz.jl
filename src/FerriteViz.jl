@@ -1,4 +1,4 @@
-module FerriteVis
+module FerriteViz
 
 using Makie
 using Tensors

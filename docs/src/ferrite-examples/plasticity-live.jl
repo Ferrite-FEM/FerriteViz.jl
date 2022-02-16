@@ -1,4 +1,4 @@
-using Ferrite, SparseArrays, LinearAlgebra, FerriteVis
+using Ferrite, SparseArrays, LinearAlgebra, FerriteViz
 
 struct J2Plasticity{T, S <: SymmetricTensor{4, 3, T}}
     G::T  # Shear modulus
@@ -275,7 +275,7 @@ function solve()
             Δu = Symmetric(K) \ r
             u -= Δu
         end
-        FerriteVis.update!(plotter,u)
+        FerriteViz.update!(plotter,u)
         sleep(0.1)
 
         # Update all the material states after we have reached equilibrium

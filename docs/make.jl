@@ -1,8 +1,8 @@
 push!(LOAD_PATH,"../src/")
-using Documenter, FerriteVis, WGLMakie
+using Documenter, FerriteViz, WGLMakie
 
-makedocs(sitename="FerriteVis",
-         modules=[FerriteVis],
+makedocs(sitename="FerriteViz",
+         modules=[FerriteViz],
          authors="Maximilian Köhler",
          pages=["Home"=> "index.md",
                 "Tutorial" => "tutorial.md",
@@ -10,6 +10,6 @@ makedocs(sitename="FerriteVis",
                 "API Reference" => "api.md",]
 )
 
-deploydocs(repo = "github.com/Ferrite-FEM/FerriteVis.jl.git",
+deploydocs(repo = "github.com/Ferrite-FEM/FerriteViz.jl.git",
            push_preview=true,
            forcepush=true,)

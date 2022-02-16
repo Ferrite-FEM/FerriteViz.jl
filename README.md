@@ -1,11 +1,11 @@
-# FerriteVis.jl
+# FerriteViz.jl
 
-[![Build Status](https://github.com/ferrite-fem/FerriteVis.jl/workflows/CI/badge.svg)](https://github.com/ferrite-fem/FerriteVis.jl/actions)
+[![Build Status](https://github.com/ferrite-fem/FerriteViz.jl/workflows/CI/badge.svg)](https://github.com/ferrite-fem/FerriteViz.jl/actions)
 [![][docs-dev-img]][docs-dev-url]
 
 [docs-dev-img]: https://img.shields.io/badge/docs-dev-blue.svg
 
-[docs-dev-url]: http://ferrite-fem.github.io/FerriteVis.jl/dev/
+[docs-dev-url]: http://ferrite-fem.github.io/FerriteViz.jl/dev/
 
 Small package to visualize your [Ferrite.jl](https://github.com/Ferrite-FEM/Ferrite.jl) results. Currently supports only Makie,
 but the goal is to extend it for different plotting packages.
@@ -16,7 +16,7 @@ Likely, only a small fraction of the interface will change over time.
 ## Installation
 
 ```julia
-pkg> add FerriteVis
+pkg> add FerriteViz
 ```
 
 

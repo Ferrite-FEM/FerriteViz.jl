@@ -90,7 +90,7 @@ function Makie.plot!(CP::CellPlot{<:Tuple{<:MakiePlotter{dim},Vector}}) where di
     coords = @lift($(CP[:deformation_field])===:default ? plotter.physical_coords : plotter.physical_coords .+ ($(CP[:deformation_scale]) .* $(u_matrix)))
     mins = minimum(qp_values)
     maxs = maximum(qp_values)
-    CP[:colorrange] = isapprox(mins,maxs) ? (0,1e-8) : (mins,maxs) 
+    CP[:colorrange] = isapprox(mins,maxs) ? (0,1e-8) : (mins,maxs)
     solution =  @lift(reshape(transfer_scalar_celldata(plotter, qp_values; process=$(CP[:process])), num_vertices(plotter)))
     return Makie.mesh!(CP, coords, plotter.triangles, color=solution, shading=CP[:shading], scale_plot=CP[:scale_plot], colormap=CP[:colormap], transparent=CP[:transparent])
 end
@@ -146,7 +146,7 @@ function Makie.plot!(WF::Wireframe{<:Tuple{<:MakiePlotter{dim}}}) where dim
     # coords = @lift($(WF[:deformation_field])===:default ? plotter.physical_coords : plotter.physical_coords .+ ($(WF[:scale]) .* $(u_matrix)))
     #original representation
     nodal_u_matrix = @lift($(WF[:deformation_field])===:default ? zeros(0,3) : dof_to_node(plotter.dh, $(WF[1][].u); field=Ferrite.find_field(plotter.dh,$(WF[:deformation_field])), process=identity))
-    gridnodes = @lift($(WF[:deformation_field])===:default ? plotter.gridnodes : plotter.gridnodes .+ ($(WF[:deformation_scale]) .* $(nodal_u_matrix))) 
+    gridnodes = @lift($(WF[:deformation_field])===:default ? plotter.gridnodes : plotter.gridnodes .+ ($(WF[:deformation_scale]) .* $(nodal_u_matrix)))
     lines = @lift begin
         dim > 2 ? (lines = Makie.Point3f0[]) : (lines = Makie.Point2f0[])
         for cell in Ferrite.getcells(plotter.dh.grid)
@@ -157,10 +157,10 @@ function Makie.plot!(WF::Wireframe{<:Tuple{<:MakiePlotter{dim}}}) where dim
     end
     nodes = @lift($(WF[:plotnodes]) ? $(gridnodes) : zeros(Float32,0,3))
     #plot cellsets
-    cellsets = plotter.dh.grid.cellsets 
+    cellsets = plotter.dh.grid.cellsets
     cellset_to_value = Dict{String,Int}()
     for (cellsetidx,(cellsetname,cellset)) in enumerate(cellsets)
-        cellset_to_value[cellsetname] = cellsetidx 
+        cellset_to_value[cellsetname] = cellsetidx
     end
     cellset_u = zeros(Ferrite.getncells(plotter.dh.grid))
     for (cellidx,cell) in enumerate(Ferrite.getcells(plotter.dh.grid))
@@ -192,7 +192,7 @@ end
 
 function Makie.plot!(WF::Wireframe{<:Tuple{<:Ferrite.AbstractGrid{dim}}}) where dim
     grid = WF[1][]
-    coords = [Ferrite.getcoordinates(node)[i] for node in Ferrite.getnodes(grid), i in 1:dim] 
+    coords = [Ferrite.getcoordinates(node)[i] for node in Ferrite.getnodes(grid), i in 1:dim]
     dim > 2 ? (lines = Makie.Point3f0[]) : (lines = Makie.Point2f0[])
     for cell in Ferrite.getcells(grid)
         boundaryentities = dim < 3 ? Ferrite.faces(cell) : Ferrite.edges(cell)
@@ -206,10 +206,10 @@ function Makie.plot!(WF::Wireframe{<:Tuple{<:Ferrite.AbstractGrid{dim}}}) where 
     cellpositions = @lift $(WF[:celllabels]) ? [midpoint(cell,coords) for cell in Ferrite.getcells(grid)] : (dim < 3 ? [Point2f0((0,0))] : [Point3f0((0,0,0))])
     #cellsetsplot
     dh = Ferrite.DofHandler(grid)
-    cellsets = grid.cellsets 
+    cellsets = grid.cellsets
     cellset_to_value = Dict{String,Int}()
     for (cellsetidx,(cellsetname,cellset)) in enumerate(cellsets)
-        cellset_to_value[cellsetname] = cellsetidx 
+        cellset_to_value[cellsetname] = cellsetidx
     end
     cellset_u = zeros(Ferrite.getncells(grid))
     for (cellidx,cell) in enumerate(Ferrite.getcells(grid))
@@ -235,7 +235,7 @@ end
     surface!(dh::AbstractDofHandler, u::Vector; kwargs...)
 Uses the given `field` and plots the scalar values as a surface. If it's a vector valued problem, the nodal vector
 values are transformed to a scalar based on `process` which defaults to the magnitude. Only availble in `dim=2`.
- 
+
 - `field = :default`
 - `process = postprocess`
 - `scale_plot = false`
@@ -251,7 +251,7 @@ values are transformed to a scalar based on `process` which defaults to the magn
     colormap = :cividis,
     )
 end
- 
+
 function Makie.plot!(SF::Surface{<:Tuple{<:MakiePlotter{2}}})
     plotter = SF[1][]
     field = @lift($(SF[:field])===:default ? 1 : Ferrite.find_field(plotter.dh,$(SF[:field])))
@@ -363,7 +363,7 @@ function ferriteviewer(plotter::MakiePlotter{dim}) where dim
     on(menu_field.selection) do field
         solutionp.field = field
     end
-    
+
     on(menu_deformation_field.selection) do field
         solutionp.deformation_field = field
         wireframep.deformation_field = field
@@ -384,7 +384,7 @@ function ferriteviewer(plotter::MakiePlotter, data::Vector{Vector{T}}) where T
     display(fig)
 end
 
-####### One Shot Methods ####### 
+####### One Shot Methods #######
 const FerriteVizPlots = Union{Type{<:Wireframe},Type{<:SolutionPlot},Type{<:Arrows}}
 
 function Makie.convert_arguments(P::FerriteVizPlots, dh::Ferrite.AbstractDofHandler, u::Vector)

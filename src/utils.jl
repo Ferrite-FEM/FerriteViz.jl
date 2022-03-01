@@ -24,9 +24,15 @@ function facedofs(cell, local_face_idx::Int, field_idx::Int)
 end
 
 Ferrite.vertices(cell::Ferrite.Cell{3,3,1}) = cell.nodes
+
 Ferrite.default_interpolation(::Type{Ferrite.Cell{3,3,1}}) = Ferrite.Lagrange{2,Ferrite.RefTetrahedron,1}()
-face_cell(cell::Ferrite.Tetrahedron, i::Int) =  Ferrite.Cell{3,3,1}(Ferrite.faces(cell)[i])
-face_cell(cell::Ferrite.Hexahedron, i::Int) = Ferrite.Quadrilateral3D(Ferrite.faces(cell)[i])
+
+# Note: This extracts the face spanned by the vertices, not the actual face!
+linear_face_cell(cell::Ferrite.Cell{3,N,4}, local_face_idx::Int) where N =  Ferrite.Cell{3,3,1}(Ferrite.faces(cell)[local_face_idx])
+linear_face_cell(cell::Ferrite.Cell{3,N,6}, local_face_idx::Int) where N = Ferrite.Quadrilateral3D(Ferrite.faces(cell)[local_face_idx])
+
+# Obtain the face interpolation on regular geometries.
+getfaceip(ip::Ferrite.Interpolation{dim, shape, order}, local_face_idx::Int) where {dim, shape <: Union{Ferrite.RefTetrahedron, Ferrite.RefCube}, order} = Ferrite.getlowerdim(ip)
 
 struct MakiePlotter{dim,DH<:Ferrite.AbstractDofHandler,T} <: AbstractPlotter
     dh::DH
@@ -231,7 +237,7 @@ Transfer the solution of a plotter to the new mesh in 2D.
 @TODO Refactor. This is peak inefficiency.
 """
 function transfer_solution(plotter::MakiePlotter{2}, u::Vector; field_idx::Int=1, process::Function=FerriteViz.postprocess)
-    n_vertices = 3 # we have 3 vertices per triangle...
+    n_vertices_per_tri = 3 # we have 3 vertices per triangle...
 
     # select objects from plotter
     dh = plotter.dh
@@ -252,8 +258,8 @@ function transfer_solution(plotter::MakiePlotter{2}, u::Vector; field_idx::Int=1
         cell_geo = Ferrite.getcells(dh.grid,cell_index)
         _celldofs_field = reshape(Ferrite.celldofs(dh,cell_index)[local_dof_range], (field_dim, Ferrite.getnbasefunctions(ip)))
 
-        # Loop over vertices
-        for i in 1:(ntriangles(cell_geo)*n_vertices)
+        # Loop over all local triangle vertices
+        for i in 1:(ntriangles(cell_geo)*n_vertices_per_tri)
             ξ = Tensors.Vec(ref_coords[current_vertex_index, :]...)
             for d in 1:field_dim
                 for node_idx ∈ 1:Ferrite.getnbasefunctions(ip)
@@ -272,7 +278,7 @@ Transfer the solution of a plotter to the new mesh in 3D. We just evaluate the f
 @TODO Refactor. This is peak inefficiency.
 """
 function transfer_solution(plotter::MakiePlotter{3}, u::Vector; field_idx::Int=1, process::Function=FerriteViz.postprocess) where T
-    n_vertices = 3 # we have 3 vertices per triangle...
+    n_vertices_per_tri = 3 # we have 3 vertices per triangle...
 
     # select objects from plotter
     dh = plotter.dh
@@ -282,11 +288,13 @@ function transfer_solution(plotter::MakiePlotter{3}, u::Vector; field_idx::Int=1
     # field related variables
     field_name = Ferrite.getfieldnames(dh)[field_idx]
     field_dim = Ferrite.getfielddim(dh, field_idx)
+
+    # @FIXME decouple the interpolation from the geometry, because for discontinuous interpolations
+    #   the "interpolation faces" (which we need for dof-assignment) do not coincide with the geometric
+    #   faces... Alternatively we could try something similar to FaceValues.
     ip_cell = dh.field_interpolations[field_idx]
     _faces = Ferrite.faces(ip_cell) # faces of the cell with local dofs
-
-    # face related variables
-    ip_face = Ferrite.getlowerdim(ip_cell)
+    @assert !isempty(_faces) # Discontinuous interpolations in 3d not supported yet. See above.
 
     # actual data
     local_dof_range = Ferrite.dof_range(dh, field_name)
@@ -295,16 +303,19 @@ function transfer_solution(plotter::MakiePlotter{3}, u::Vector; field_idx::Int=1
     data = fill(0.0, num_vertices(plotter), field_dim)
     for (cell_index, cell) in enumerate(Ferrite.getcells(plotter.dh.grid))
         cell_geo = Ferrite.getcells(dh.grid,cell_index)
-        _celldofs_field = reshape(Ferrite.celldofs(dh,cell_index)[local_dof_range], (field_dim, Ferrite.getnbasefunctions(ip_cell)))
+
+        _local_celldofs = Ferrite.celldofs(dh,cell_index)[local_dof_range]
+        _celldofs_field = reshape(_local_celldofs, (field_dim, Ferrite.getnbasefunctions(ip_cell)))
 
         for (local_face_idx,_) in enumerate(Ferrite.faces(cell_geo))
-            # extract face vertex dofs
-            face_vertex_incides = _faces[local_face_idx][1:n_vertices]
-            _facedofs_field = _celldofs_field[:,[face_vertex_incides...]]
+            ip_face = getfaceip(ip_cell, local_face_idx)
+            face_geo = linear_face_cell(cell_geo, local_face_idx)
 
-            face_geo = face_cell(cell_geo, local_face_idx)
+            # extract face dofs
+            _facedofs_field = _celldofs_field[:,[_faces[local_face_idx]...]]
+
             # Loop over vertices
-            for i in 1:(ntriangles(face_geo)*n_vertices)
+            for i in 1:(ntriangles(face_geo)*n_vertices_per_tri)
                 ξ = Tensors.Vec(ref_coords[current_vertex_index, :]...)
                 for d in 1:field_dim
                     for node_idx ∈ 1:Ferrite.getnbasefunctions(ip_face)
@@ -331,7 +342,7 @@ function transfer_scalar_celldata(plotter::MakiePlotter{3}, u::Vector; process::
     for (cell_index, cell) in enumerate(Ferrite.getcells(grid))
         cell_geo = grid.cells[cell_index]
         for (local_face_idx,_) in enumerate(Ferrite.faces(cell_geo))
-            face_geo = face_cell(cell_geo, local_face_idx)
+            face_geo = linear_face_cell(cell_geo, local_face_idx)
             # Loop over vertices
             for i in 1:(ntriangles(face_geo)*n_vertices)
                 data[current_vertex_index, 1] = u[cell_index]
@@ -370,7 +381,7 @@ function transfer_scalar_celldata(grid::Ferrite.AbstractGrid{3}, num_vertices::N
     for (cell_index, cell) in enumerate(Ferrite.getcells(grid))
         cell_geo = grid.cells[cell_index]
         for (local_face_idx,_) in enumerate(Ferrite.faces(cell_geo))
-            face_geo = face_cell(cell_geo, local_face_idx)
+            face_geo = linear_face_cell(cell_geo, local_face_idx)
             # Loop over vertices
             for i in 1:(ntriangles(face_geo)*n_vertices)
                 data[current_vertex_index, 1] = u[cell_index]
@@ -396,9 +407,9 @@ function transfer_scalar_celldata(grid::Ferrite.AbstractGrid{2}, num_vertices::N
 end
 
 function dof_to_node(dh::Ferrite.AbstractDofHandler, u::Array{T,1}; field::Int=1, process::Function=postprocess) where T
-    fieldnames = Ferrite.getfieldnames(dh)  
+    fieldnames = Ferrite.getfieldnames(dh)
     field_dim = Ferrite.getfielddim(dh, field)
-    data = fill(NaN, Ferrite.getnnodes(dh.grid), field_dim) 
+    data = fill(NaN, Ferrite.getnnodes(dh.grid), field_dim)
     offset = Ferrite.field_offset(dh, fieldnames[field])
 
     for cell in Ferrite.CellIterator(dh)

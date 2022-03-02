@@ -1,21 +1,21 @@
 """
-    FerriteViz.update!(plotter::MakiePlotter, u::Vector)
+    FerriteViz.update!(plotter::Plotter, u::Vector)
 Updates the Observable `plotter.u` and thereby, triggers the plot to update.
 """
-function update!(plotter::MakiePlotter, u::Vector)
+function update!(plotter::Plotter, u::Vector)
     @assert length(plotter.u[]) == length(u)
     plotter.u[] .= u
     Makie.notify(plotter.u)
 end
 
-function Makie.convert_arguments(P::Type{<:Makie.Mesh}, plotter::MakiePlotter)
+function Makie.convert_arguments(P::Type{<:Makie.Mesh}, plotter::Plotter)
     return Makie.convert_arguments(P,plotter.physical_coords,plotter.triangles)
 end
 
 """
-    solutionplot(plotter::MakiePlotter; kwargs...)
+    solutionplot(plotter::Plotter; kwargs...)
     solutionplot(dh::AbstractDofHandler, u::Vector; kwargs...)
-    solutionplot!(plotter::MakiePlotter; kwargs...)
+    solutionplot!(plotter::Plotter; kwargs...)
     solutionplot!(dh::AbstractDofHandler, u::Vector; kwargs...)
 Solutionplot produces the classical contour plot onto the finite element mesh. Most important
 keyword arguments are:
@@ -43,7 +43,7 @@ keyword arguments are:
     )
 end
 
-function Makie.plot!(SP::SolutionPlot{<:Tuple{<:MakiePlotter}})
+function Makie.plot!(SP::SolutionPlot{<:Tuple{<:Plotter}})
     plotter = SP[1][]
     solution = @lift($(SP[:field])===:default ? reshape(transfer_solution(plotter,$(plotter.u); field_idx=1, process=$(SP[:process])), num_vertices(plotter)) : reshape(transfer_solution(plotter,$(plotter.u); field_idx=Ferrite.find_field(plotter.dh,$(SP[:field])), process=$(SP[:process])), num_vertices(plotter)))
     u_matrix = @lift($(SP[:deformation_field])===:default ? zeros(0,3) : transfer_solution(plotter,$(plotter.u); field_idx=Ferrite.find_field(plotter.dh,$(SP[:deformation_field])), process=identity))
@@ -55,8 +55,8 @@ function Makie.plot!(SP::SolutionPlot{<:Tuple{<:MakiePlotter}})
 end
 
 """
-    cellplot(plotter::MakiePlotter,σ::Vector{T}; kwargs...) where T
-    cellplot!(plotter::MakiePlotter,σ::Vector{T}; kwargs...) where T
+    cellplot(plotter::Plotter,σ::Vector{T}; kwargs...) where T
+    cellplot!(plotter::Plotter,σ::Vector{T}; kwargs...) where T
 `cellplot` plots constant scalar data on the cells of the finite element mesh. If `T` is not a number, the keyword argument `process`
 can be passed in order to reduce the elements of `σ` to a scalar.
 
@@ -83,7 +83,7 @@ keyword arguments are:
     )
 end
 
-function Makie.plot!(CP::CellPlot{<:Tuple{<:MakiePlotter{dim},Vector}}) where dim
+function Makie.plot!(CP::CellPlot{<:Tuple{<:Plotter{dim},Vector}}) where dim
     plotter = CP[1][]
     qp_values = CP[2][]
     u_matrix = @lift($(CP[:deformation_field])===:default ? zeros(0,3) : transfer_solution(plotter,$(plotter.u); field_idx=Ferrite.find_field(plotter.dh,$(CP[:deformation_field])), process=identity))
@@ -96,10 +96,10 @@ function Makie.plot!(CP::CellPlot{<:Tuple{<:MakiePlotter{dim},Vector}}) where di
 end
 
 """
-    wireframe(plotter::MakiePlotter; kwargs...)
+    wireframe(plotter::Plotter; kwargs...)
     wireframe(dh::AbstractDofHandler, u::Vector; kwargs...)
     wireframe(grid::AbstractGrid; kwargs...)
-    wireframe!(plotter::MakiePlotter; kwargs...)
+    wireframe!(plotter::Plotter; kwargs...)
     wireframe!(dh::AbstractDofHandler, u::Vector; kwargs...)
     wireframe!(grid::AbstractGrid; kwargs...)
 Plots the finite element mesh, optionally labels it and transforms it if a suitable `deformation_field` is given.
@@ -137,7 +137,7 @@ Plots the finite element mesh, optionally labels it and transforms it if a suita
     )
 end
 
-function Makie.plot!(WF::Wireframe{<:Tuple{<:MakiePlotter{dim}}}) where dim
+function Makie.plot!(WF::Wireframe{<:Tuple{<:Plotter{dim}}}) where dim
     plotter = WF[1][]
     #triangle representation
     # can't use triangle representation, since we don't know by this information which edges to draw
@@ -219,7 +219,7 @@ function Makie.plot!(WF::Wireframe{<:Tuple{<:Ferrite.AbstractGrid{dim}}}) where 
             end
         end
     end
-    plotter = MakiePlotter(dh,cellset_u)
+    plotter = Plotter(dh,cellset_u)
     cellset_u =  reshape(transfer_scalar_celldata(plotter, cellset_u; process=identity), num_vertices(plotter))
     colorrange = isempty(cellset_to_value) ? (0,1) : (0,maximum(values(cellset_to_value)))
     Makie.mesh!(WF, plotter.physical_coords, plotter.triangles, color=cellset_u, shading=false, scale_plot=false, colormap=:darktest, visible=WF[:cellsets])
@@ -229,9 +229,9 @@ function Makie.plot!(WF::Wireframe{<:Tuple{<:Ferrite.AbstractGrid{dim}}}) where 
 end
 
 """
-    surface(plotter::MakiePlotter; kwargs...)
+    surface(plotter::Plotter; kwargs...)
     surface(dh::AbstractDofHandler, u::Vector; kwargs...)
-    surface!(plotter::MakiePlotter; kwargs...)
+    surface!(plotter::Plotter; kwargs...)
     surface!(dh::AbstractDofHandler, u::Vector; kwargs...)
 Uses the given `field` and plots the scalar values as a surface. If it's a vector valued problem, the nodal vector
 values are transformed to a scalar based on `process` which defaults to the magnitude. Only availble in `dim=2`.
@@ -252,7 +252,7 @@ values are transformed to a scalar based on `process` which defaults to the magn
     )
 end
 
-function Makie.plot!(SF::Surface{<:Tuple{<:MakiePlotter{2}}})
+function Makie.plot!(SF::Surface{<:Tuple{<:Plotter{2}}})
     plotter = SF[1][]
     field = @lift($(SF[:field])===:default ? 1 : Ferrite.find_field(plotter.dh,$(SF[:field])))
     solution = @lift(reshape(transfer_solution(plotter, $(plotter.u); field_idx=$(field), process=$(SF[:process])), num_vertices(plotter)))
@@ -261,9 +261,9 @@ function Makie.plot!(SF::Surface{<:Tuple{<:MakiePlotter{2}}})
 end
 
 """
-    arrows(plotter::MakiePlotter; kwargs...)
+    arrows(plotter::Plotter; kwargs...)
     arrows(dh::AbstractDofHandler, u::Vector; kwargs...)
-    arrows!(plotter::MakiePlotter; kwargs...)
+    arrows!(plotter::Plotter; kwargs...)
     arrows!(dh::AbstractDofHandler, u::Vector; kwargs...)
 At every node position a arrows is drawn, where the arrow tip ends at the node. Only works in `dim >=2`. If a `color` is specified
 the arrows are unicolored. Otherwise the color corresponds to the magnitude, or any other scalar value based on the `process` function.
@@ -288,7 +288,7 @@ the arrows are unicolored. Otherwise the color corresponds to the magnitude, or 
     )
 end
 
-function Makie.plot!(AR::Arrows{<:Tuple{<:MakiePlotter{dim}}}) where dim
+function Makie.plot!(AR::Arrows{<:Tuple{<:Plotter{dim}}}) where dim
     plotter = AR[1][]
     field = @lift($(AR[:field])===:default ? 1 : Ferrite.find_field(plotter.dh,$(AR[:field])))
     @assert Ferrite.getfielddim(plotter.dh,field[]) > 1
@@ -308,12 +308,12 @@ function Makie.plot!(AR::Arrows{<:Tuple{<:MakiePlotter{dim}}}) where dim
 end
 
 """
-    ferriteviewer(plotter::MakiePlotter)
-    ferriteviewer(plotter::MakiePlotter, u_history::Vector{Vector{T}}})
+    ferriteviewer(plotter::Plotter)
+    ferriteviewer(plotter::Plotter, u_history::Vector{Vector{T}}})
 Constructs a viewer with a `solutionplot`, `Colorbar` as well as sliders,toggles and menus to change the current view.
 If the second dispatch is called a timeslider is added, in order to step through a set of solutions obtained from a simulation.
 """
-function ferriteviewer(plotter::MakiePlotter{dim}) where dim
+function ferriteviewer(plotter::Plotter{dim}) where dim
     #set up figure and axis, axis either LScene in 3D or Axis if dim < 2
     fig = Figure()
     dim > 2 ? (ax = LScene(fig[1,1])) : (ax = Axis(fig[1,1]))
@@ -376,7 +376,7 @@ function ferriteviewer(plotter::MakiePlotter{dim}) where dim
     return fig
 end
 
-function ferriteviewer(plotter::MakiePlotter, data::Vector{Vector{T}}) where T
+function ferriteviewer(plotter::Plotter, data::Vector{Vector{T}}) where T
     fig = ferriteviewer(plotter)
     timeslider = labelslider!(fig, "timestep n:", 1:length(data); format = x->"$x", sliderkw = Dict(:snap=>false))
     fig[2,1] = timeslider.layout
@@ -388,5 +388,5 @@ end
 const FerriteVizPlots = Union{Type{<:Wireframe},Type{<:SolutionPlot},Type{<:Arrows}}
 
 function Makie.convert_arguments(P::FerriteVizPlots, dh::Ferrite.AbstractDofHandler, u::Vector)
-    return (MakiePlotter(dh,u),)
+    return (Plotter(dh,u),)
 end

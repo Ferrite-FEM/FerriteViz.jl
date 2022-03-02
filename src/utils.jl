@@ -34,7 +34,7 @@ linear_face_cell(cell::Ferrite.Cell{3,N,6}, local_face_idx::Int) where N = Ferri
 # Obtain the face interpolation on regular geometries.
 getfaceip(ip::Ferrite.Interpolation{dim, shape, order}, local_face_idx::Int) where {dim, shape <: Union{Ferrite.RefTetrahedron, Ferrite.RefCube}, order} = Ferrite.getlowerdim(ip)
 
-struct MakiePlotter{dim,DH<:Ferrite.AbstractDofHandler,T} <: AbstractPlotter
+struct Plotter{dim,DH<:Ferrite.AbstractDofHandler,T} <: AbstractPlotter
     dh::DH
     u::Makie.Observable{Vector{T}} # original solution on the original mesh (i.e. dh.mesh)
 
@@ -46,7 +46,7 @@ struct MakiePlotter{dim,DH<:Ferrite.AbstractDofHandler,T} <: AbstractPlotter
     reference_coords::Matrix{AbstractFloat} # coordinates on the reference cell for the corresponding vertex
 end
 
-function MakiePlotter(dh::Ferrite.AbstractDofHandler, u::Vector)
+function Plotter(dh::Ferrite.AbstractDofHandler, u::Vector)
     cells = Ferrite.getcells(dh.grid)
     dim = Ferrite.getdim(dh.grid)
 
@@ -68,13 +68,13 @@ function MakiePlotter(dh::Ferrite.AbstractDofHandler, u::Vector)
     for cell in cells
         (coord_offset, triangle_offset) = decompose!(coord_offset, physical_coords, reference_coords, triangle_offset, triangles, dh.grid, cell)
     end
-    return MakiePlotter{dim,typeof(dh),eltype(u)}(dh,Observable(u),[],gridnodes,physical_coords,triangles,reference_coords);
+    return Plotter{dim,typeof(dh),eltype(u)}(dh,Observable(u),[],gridnodes,physical_coords,triangles,reference_coords);
 end
 
 """
 Total number of vertices
 """
-num_vertices(p::MakiePlotter) = size(p.physical_coords,1)
+num_vertices(p::Plotter) = size(p.physical_coords,1)
 
 #Visualization is just fancy triangle plotting, every element needs to be translatable to a triangle *sadnoises*
 to_triangle(cell::Ferrite.AbstractCell{2,N,3}) where N = [Ferrite.vertices(cell)[1:3]]
@@ -236,7 +236,7 @@ Transfer the solution of a plotter to the new mesh in 2D.
 
 @TODO Refactor. This is peak inefficiency.
 """
-function transfer_solution(plotter::MakiePlotter{2}, u::Vector; field_idx::Int=1, process::Function=FerriteViz.postprocess)
+function transfer_solution(plotter::Plotter{2}, u::Vector; field_idx::Int=1, process::Function=FerriteViz.postprocess)
     n_vertices_per_tri = 3 # we have 3 vertices per triangle...
 
     # select objects from plotter
@@ -277,7 +277,7 @@ Transfer the solution of a plotter to the new mesh in 3D. We just evaluate the f
 
 @TODO Refactor. This is peak inefficiency.
 """
-function transfer_solution(plotter::MakiePlotter{3}, u::Vector; field_idx::Int=1, process::Function=FerriteViz.postprocess) where T
+function transfer_solution(plotter::Plotter{3}, u::Vector; field_idx::Int=1, process::Function=FerriteViz.postprocess) where T
     n_vertices_per_tri = 3 # we have 3 vertices per triangle...
 
     # select objects from plotter
@@ -330,7 +330,7 @@ function transfer_solution(plotter::MakiePlotter{3}, u::Vector; field_idx::Int=1
     return mapslices(process, data, dims=[2])
 end
 
-function transfer_scalar_celldata(plotter::MakiePlotter{3}, u::Vector; process::Function=FerriteViz.postprocess)
+function transfer_scalar_celldata(plotter::Plotter{3}, u::Vector; process::Function=FerriteViz.postprocess)
     n_vertices = 3 # we have 3 vertices per triangle...
 
     # select objects from plotter
@@ -354,7 +354,7 @@ function transfer_scalar_celldata(plotter::MakiePlotter{3}, u::Vector; process::
     return mapslices(process, data, dims=[2])
 end
 
-function transfer_scalar_celldata(plotter::MakiePlotter{2}, u::Vector;  process::Function=FerriteViz.postprocess)
+function transfer_scalar_celldata(plotter::Plotter{2}, u::Vector;  process::Function=FerriteViz.postprocess)
     n_vertices = 3 # we have 3 vertices per triangle...
 
     # select objects from plotter

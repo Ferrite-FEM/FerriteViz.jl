@@ -68,7 +68,7 @@ function MakiePlotter(dh::Ferrite.AbstractDofHandler, u::Vector)
     for cell in cells
         (coord_offset, triangle_offset) = decompose!(coord_offset, physical_coords, reference_coords, triangle_offset, triangles, dh.grid, cell)
     end
-    return MakiePlotter{dim,typeof(dh),eltype(u)}(dh,Node(u),[],gridnodes,physical_coords,triangles,reference_coords);
+    return MakiePlotter{dim,typeof(dh),eltype(u)}(dh,Observable(u),[],gridnodes,physical_coords,triangles,reference_coords);
 end
 
 """

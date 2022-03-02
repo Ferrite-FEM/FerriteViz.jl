@@ -4,7 +4,7 @@ function solutionplot_pgfplots(plotter,args...;kwargs...)
     coords = plotter.physical_coords .+ u_matrix
     @pgf PGFPlotsX.Axis({
         "scale mode" = "scale uniformly",
-    }
+    },
     Plot3(
     {
         patch,

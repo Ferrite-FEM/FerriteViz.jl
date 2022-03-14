@@ -179,10 +179,10 @@ function Makie.plot!(WF::Wireframe{<:Tuple{<:MakiePlotter{dim}}}) where dim
     Makie.scatter!(WF,gridnodes,markersize=WF[:markersize], color=WF[:color], visible=WF[:visible])
     #set up nodelabels
     nodelabels = @lift $(WF[:nodelabels]) ? ["$i" for i in 1:size($gridnodes,1)] : [""]
-    nodepositions = @lift $(WF[:nodelabels]) ? [dim < 3 ? Point2f0(row) : Point3f0(row) for row in eachrow($gridnodes)] : (dim < 3 ? [Point2f0((0,0))] : [Point3f0((0,0,0))])
+    nodepositions = @lift $(WF[:nodelabels]) ? [dim < 3 ? Makie.Point2f0(row) : Makie.Point3f0(row) for row in eachrow($gridnodes)] : (dim < 3 ? [Makie.Point2f0((0,0))] : [Makie.Point3f0((0,0,0))])
     #set up celllabels
     celllabels = @lift $(WF[:celllabels]) ? ["$i" for i in 1:Ferrite.getncells(plotter.dh.grid)] : [""]
-    cellpositions = @lift $(WF[:celllabels]) ? [midpoint(cell,$gridnodes) for cell in Ferrite.getcells(plotter.dh.grid)] : (dim < 3 ? [Point2f0((0,0))] : [Point3f0((0,0,0))])
+    cellpositions = @lift $(WF[:celllabels]) ? [midpoint(cell,$gridnodes) for cell in Ferrite.getcells(plotter.dh.grid)] : (dim < 3 ? [Makie.Point2f0((0,0))] : [Makie.Point3f0((0,0,0))])
     Makie.text!(WF,nodelabels, position=nodepositions, textsize=WF[:textsize], offset=WF[:offset],color=WF[:nodelabelcolor])
     Makie.text!(WF,celllabels, position=cellpositions, textsize=WF[:textsize], color=WF[:celllabelcolor], align=(:center,:center))
     #plot edges (3D) /faces (2D) of the mesh
@@ -201,9 +201,9 @@ function Makie.plot!(WF::Wireframe{<:Tuple{<:Ferrite.AbstractGrid{dim}}}) where 
     nodes = @lift($(WF[:plotnodes]) ? coords : zeros(Float32,0,3))
     Makie.scatter!(WF,nodes,markersize=WF[:markersize], color=WF[:color])
     nodelabels = @lift $(WF[:nodelabels]) ? ["$i" for i in 1:size(coords,1)] : [""]
-    nodepositions = @lift $(WF[:nodelabels]) ? [dim < 3 ? Point2f0(row) : Point3f0(row) for row in eachrow(coords)] : (dim < 3 ? [Point2f0((0,0))] : [Point3f0((0,0,0))])
+    nodepositions = @lift $(WF[:nodelabels]) ? [dim < 3 ? Makie.Point2f0(row) : Makie.Point3f0(row) for row in eachrow(coords)] : (dim < 3 ? [Makie.Point2f0((0,0))] : [Makie.Point3f0((0,0,0))])
     celllabels = @lift $(WF[:celllabels]) ? ["$i" for i in 1:Ferrite.getncells(grid)] : [""]
-    cellpositions = @lift $(WF[:celllabels]) ? [midpoint(cell,coords) for cell in Ferrite.getcells(grid)] : (dim < 3 ? [Point2f0((0,0))] : [Point3f0((0,0,0))])
+    cellpositions = @lift $(WF[:celllabels]) ? [midpoint(cell,coords) for cell in Ferrite.getcells(grid)] : (dim < 3 ? [Makie.Point2f0((0,0))] : [Makie.Point3f0((0,0,0))])
     #cellsetsplot
     dh = Ferrite.DofHandler(grid)
     cellsets = grid.cellsets
@@ -294,11 +294,11 @@ function Makie.plot!(AR::Arrows{<:Tuple{<:MakiePlotter{dim}}}) where dim
     @assert Ferrite.getfielddim(plotter.dh,field[]) > 1
     solution = @lift(transfer_solution(plotter, $(plotter.u); field_idx=$(field), process=identity))
     if dim  == 2
-        ps = [Point2f0(i) for i in eachrow(plotter.physical_coords)]
+        ps = [Makie.Point2f0(i) for i in eachrow(plotter.physical_coords)]
         ns = @lift([Vec2f(i) for i in eachrow($(solution))])
         lengths = @lift($(AR[:color])===:default ? $(AR[:process]).($(ns)) : ones(length($(ns)))*$(AR[:color]))
     elseif dim  == 3
-        ps = [Point3f0(i) for i in eachrow(plotter.physical_coords)]
+        ps = [Makie.Point3f0(i) for i in eachrow(plotter.physical_coords)]
         ns = @lift([Vec3f(i) for i in eachrow($(solution))])
         lengths = @lift($(AR[:color])===:default ? $(AR[:process]).($(ns)) : ones(length($(ns)))*$(AR[:color]))
     else

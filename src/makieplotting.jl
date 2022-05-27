@@ -54,6 +54,20 @@ function Makie.plot!(SP::SolutionPlot{<:Tuple{<:MakiePlotter}})
     return Makie.mesh!(SP, coords, plotter.triangles, color=solution, shading=SP[:shading], scale_plot=SP[:scale_plot], colormap=SP[:colormap], transparent=SP[:transparent])
 end
 
+function Makie.plot!(SP::SolutionPlot{<:Tuple{<:MakiePlotter, <:Ferrite.L2Projector, <:Vector}})
+    plotter = SP[1][]
+    projector = SP[2]
+    vals_projected = SP[3]
+    vals_projected = @lift(broadcast($(SP[:process]), $vals_projected))
+    plotter = MakiePlotter{Ferrite.getdim(plotter.dh.grid),typeof(projector[].dh),eltype(vals_projected[][1])}(projector[].dh,vals_projected,plotter.cells_connectivity, plotter.gridnodes, plotter.physical_coords, plotter.triangles, plotter.reference_coords)
+    solution = @lift($(SP[:field])===:default ? reshape(transfer_solution(plotter,$(plotter.u); field_idx=1, process=$(SP[:process])), num_vertices(plotter)) : reshape(transfer_solution(plotter,$(plotter.u); field_idx=Ferrite.find_field(plotter.dh,$(SP[:field])), process=$(SP[:process])), num_vertices(plotter)))
+    coords = plotter.physical_coords
+    mins = @lift(minimum($solution))
+    maxs = @lift(maximum($solution))
+    SP[:colorrange] = @lift(isapprox($mins,$maxs) ? (0,1e-8) : ($mins,$maxs))
+    return Makie.mesh!(SP, coords, plotter.triangles, color=solution, shading=SP[:shading], scale_plot=SP[:scale_plot], colormap=SP[:colormap], transparent=SP[:transparent])
+end
+
 """
     cellplot(plotter::MakiePlotter,σ::Vector{T}; kwargs...) where T
     cellplot!(plotter::MakiePlotter,σ::Vector{T}; kwargs...) where T
@@ -321,7 +335,7 @@ function ferriteviewer(plotter::MakiePlotter{dim}) where dim
     toggles = [Toggle(fig, active=active) for active in [true,true,false]]
     labels = [Label(fig,label) for label in ["mesh", "deformation", "labels"]]
     #setup the deformation_field as Node (Observable)
-    deformation_field = Node(Ferrite.getfieldnames(plotter.dh)[1])
+    deformation_field = Makie.Observable(Ferrite.getfieldnames(plotter.dh)[1])
     #solutionplot main plot of the viewer
     solutionp = solutionplot!(plotter,colormap=:cividis,deformation_field=@lift $(toggles[2].active) ? $(deformation_field) : :default)
 

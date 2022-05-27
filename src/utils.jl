@@ -292,12 +292,12 @@ function transfer_solution(plotter::MakiePlotter{3}, u::Vector; field_idx::Int=1
     # @FIXME decouple the interpolation from the geometry, because for discontinuous interpolations
     #   the "interpolation faces" (which we need for dof-assignment) do not coincide with the geometric
     #   faces... Alternatively we could try something similar to FaceValues.
-    ip_cell = dh.field_interpolations[field_idx]
+    ip_cell = Ferrite.getfieldinterpolation(plotter.dh,field_idx)
     _faces = Ferrite.faces(ip_cell) # faces of the cell with local dofs
     @assert !isempty(_faces) # Discontinuous interpolations in 3d not supported yet. See above.
 
     # actual data
-    local_dof_range = Ferrite.dof_range(dh, field_name)
+    local_dof_range = Ferrite.dof_range(dh.fieldhandlers[1], field_name)
 
     current_vertex_index = 1
     data = fill(0.0, num_vertices(plotter), field_dim)

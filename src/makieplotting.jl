@@ -320,8 +320,8 @@ function ferriteviewer(plotter::MakiePlotter{dim}) where dim
     #toggles and their labels for switching plot types on/off
     toggles = [Toggle(fig, active=active) for active in [true,true,false]]
     labels = [Label(fig,label) for label in ["mesh", "deformation", "labels"]]
-    #setup the deformation_field as Node (Observable)
-    deformation_field = Node(Ferrite.getfieldnames(plotter.dh)[1])
+    #setup the deformation_field as Observable
+    deformation_field = Makie.Observable(Ferrite.getfieldnames(plotter.dh)[1])
     #solutionplot main plot of the viewer
     solutionp = solutionplot!(plotter,colormap=:cividis,deformation_field=@lift $(toggles[2].active) ? $(deformation_field) : :default)
 

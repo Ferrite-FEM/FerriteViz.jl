@@ -385,7 +385,7 @@ function ferriteviewer(plotter::MakiePlotter, data::Vector{Vector{T}}) where T
 end
 
 ####### One Shot Methods #######
-const FerriteVizPlots = Union{Type{<:Wireframe},Type{<:SolutionPlot},Type{<:CellPlot},Type{<:Arrows},Type{<:Surface}}
+const FerriteVizPlots = Union{Type{<:Wireframe},Type{<:SolutionPlot},Type{<:Arrows},Type{<:Surface}}
 
 function Makie.convert_arguments(P::FerriteVizPlots, dh::Ferrite.AbstractDofHandler, u::Vector)
     return (MakiePlotter(dh,u),)

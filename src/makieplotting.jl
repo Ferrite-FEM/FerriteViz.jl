@@ -339,7 +339,7 @@ function ferriteviewer(plotter::MakiePlotter{dim}) where dim
     connect!(wireframep.celllabels,toggles[3].active)
 
     #set up dropdown menus for colormap, field, deformation field and processing function
-    menu_cm = Menu(fig, options=["cividis", "inferno", "thermal"],label="colormap", direction=:up)
+    menu_cm = Menu(fig, options=["cividis", "inferno", "thermal"], direction=:up)
     menu_field = Menu(fig, options=Ferrite.getfieldnames(plotter.dh))
     menu_deformation_field = Menu(fig, options=Ferrite.getfieldnames(plotter.dh))
     menu_process = Menu(fig, options=[x₁,x₂,x₃,("magnitude",l2),("manhatten norm",l1),identity])

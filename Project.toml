@@ -11,7 +11,7 @@ Tensors = "48a634ad-e948-5137-8d70-aa71f2a747f4"
 
 [compat]
 Ferrite = "0.3"
-Makie = "0.15, 0.16, 0.17"
+Makie = "0.17"
 Tensors = "1"
 julia = "1"
 

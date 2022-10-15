@@ -333,10 +333,10 @@ end
     nodelabeloffset=(0.0,0.0),
     facelabels=true,
     facelabelcolor=:darkgreen,
-    facelabeloffset=(-80,-80),
+    facelabeloffset=(0,0),
     edgelabels=true,
     edgelabelcolor=:darkblue,
-    edgelabeloffset=(-80,-80),
+    edgelabeloffset=(-40,-40),
     )
 end
 
@@ -346,16 +346,16 @@ function Makie.plot!(Ele::Elementinfo{<:Tuple{<:Ferrite.Interpolation{dim,refsha
     dim > 2 ? (lines = Point3f[]) : (lines = Point2f[])
     _faces = Ferrite.faces(ip)
     if dim == 2
-        append!(lines, [elenodes[e,:] for boundary in _faces for e in boundary[1:((refshape == Ferrite.RefCube) ? 1 : 2):((refshape == Ferrite.RefCube) ? 2 : end)]]) # 1:2 because higher order node in the middle
+        append!(lines, [elenodes[e,:] for boundary in _faces for e in boundary[1:2]]) # 1:2 because higher order node in the middle
     else
         _edges = Ferrite.edges(ip)
+        order = Ferrite.getorder(ip)
         #TODO remove the index monstrosity below after edges are defined consistently see https://github.com/Ferrite-FEM/Ferrite.jl/issues/520
-        append!(lines, [elenodes[e,:] for boundary in _edges for e in boundary[1:((refshape == Ferrite.RefCube) ? 1 : 2):((refshape == Ferrite.RefCube) ? 2 : end)]]) # 1:2 because higher order node in the middle
+        append!(lines, [elenodes[e,:] for boundary in _edges for e in boundary[1:((refshape == Ferrite.RefCube) ? 1 : (order > 1 ? 2 : 1)):((refshape == Ferrite.RefCube) ? 2 : end)]]) # 1:2 because higher order node in the middle
     end
     boundaryentities = dim == 2 ? _faces : _edges
-    for boundary in boundaryentities
-        Makie.linesegments!(Ele,lines,color=Ele[:color], linewidth=Ele[:strokewidth])
-    end
+    #plot element boundary
+    Makie.linesegments!(Ele,lines,color=Ele[:color], linewidth=Ele[:strokewidth])
     for (id,face) in enumerate(_faces)
         idx = 0
         if refshape == Ferrite.RefCube && dim == 3
@@ -376,7 +376,9 @@ function Makie.plot!(Ele::Elementinfo{<:Tuple{<:Ferrite.Interpolation{dim,refsha
     if dim == 3
         for (id,edge) in enumerate(_edges)
             position = Point3f((elenodes[edge[1],:] + elenodes[refshape==Ferrite.RefCube ? edge[2] : edge[end],:])*0.5)
-            Makie.text!(Ele,"$id", position=position, textsize=Ele[:textsize], offset=Ele[:edgelabeloffset],color=Ele[:edgelabelcolor],visible=Ele[:edgelabels])
+            t = Makie.text!(Ele,"$id", position=position, textsize=Ele[:textsize], offset=Ele[:edgelabeloffset],color=Ele[:edgelabelcolor],visible=Ele[:edgelabels],align=(:center,:center))
+            #bb = Makie.boundingbox(t)
+            #Makie.wireframe!(Ele,bb,color=Ele[:facelabelcolor])
         end 
     end
     #plot the nodes

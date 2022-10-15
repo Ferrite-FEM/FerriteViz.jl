@@ -310,20 +310,16 @@ end
 """
     elementinfo(ip::Interpolation; kwargs...)
     elementinfo(cell::AbstractCell; kwargs...)
+    elementinfo(ip::Type{Interpolation}; kwargs...)
+    elementinfo(cell::Type{AbstractCell}; kwargs...)
 
 - `plotnodes::Bool=true` plots the nodes as circles/spheres
 - `strokewidth::Int=2` how thick faces/edges are drawn
 - `color::Symbol=theme(scene,:linecolor)` color of the faces/edges and nodes
 - `markersize::Int=30` size of the nodes
-- `deformation_field::Symbol=:default` field that transforms the mesh by the given deformation, defaults to no deformation
-- `deformation_scale::Number=1.0` scaling of the deformation
-- `cellsets=false` Color cells based on their cellset association. If no cellset is found for a cell, the cell is marked blue.
 - `nodelables=false` global node id labels
 - `nodelabelcolor=:darkblue`
-- `celllabels=false` global cell id labels
-- `celllabelcolor=:darkred`
 - `textsize::Int=15` size of the label's text
-- `visible=true`
 """
 @recipe(Elementinfo) do scene
     Attributes(
@@ -335,7 +331,6 @@ end
     offset=(0.0,0.0),
     nodelabels=true,
     nodelabelcolor=:darkred,
-    celllabels=false,
     )
 end
 

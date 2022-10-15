@@ -91,11 +91,11 @@ to_triangle(cell::Ferrite.AbstractCell{3,N,6}) where N = [Ferrite.vertices(cell)
 TODO this looks faulty...think harder.
 """
 # Helper to count triangles e.g. for preallocations.
-ntriangles(cell::Ferrite.AbstractCell{2,3,3}) where {N} = 1 # Tris in 2D
-ntriangles(cell::Ferrite.AbstractCell{3,3,1}) where {N} = 1 # Tris in 3D
+ntriangles(cell::Ferrite.AbstractCell{2,3,3}) = 1 # Tris in 2D
+ntriangles(cell::Ferrite.AbstractCell{3,3,1}) = 1 # Tris in 3D
 ntriangles(cell::Ferrite.AbstractCell{dim,N,4}) where {dim,N} = 4 # Quads in 2D and 3D
-ntriangles(cell::Ferrite.AbstractCell{3,N,1}) where {dim,N} = 4 # Tets as a special case of a Quad, obviously :)
-ntriangles(cell::Ferrite.AbstractCell{3,N,6}) where {dim,N} = 6*4 # Hex
+ntriangles(cell::Ferrite.AbstractCell{3,N,1}) where N = 4 # Tets as a special case of a Quad, obviously :)
+ntriangles(cell::Ferrite.AbstractCell{3,N,6}) where N = 6*4 # Hex
 
 """
 Get the vertices represented as a list of coordinates of a cell.
@@ -277,7 +277,7 @@ Transfer the solution of a plotter to the new mesh in 3D. We just evaluate the f
 
 @TODO Refactor. This is peak inefficiency.
 """
-function transfer_solution(plotter::MakiePlotter{3}, u::Vector; field_idx::Int=1, process::Function=FerriteViz.postprocess) where T
+function transfer_solution(plotter::MakiePlotter{3}, u::Vector; field_idx::Int=1, process::Function=FerriteViz.postprocess)
     n_vertices_per_tri = 3 # we have 3 vertices per triangle...
 
     # select objects from plotter

@@ -308,6 +308,63 @@ function Makie.plot!(AR::Arrows{<:Tuple{<:MakiePlotter{dim}}}) where dim
 end
 
 """
+    elementinfo(ip::Interpolation; kwargs...)
+    elementinfo(cell::AbstractCell; kwargs...)
+
+- `plotnodes::Bool=true` plots the nodes as circles/spheres
+- `strokewidth::Int=2` how thick faces/edges are drawn
+- `color::Symbol=theme(scene,:linecolor)` color of the faces/edges and nodes
+- `markersize::Int=30` size of the nodes
+- `deformation_field::Symbol=:default` field that transforms the mesh by the given deformation, defaults to no deformation
+- `deformation_scale::Number=1.0` scaling of the deformation
+- `cellsets=false` Color cells based on their cellset association. If no cellset is found for a cell, the cell is marked blue.
+- `nodelables=false` global node id labels
+- `nodelabelcolor=:darkblue`
+- `celllabels=false` global cell id labels
+- `celllabelcolor=:darkred`
+- `textsize::Int=15` size of the label's text
+- `visible=true`
+"""
+@recipe(Elementinfo) do scene
+    Attributes(
+    plotnodes=true,
+    strokewidth=2,
+    color=theme(scene, :linecolor),
+    markersize=30,
+    textsize=40,
+    offset=(0.0,0.0),
+    nodelabels=true,
+    nodelabelcolor=:darkred,
+    celllabels=false,
+    )
+end
+
+function Makie.plot!(Ele::Elementinfo{<:Tuple{<:Ferrite.Interpolation{dim,refshape}}}) where {dim,refshape}
+    ip = Ele[1][]
+    elenodes = Ferrite.reference_coordinates(ip) |> x->reshape(reinterpret(Float64,x),(dim,length(x)))'
+    dim > 2 ? (lines = Point3f[]) : (lines = Point2f[])
+    boundaryentities = dim < 3 ? Ferrite.faces(ip) : Ferrite.edges(ip)
+    #TODO remove the index monstrosity below after edges are defined consistently see https://github.com/Ferrite-FEM/Ferrite.jl/issues/520
+    append!(lines, [elenodes[e,:] for boundary in boundaryentities for e in boundary[1:((refshape == Ferrite.RefCube) ? 1 : 2):((refshape == Ferrite.RefCube) ? 2 : end)]]) # 1:2 because higher order node in the middle
+    for boundary in boundaryentities
+        Makie.linesegments!(Ele,lines,color=Ele[:color], linewidth=Ele[:strokewidth])
+    end
+    nodes = @lift($(Ele[:plotnodes]) ? elenodes : zeros(Float32,0,3))
+    #plot the nodes
+    Makie.scatter!(Ele,elenodes,markersize=Ele[:markersize], color=Ele[:color])
+    #set up nodelabels
+    nodelabels = @lift $(Ele[:nodelabels]) ? ["$i" for i in 1:size(elenodes,1)] : [""]
+    nodepositions = @lift $(Ele[:nodelabels]) ? [dim < 3 ? Point2f(row) : Point3f(row) for row in eachrow(elenodes)] : (dim < 3 ? [Point2f((0,0))] : [Point3f((0,0,0))])
+    #set up celllabels
+    Makie.text!(Ele,nodelabels, position=nodepositions, textsize=Ele[:textsize], offset=Ele[:offset],color=Ele[:nodelabelcolor])
+    #plot edges (3D) /faces (2D) of the mesh
+    Makie.linesegments!(Ele,lines,color=Ele[:color], linewidth=Ele[:strokewidth])
+end
+
+Makie.convert_arguments(P::Type{<:Elementinfo}, cell::C) where C<:Ferrite.AbstractCell = (Ferrite.default_interpolation(typeof(cell)),)
+Makie.convert_arguments(P::Type{<:Elementinfo}, celltype::Type{C}) where C<:Ferrite.AbstractCell = (Ferrite.default_interpolation(celltype),)
+
+"""
     ferriteviewer(plotter::MakiePlotter)
     ferriteviewer(plotter::MakiePlotter, u_history::Vector{Vector{T}}})
 Constructs a viewer with a `solutionplot`, `Colorbar` as well as sliders,toggles and menus to change the current view.

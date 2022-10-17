@@ -308,6 +308,105 @@ function Makie.plot!(AR::Arrows{<:Tuple{<:MakiePlotter{dim}}}) where dim
 end
 
 """
+    elementinfo(ip::Interpolation; kwargs...)
+    elementinfo(cell::AbstractCell; kwargs...)
+    elementinfo(ip::Type{Interpolation}; kwargs...)
+    elementinfo(cell::Type{AbstractCell}; kwargs...)
+
+- `plotnodes=true` controls if nodes of element are plotted
+- `strokewidth=2` strokwidth of faces/edges
+- `color=theme(scene, :linecolor)`
+- `markersize=30` size of the nodes
+- `textsize=60` textsize of node-, edges- and facelabels
+- `nodelabels=true` switch that controls plotting of nodelabels
+- `nodelabelcolor=:darkred`
+- `nodelabeloffset=(0.0,0.0)` offset of the nodelabel text relative to its associated node
+- `facelabels=true` switch that controls plotting of facelabels
+- `facelabelcolor=:darkgreen`
+- `facelabeloffset=(-40,0)` offset of the facelabel text relative to its associated face middlepoint
+- `edgelabels=true` switch that controls plotting of edgelabels
+- `edgelabelcolor=:darkblue`
+- `edgelabeloffset=(-40,-40)` offset of the edgelabel text relative to its associated edge middlepoint
+- `font="Julia Mono"` font of the node-, edge-, and facelabels
+"""
+@recipe(Elementinfo) do scene
+    Attributes(
+    plotnodes=true,
+    strokewidth=2,
+    color=theme(scene, :linecolor),
+    markersize=30,
+    textsize=60,
+    nodelabels=true,
+    nodelabelcolor=:darkred,
+    nodelabeloffset=(0.0,0.0),
+    facelabels=true,
+    facelabelcolor=:darkgreen,
+    facelabeloffset=(-40,0),
+    edgelabels=true,
+    edgelabelcolor=:darkblue,
+    edgelabeloffset=(-40,-40),
+    font="Julia Mono",
+    )
+end
+
+function Makie.plot!(Ele::Elementinfo{<:Tuple{<:Ferrite.Interpolation{dim,refshape}}}) where {dim,refshape}
+    ip = Ele[1][]
+    elenodes = Ferrite.reference_coordinates(ip) |> x->reshape(reinterpret(Float64,x),(dim,length(x)))'
+    dim > 2 ? (lines = Point3f[]) : (lines = Point2f[])
+    facenodes = Ferrite.faces(ip)
+    if dim == 2
+        append!(lines, [elenodes[e,:] for boundary in facenodes for e in boundary[1:2]]) # 1:2 because higher order node in the middle
+    else
+        edgenodes = Ferrite.edges(ip)
+        order = Ferrite.getorder(ip)
+        #TODO remove the index monstrosity below after edges are defined consistently see https://github.com/Ferrite-FEM/Ferrite.jl/issues/520
+        append!(lines, [elenodes[e,:] for boundary in edgenodes for e in boundary[1:((refshape == Ferrite.RefCube) ? 1 : (order > 1 ? 2 : 1)):((refshape == Ferrite.RefCube) ? 2 : end)]]) # 1:2 because higher order node in the middle
+    end
+    boundaryentities = dim == 2 ? facenodes : edgenodes
+    #plot element boundary
+    Makie.linesegments!(Ele,lines,color=Ele[:color], linewidth=Ele[:strokewidth])
+    for (id,face) in enumerate(facenodes)
+        idx = 0
+        if refshape == Ferrite.RefCube && dim == 3
+            idx = 4
+        elseif refshape == Ferrite.RefTetrahedron && dim == 3
+            idx = 3
+        else
+            idx = 2
+        end
+        position = zeros(dim)
+        for i in 1:idx
+            position += elenodes[face[i],:]
+        end
+        position ./= idx
+        position = dim == 2 ? Point2f(position) : Point3f(position)
+        Makie.text!(Ele,"$id", position=position, textsize=Ele[:textsize], offset=Ele[:facelabeloffset],color=Ele[:facelabelcolor],visible=Ele[:facelabels],font=Ele[:font])
+    end 
+    if dim == 3
+        for (id,edge) in enumerate(edgenodes)
+            position = Point3f((elenodes[edge[1],:] + elenodes[refshape==Ferrite.RefCube ? edge[2] : edge[end],:])*0.5)
+            t = Makie.text!(Ele,"$id", position=position, textsize=Ele[:textsize], offset=Ele[:edgelabeloffset],color=Ele[:edgelabelcolor],visible=Ele[:edgelabels],align=(:center,:center),font=Ele[:font])
+            # Boundingbox can't switch currently from pixelspace to "coordinate" space in recipes
+            #bb = Makie.boundingbox(t)
+            #Makie.wireframe!(Ele,bb,space=:pixel)
+        end 
+    end
+    #plot the nodes
+    Makie.scatter!(Ele,elenodes,markersize=Ele[:markersize], color=Ele[:color], visible=Ele[:plotnodes])
+    #set up nodelabels
+    nodelabels = @lift $(Ele[:nodelabels]) ? ["$i" for i in 1:size(elenodes,1)] : [""]
+    nodepositions = @lift $(Ele[:nodelabels]) ? [dim < 3 ? Point2f(row) : Point3f(row) for row in eachrow(elenodes)] : (dim < 3 ? [Point2f((0,0))] : [Point3f((0,0,0))])
+    #set up celllabels
+    Makie.text!(Ele,nodelabels, position=nodepositions, textsize=Ele[:textsize], offset=Ele[:nodelabeloffset],color=Ele[:nodelabelcolor],font=Ele[:font])
+    #plot edges (3D) /faces (2D) of the mesh
+    Makie.linesegments!(Ele,lines,color=Ele[:color], linewidth=Ele[:strokewidth])
+end
+
+Makie.convert_arguments(P::Type{<:Elementinfo}, cell::C) where C<:Ferrite.AbstractCell = (Ferrite.default_interpolation(typeof(cell)),)
+Makie.convert_arguments(P::Type{<:Elementinfo}, celltype::Type{C}) where C<:Ferrite.AbstractCell = (Ferrite.default_interpolation(celltype),)
+Makie.convert_arguments(P::Type{<:Elementinfo}, iptype::Type{IP}) where IP<:Ferrite.Interpolation = (iptype(),)
+
+"""
     ferriteviewer(plotter::MakiePlotter)
     ferriteviewer(plotter::MakiePlotter, u_history::Vector{Vector{T}}})
 Constructs a viewer with a `solutionplot`, `Colorbar` as well as sliders,toggles and menus to change the current view.

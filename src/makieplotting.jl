@@ -313,13 +313,21 @@ end
     elementinfo(ip::Type{Interpolation}; kwargs...)
     elementinfo(cell::Type{AbstractCell}; kwargs...)
 
-- `plotnodes::Bool=true` plots the nodes as circles/spheres
-- `strokewidth::Int=2` how thick faces/edges are drawn
-- `color::Symbol=theme(scene,:linecolor)` color of the faces/edges and nodes
-- `markersize::Int=30` size of the nodes
-- `nodelables=false` global node id labels
-- `nodelabelcolor=:darkblue`
-- `textsize::Int=15` size of the label's text
+- `plotnodes=true` controls if nodes of element are plotted
+- `strokewidth=2` strokwidth of faces/edges
+- `color=theme(scene, :linecolor)`
+- `markersize=30` size of the nodes
+- `textsize=60` textsize of node-, edges- and facelabels
+- `nodelabels=true` switch that controls plotting of nodelabels
+- `nodelabelcolor=:darkred`
+- `nodelabeloffset=(0.0,0.0)` offset of the nodelabel text relative to its associated node
+- `facelabels=true` switch that controls plotting of facelabels
+- `facelabelcolor=:darkgreen`
+- `facelabeloffset=(0,0)` offset of the facelabel text relative to its associated face middlepoint
+- `edgelabels=true` switch that controls plotting of edgelabels
+- `edgelabelcolor=:darkblue`
+- `edgelabeloffset=(-40,-40)` offset of the edgelabel text relative to its associated edge middlepoint
+- `font="Julia Mono"` font of the node-, edge-, and facelabels
 """
 @recipe(Elementinfo) do scene
     Attributes(

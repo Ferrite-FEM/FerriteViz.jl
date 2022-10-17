@@ -337,6 +337,7 @@ end
     edgelabels=true,
     edgelabelcolor=:darkblue,
     edgelabeloffset=(-40,-40),
+    font="Julia Mono",
     )
 end
 
@@ -344,19 +345,19 @@ function Makie.plot!(Ele::Elementinfo{<:Tuple{<:Ferrite.Interpolation{dim,refsha
     ip = Ele[1][]
     elenodes = Ferrite.reference_coordinates(ip) |> x->reshape(reinterpret(Float64,x),(dim,length(x)))'
     dim > 2 ? (lines = Point3f[]) : (lines = Point2f[])
-    _faces = Ferrite.faces(ip)
+    facenodes = Ferrite.faces(ip)
     if dim == 2
-        append!(lines, [elenodes[e,:] for boundary in _faces for e in boundary[1:2]]) # 1:2 because higher order node in the middle
+        append!(lines, [elenodes[e,:] for boundary in facenodes for e in boundary[1:2]]) # 1:2 because higher order node in the middle
     else
-        _edges = Ferrite.edges(ip)
+        edgenodes = Ferrite.edges(ip)
         order = Ferrite.getorder(ip)
         #TODO remove the index monstrosity below after edges are defined consistently see https://github.com/Ferrite-FEM/Ferrite.jl/issues/520
-        append!(lines, [elenodes[e,:] for boundary in _edges for e in boundary[1:((refshape == Ferrite.RefCube) ? 1 : (order > 1 ? 2 : 1)):((refshape == Ferrite.RefCube) ? 2 : end)]]) # 1:2 because higher order node in the middle
+        append!(lines, [elenodes[e,:] for boundary in edgenodes for e in boundary[1:((refshape == Ferrite.RefCube) ? 1 : (order > 1 ? 2 : 1)):((refshape == Ferrite.RefCube) ? 2 : end)]]) # 1:2 because higher order node in the middle
     end
-    boundaryentities = dim == 2 ? _faces : _edges
+    boundaryentities = dim == 2 ? facenodes : edgenodes
     #plot element boundary
     Makie.linesegments!(Ele,lines,color=Ele[:color], linewidth=Ele[:strokewidth])
-    for (id,face) in enumerate(_faces)
+    for (id,face) in enumerate(facenodes)
         idx = 0
         if refshape == Ferrite.RefCube && dim == 3
             idx = 4
@@ -371,14 +372,15 @@ function Makie.plot!(Ele::Elementinfo{<:Tuple{<:Ferrite.Interpolation{dim,refsha
         end
         position ./= idx
         position = dim == 2 ? Point2f(position) : Point3f(position)
-        Makie.text!(Ele,"$id", position=position, textsize=Ele[:textsize], offset=Ele[:facelabeloffset],color=Ele[:facelabelcolor],visible=Ele[:facelabels])
+        Makie.text!(Ele,"$id", position=position, textsize=Ele[:textsize], offset=Ele[:facelabeloffset],color=Ele[:facelabelcolor],visible=Ele[:facelabels],font=Ele[:font])
     end 
     if dim == 3
-        for (id,edge) in enumerate(_edges)
+        for (id,edge) in enumerate(edgenodes)
             position = Point3f((elenodes[edge[1],:] + elenodes[refshape==Ferrite.RefCube ? edge[2] : edge[end],:])*0.5)
-            t = Makie.text!(Ele,"$id", position=position, textsize=Ele[:textsize], offset=Ele[:edgelabeloffset],color=Ele[:edgelabelcolor],visible=Ele[:edgelabels],align=(:center,:center))
+            t = Makie.text!(Ele,"$id", position=position, textsize=Ele[:textsize], offset=Ele[:edgelabeloffset],color=Ele[:edgelabelcolor],visible=Ele[:edgelabels],align=(:center,:center),font=Ele[:font])
+            # Boundingbox can't switch currently from pixelspace to "coordinate" space in recipes
             #bb = Makie.boundingbox(t)
-            #Makie.wireframe!(Ele,bb,color=Ele[:facelabelcolor])
+            #Makie.wireframe!(Ele,bb,space=:pixel)
         end 
     end
     #plot the nodes
@@ -387,7 +389,7 @@ function Makie.plot!(Ele::Elementinfo{<:Tuple{<:Ferrite.Interpolation{dim,refsha
     nodelabels = @lift $(Ele[:nodelabels]) ? ["$i" for i in 1:size(elenodes,1)] : [""]
     nodepositions = @lift $(Ele[:nodelabels]) ? [dim < 3 ? Point2f(row) : Point3f(row) for row in eachrow(elenodes)] : (dim < 3 ? [Point2f((0,0))] : [Point3f((0,0,0))])
     #set up celllabels
-    Makie.text!(Ele,nodelabels, position=nodepositions, textsize=Ele[:textsize], offset=Ele[:nodelabeloffset],color=Ele[:nodelabelcolor])
+    Makie.text!(Ele,nodelabels, position=nodepositions, textsize=Ele[:textsize], offset=Ele[:nodelabeloffset],color=Ele[:nodelabelcolor],font=Ele[:font])
     #plot edges (3D) /faces (2D) of the mesh
     Makie.linesegments!(Ele,lines,color=Ele[:color], linewidth=Ele[:strokewidth])
 end

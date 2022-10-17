@@ -323,7 +323,7 @@ end
 - `nodelabeloffset=(0.0,0.0)` offset of the nodelabel text relative to its associated node
 - `facelabels=true` switch that controls plotting of facelabels
 - `facelabelcolor=:darkgreen`
-- `facelabeloffset=(0,0)` offset of the facelabel text relative to its associated face middlepoint
+- `facelabeloffset=(-40,0)` offset of the facelabel text relative to its associated face middlepoint
 - `edgelabels=true` switch that controls plotting of edgelabels
 - `edgelabelcolor=:darkblue`
 - `edgelabeloffset=(-40,-40)` offset of the edgelabel text relative to its associated edge middlepoint
@@ -341,7 +341,7 @@ end
     nodelabeloffset=(0.0,0.0),
     facelabels=true,
     facelabelcolor=:darkgreen,
-    facelabeloffset=(0,0),
+    facelabeloffset=(-40,0),
     edgelabels=true,
     edgelabelcolor=:darkblue,
     edgelabeloffset=(-40,-40),

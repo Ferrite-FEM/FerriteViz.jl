@@ -8,6 +8,7 @@ FerriteViz.cellplot
 FerriteViz.wireframe
 FerriteViz.arrows
 FerriteViz.surface
+FerriteViz.elementinfo
 FerriteViz.ferriteviewer
 FerriteViz.update!
 ```

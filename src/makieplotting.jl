@@ -121,9 +121,9 @@ Plots the finite element mesh, optionally labels it and transforms it if a suita
 @recipe(Wireframe) do scene
     Attributes(
     plotnodes=true,
-    strokewidth=2,
     color=theme(scene, :linecolor),
-    markersize=30,
+    strokewidth=theme(scene, :linewidth),
+    markersize=theme(scene, :markersize),
     deformation_field=:default,
     visible=true,
     deformation_scale=1,
@@ -332,9 +332,9 @@ end
 @recipe(Elementinfo) do scene
     Attributes(
     plotnodes=true,
-    strokewidth=2,
+    strokewidth=theme(scene, :linewidth),
     color=theme(scene, :linecolor),
-    markersize=30,
+    markersize=theme(scene, :markersize),
     textsize=60,
     nodelabels=true,
     nodelabelcolor=:darkred,
@@ -345,7 +345,7 @@ end
     edgelabels=true,
     edgelabelcolor=:darkblue,
     edgelabeloffset=(-40,-40),
-    font="Julia Mono",
+    font=theme(scene,:font),
     )
 end
 

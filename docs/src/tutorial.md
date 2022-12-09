@@ -26,8 +26,13 @@ import WGLMakie #activating the backend, switch to GLMakie or CairoMakie (for 2D
 WGLMakie.set_theme!(resolution=(800, 400)) # hide
 
 grid = generate_grid(Hexahedron,(3,3,3))
-FerriteViz.wireframe(grid,markersize=50,strokewidth=2)
+FerriteViz.wireframe(grid,markersize=10,strokewidth=2)
 ```
+
+!!! note "Known node issue"
+    It is a known WGLMakie bug that currently scatter plots don't rotate with the camera.
+    [See this issue.](https://github.com/MakieOrg/Makie.jl/issues/2243)
+
 
 FerriteViz.jl also supports showing labels for `Ferrite.AbstractGrid` entities, such as node- and celllabels, as well as plotting cellsets.
 
@@ -36,7 +41,7 @@ grid = generate_grid(Quadrilateral,(3,3))
 addcellset!(grid,"s1",Set((1,4,7)))
 addcellset!(grid,"s2",Set((2,5,8)))
 addcellset!(grid,"s3",Set((3,6,9)))
-FerriteViz.wireframe(grid,markersize=5,strokewidth=1,nodelabels=true,celllabels=true,cellsets=true)
+FerriteViz.wireframe(grid,markersize=10,strokewidth=1,nodelabels=true,celllabels=true,cellsets=true)
 ```
 
 If you solve some boundary value problem with Ferrite.jl keep in mind to safe your `dh::DofHandler` and solution vector `u::Vector{T}` in some variable.
@@ -74,14 +79,14 @@ u, dh, uhistory, σ, κ = solve()
 plotter = FerriteViz.MakiePlotter(dh,u)
 
 FerriteViz.solutionplot(plotter,colormap=:thermal,deformation_field=:u)
-FerriteViz.wireframe!(plotter,deformation_field=:u,markersize=25,strokewidth=1)
+FerriteViz.wireframe!(plotter,deformation_field=:u,markersize=10,strokewidth=1)
 WGLMakie.current_figure()
 ```
 
 FerriteViz.jl also supports to plot cell data, such as the **averaged** von-Mises stress or the drag stress of the plasticity example.
 ```@example 1
 FerriteViz.cellplot(plotter,σ,colormap=:thermal,deformation_field=:u,deformation_scale=2.0)
-FerriteViz.wireframe!(plotter,deformation_field=:u,markersize=25,strokewidth=1,deformation_scale=2.0)
+FerriteViz.wireframe!(plotter,deformation_field=:u,markersize=10,strokewidth=1,deformation_scale=2.0)
 WGLMakie.current_figure()
 ```
 

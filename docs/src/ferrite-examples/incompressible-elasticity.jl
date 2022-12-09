@@ -2,10 +2,10 @@ using Ferrite
 using BlockArrays, SparseArrays, LinearAlgebra
 
 function create_cook_grid(nx, ny)
-    corners = [Vec{2}((0.0,   0.0)),
-               Vec{2}((48.0, 44.0)),
-               Vec{2}((48.0, 60.0)),
-               Vec{2}((0.0,  44.0))]
+    corners = [Tensors.Vec{2}((0.0,   0.0)),
+               Tensors.Vec{2}((48.0, 44.0)),
+               Tensors.Vec{2}((48.0, 60.0)),
+               Tensors.Vec{2}((0.0,  44.0))]
     grid = generate_grid(Triangle, (nx, ny), corners);
     # facesets for boundary conditions
     addfaceset!(grid, "clamped", x -> norm(x[1]) ≈ 0.0);
@@ -41,7 +41,7 @@ end;
 
 function create_bc(dh)
     dbc = ConstraintHandler(dh)
-    add!(dbc, Dirichlet(:u, getfaceset(dh.grid, "clamped"), (x,t) -> zero(Vec{2}), [1,2]))
+    add!(dbc, Dirichlet(:u, getfaceset(dh.grid, "clamped"), (x,t) -> zero(Tensors.Vec{2}), [1,2]))
     close!(dbc)
     t = 0.0
     update!(dbc, t)
@@ -66,7 +66,7 @@ function doassemble(cellvalues_u::CellVectorValues{dim}, cellvalues_p::CellScala
     ke = PseudoBlockArray(zeros(nu + np, nu + np), [nu, np], [nu, np]) # local stiffness matrix
 
     # traction vector
-    t = Vec{2}((0.0, 1/16))
+    t = Tensors.Vec{2}((0.0, 1/16))
     # cache ɛdev outside the element routine to avoid some unnecessary allocations
     ɛdev = [zero(SymmetricTensor{2, dim}) for i in 1:getnbasefunctions(cellvalues_u)]
 

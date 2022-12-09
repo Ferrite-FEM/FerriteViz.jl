@@ -278,8 +278,8 @@ the arrows are unicolored. Otherwise the color corresponds to the magnitude, or 
 """
 @recipe(Arrows) do scene
     Attributes(
-    arrowsize = 0.08,
-    normalize = true,
+    arrowsize = Makie.Automatic(),
+    normalize = true, #TODO: broken
     field = :default,
     color = :default,
     colormap = :cividis,
@@ -304,7 +304,7 @@ function Makie.plot!(AR::Arrows{<:Tuple{<:MakiePlotter{dim}}}) where dim
     else
         error("Arrows plots are only available in dim ≥ 2")
     end
-    Makie.arrows!(AR, ps, ns, arrowsize=AR[:arrowsize], normalize=AR[:normalize], colormap=AR[:colormap], color=lengths, lengthscale=AR[:lengthscale])
+    Makie.arrows!(AR, ps, ns, arrowsize=AR[:arrowsize], colormap=AR[:colormap], color=lengths, lengthscale=AR[:lengthscale])
 end
 
 """

@@ -441,32 +441,40 @@ function compute_gradient_field(dh::Ferrite.DofHandler{dim}, u::AbstractVector, 
     # Dof handler for gradient field
     dh_gradient = Ferrite.DofHandler(getgrid(dh))
     ip_gradient = get_gradient_interpolation(ip)
-    push!(dh_gradient, :gradient, Ferrite.getfielddim(dh, field_name)*dim, ip_gradient) # field dim × spatial dim components
+    field_dim = Ferrite.getfielddim(dh,field_name)
+    push!(dh_gradient, :gradient, field_dim*dim, ip_gradient) # field dim × spatial dim components
     Ferrite.close!(dh_gradient)
 
     # Buffer for the dofs
-    cell_dofs = zeros(Int, Ferrite.getnbasefunctions(ip))
-    cell_dofs_gradient = zeros(Int, Ferrite.getfielddim(dh_gradient, :gradient))
+    cell_dofs = zeros(Int, Ferrite.ndofs_per_cell(dh))
+    cell_dofs_gradient = zeros(Int, Ferrite.ndofs_per_cell(dh_gradient))
 
     # Allocate storage for the fluxes to store
     u_gradient = zeros(Ferrite.ndofs(dh_gradient))
+    uᵉ_gradient = zeros(length(cell_dofs_gradient))
+    uᵉ = zeros(field_dim*Ferrite.getnbasefunctions(ip))
 
     for (cell_num, cell) in enumerate(Ferrite.CellIterator(dh))
         Ferrite.celldofs!(cell_dofs, dh, cell_num)
-        uᵉ = u[cell_dofs[Ferrite.dof_range(dh, field_name)]]
+        uᵉ .= u[cell_dofs[Ferrite.dof_range(dh, field_name)]]
 
         Ferrite.celldofs!(cell_dofs_gradient, dh_gradient, cell_num)
-        uᵉ_gradient = u_gradient[cell_dofs_gradient]
+        uᵉ_gradient .= 0.0
 
         ref_coords = Ferrite.reference_coordinates(ip_gradient)
         for i ∈ 1:Ferrite.getnbasefunctions(ip_gradient)
-            d = Ferrite.derivative(ip, ref_coords[i])
+            _derivative = Ferrite.derivative(ip, ref_coords[i])
             for j ∈ 1:Ferrite.getnbasefunctions(ip)
-                uᵉ_gradient[(dim*(i-1)+1):(dim*i)] += uᵉ[j] * d[j]
+                for ds in 1:dim
+                    for df in 1:Ferrite.getfielddim(dh,field_name)
+                        uᵉ_gradient[(i-1)*(dim*field_dim)+ds+(df-1)*dim] += uᵉ[(j-1)*field_dim+df] * _derivative[j][ds]
+                        #uᵉ_gradient[(i-1)*(dim*field_dim)+ds+(df-1)*dim] = 1
+                        #@show uᵉ[(j-1)*field_dim+df]
+                    end
+                end
             end 
         end
-
-        u_gradient[cell_dofs_gradient] = uᵉ_gradient
+        u_gradient[cell_dofs_gradient] .+= uᵉ_gradient
     end
     return (dh_gradient, u_gradient)
 end

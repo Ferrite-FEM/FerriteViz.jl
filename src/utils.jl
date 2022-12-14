@@ -467,7 +467,7 @@ function compute_gradient_field(dh::Ferrite.DofHandler{dim}, u::AbstractVector, 
             for j ∈ 1:Ferrite.getnbasefunctions(ip)
                 for ds in 1:dim
                     for df in 1:Ferrite.getfielddim(dh,field_name)
-                        uᵉ_gradient[(i-1)*(dim*field_dim)+ds+(df-1)*dim] += uᵉ[(j-1)*field_dim+df] * _derivative[j][ds]
+                        uᵉ_gradient[(i-1)*(dim*field_dim)+df+(ds-1)*field_dim] += uᵉ[(j-1)*field_dim+df] * _derivative[j][ds]
                         #uᵉ_gradient[(i-1)*(dim*field_dim)+ds+(df-1)*dim] = 1
                         #@show uᵉ[(j-1)*field_dim+df]
                     end
@@ -476,5 +476,5 @@ function compute_gradient_field(dh::Ferrite.DofHandler{dim}, u::AbstractVector, 
         end
         u_gradient[cell_dofs_gradient] .+= uᵉ_gradient
     end
-    return (dh_gradient, u_gradient)
+    return dh_gradient, u_gradient
 end

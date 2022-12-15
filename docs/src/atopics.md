@@ -122,7 +122,7 @@ WGLMakie.set_theme!(resolution=(800, 400)) # hide
 include("ferrite-examples/incompressible-elasticity.jl") #only defines solving function
 
 (dh_grad, u_grad) = FerriteViz.interpolate_gradient_field(dh, u, :u)
-plotter = MakiePlotter(dh_grad, u_grad)
+plotter = FerriteViz.MakiePlotter(dh_grad, u_grad)
 
 f = WGLMakie.Figure()
 axs = [WGLMakie.Axis(f[1, 1], title="Strain"),WGLMakie.Axis(f[1, 2], title="Stress"),WGLMakie.Axis(f[1, 3], title="Pressure (deformed)")]

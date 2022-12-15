@@ -29,11 +29,11 @@ function assemble_steady_heat_global(cellvalues::CellScalarValues, K::SparseMatr
     n_basefuncs = getnbasefunctions(cellvalues)
     Ke = zeros(n_basefuncs, n_basefuncs)
     fe = zeros(n_basefuncs)
-    
+
     f = zeros(ndofs(dh))
 
     assembler = start_assemble(K, f)
-    
+
     for cell in CellIterator(dh)
         reinit!(cellvalues, cell)
         assemble_heat_element!(Ke, fe, cellvalues, getcoordinates(cell), rhs)
@@ -42,7 +42,7 @@ function assemble_steady_heat_global(cellvalues::CellScalarValues, K::SparseMatr
     return K, f
 end
 
-function manufactured_heat_problem(element_type, ip, num_elements_per_dim)
+function manufactured_heat_problem(element_type, ip, num_elements_per_dim; test_solution=false, atol=1e-2)
     dim = Ferrite.getdim(ip)
     grid = generate_grid(element_type, ntuple(x->num_elements_per_dim, dim));
     ip_geo = Ferrite.default_interpolation(typeof(grid.cells[1]))
@@ -80,6 +80,24 @@ function manufactured_heat_problem(element_type, ip, num_elements_per_dim)
     K, f = assemble_steady_heat_global(cellvalues, K, dh, x->(π/2)^2 * dim * prod(cos, x*π/2));
     apply!(K, f, ch)
     u = K \ f;
+
+    # test manufactured solution
+    if test_solution
+        for cell in CellIterator(dh)
+            reinit!(cellvalues, cell)
+            n_basefuncs = getnbasefunctions(cellvalues)
+            coords = getcoordinates(cell)
+            uₑ = u[celldofs(cell)]
+            for q_point in 1:getnquadpoints(cellvalues)
+                x = spatial_coordinate(cellvalues, q_point, coords)
+                for i in 1:n_basefuncs
+                    uₐₙₐ    = prod(cos, x*π/2)
+                    uₐₚₚᵣₒₓ = function_value(cellvalues, q_point, uₑ)
+                    @test isapprox(uₐₙₐ, uₐₚₚᵣₒₓ; atol=atol)
+                end
+            end
+        end
+    end
 
     return dh, u
 end

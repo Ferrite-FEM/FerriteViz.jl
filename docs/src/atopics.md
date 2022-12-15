@@ -113,7 +113,12 @@ This function may be moved to Ferrite in the future.
 
 In this quick example we show how to visualize strains and stresses side-by-side
 ```@example 1
+using Ferrite
+import FerriteViz
 using FerriteViz: ε
+import WGLMakie #activating the backend, switch to GLMakie or CairoMakie (for 2D) locally
+WGLMakie.set_theme!(resolution=(800, 400)) # hide
+
 include("ferrite-examples/incompressible-elasticity.jl") #only defines solving function
 
 (dh_grad, u_grad) = FerriteViz.interpolate_gradient_field(dh, u, :u)

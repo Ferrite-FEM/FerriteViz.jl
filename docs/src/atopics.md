@@ -109,11 +109,10 @@ This function may be moved to Ferrite in the future.
 
 ```@example 1
 using FerriteViz: ε
-include("ferrite-examples/plasticity.jl") #only defines solving function
-u, dh, uhistory, σ, κ = solve()
+include("ferrite-examples/incompressible-elasticity.jl") #only defines solving function
 plotter = FerriteViz.MakiePlotter(dh,u)
-(dh_grad, u_grad) = FerriteViz.interpolate_gradient_field(dh, u, :u);
-FerriteViz.solutionplot(dh_grad, u_grad, process=x->ε(x))
+(dh_grad, u_grad) = FerriteViz.interpolate_gradient_field(dh, u, :u)
+FerriteViz.solutionplot(dh_grad, u_grad, process=x->norm(ε(x)))
 WGLMakie.current_figure()
 ```
 

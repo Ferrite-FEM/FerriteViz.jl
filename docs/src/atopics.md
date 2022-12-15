@@ -106,13 +106,21 @@ However, a big downside is that we loose the ability to investigate the jumps be
 Therefore, we provide the ability to interpolate the gradient into a piecewise discontinuous field via `FerriteViz.interpolate_gradient_field`.
 This function may be moved to Ferrite in the future.
 
-
+In this quick example we show how to visualize strains and stresses side-by-side
 ```@example 1
 using FerriteViz: ε
 include("ferrite-examples/incompressible-elasticity.jl") #only defines solving function
-plotter = FerriteViz.MakiePlotter(dh,u)
+
 (dh_grad, u_grad) = FerriteViz.interpolate_gradient_field(dh, u, :u)
-FerriteViz.solutionplot(dh_grad, u_grad, process=x->norm(ε(x)))
+plotter = MakiePlotter(dh_grad, u_grad)
+
+f = WGLMakie.Figure()
+axs = [WGLMakie.Axis(f[1, 1], title="Strain"),WGLMakie.Axis(f[1, 2], title="Stress"),WGLMakie.Axis(f[1, 3], title="Pressure (deformed)")]
+FerriteViz.solutionplot!(axs[1], plotter, process=u->norm(ε(u)))
+σ(u) = 2*mp.G*dev(ε(u)) + mp.K*tr(ε(u))*ones(ε(u))
+FerriteViz.solutionplot!(axs[2], plotter, process=u->norm(σ(u)))
+FerriteViz.solutionplot!(axs[3], dh, u, field=:p, deformation_field=:u)
+
 WGLMakie.current_figure()
 ```
 

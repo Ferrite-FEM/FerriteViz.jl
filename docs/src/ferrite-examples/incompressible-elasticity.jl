@@ -143,13 +143,7 @@ function symmetrize_lower!(K)
     end
 end;
 
-function solve(ν, interpolation_u, interpolation_p)
-    # material
-    Emod = 1.
-    Gmod = Emod / 2(1 + ν)
-    Kmod = Emod * ν / ((1+ν) * (1-2ν))
-    mp = LinearElasticity(Gmod, Kmod)
-
+function solve(interpolation_u, interpolation_p, mp)
     # grid, dofhandler, boundary condition
     n = 50
     grid = create_cook_grid(n, n)
@@ -177,4 +171,9 @@ end
 linear    = Lagrange{2,RefTetrahedron,1}()
 quadratic = Lagrange{2,RefTetrahedron,2}()
 
-u,dh = solve(0.4999999, quadratic, linear);
+ν = 0.4999999
+Emod = 1.
+Gmod = Emod / 2(1 + ν)
+Kmod = Emod * ν / ((1+ν) * (1-2ν))
+mp = LinearElasticity(Gmod, Kmod)
+u,dh = solve(quadratic, linear, mp);

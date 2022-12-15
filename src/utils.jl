@@ -430,6 +430,14 @@ get_gradient_interpolation_type(::Type{Ferrite.Lagrange{dim,shape,order}}) where
 # TODO remove if Knuth's PR on this gets merged (Ferrite PR 552)
 getgrid(dh::Ferrite.DofHandler) = dh.grid
 
+function ε(x::Vector{T}) where T
+    ngrad = length(x)
+    dim = isqrt(ngrad)
+    ∇u= Tensor{2,dim,T,ngrad}(x)
+    return 0.5*(∇u+∇u')
+end
+
+
 """
 Compute the piecewise discontinuous gradient field for `field_name`. Returns the flux dof handler and the corresponding flux dof values.
 """
@@ -444,6 +452,12 @@ function compute_gradient_field(dh::Ferrite.DofHandler{dim}, u::AbstractVector, 
     field_dim = Ferrite.getfielddim(dh,field_name)
     push!(dh_gradient, :gradient, field_dim*dim, ip_gradient) # field dim × spatial dim components
     Ferrite.close!(dh_gradient)
+
+    # FIXME this does not work for mixed grids
+    ip_geom = Ferrite.default_interpolation(typeof(Ferrite.getcells(getgrid(dh), 1)))
+    ref_coords_gradient = Ferrite.reference_coordinates(ip_gradient)
+    qr_gradient = Ferrite.QuadratureRule{dim, refshape(Ferrite.getcells(getgrid(dh), 1)), Float64}(ones(length(ref_coords_gradient)), ref_coords_gradient)
+    cv = (field_dim == 1) ? Ferrite.CellScalarValues(qr_gradient, ip, ip_geom) : Ferrite.CellVectorValues(qr_gradient, ip, ip_geom)
 
     # Buffer for the dofs
     cell_dofs = zeros(Int, Ferrite.ndofs_per_cell(dh))
@@ -461,19 +475,16 @@ function compute_gradient_field(dh::Ferrite.DofHandler{dim}, u::AbstractVector, 
         Ferrite.celldofs!(cell_dofs_gradient, dh_gradient, cell_num)
         uᵉ_gradient .= 0.0
 
-        ref_coords = Ferrite.reference_coordinates(ip_gradient)
+        Ferrite.reinit!(cv, cell)
+
         for i ∈ 1:Ferrite.getnbasefunctions(ip_gradient)
-            _derivative = Ferrite.derivative(ip, ref_coords[i])
-            for j ∈ 1:Ferrite.getnbasefunctions(ip)
-                for ds in 1:dim
-                    for df in 1:Ferrite.getfielddim(dh,field_name)
-                        uᵉ_gradient[(i-1)*(dim*field_dim)+df+(ds-1)*field_dim] += uᵉ[(j-1)*field_dim+df] * _derivative[j][ds]
-                        #uᵉ_gradient[(i-1)*(dim*field_dim)+ds+(df-1)*dim] = 1
-                        #@show uᵉ[(j-1)*field_dim+df]
-                    end
+            uᵉgradi = Ferrite.function_gradient(cv, i, uᵉ)
+            for ds in 1:dim
+                for df in 1:Ferrite.getfielddim(dh,field_name)
+                    uᵉ_gradient[(i-1)*(dim*field_dim)+(ds-1)*field_dim+df] = uᵉgradi[ds,df]
                 end
-            end 
-        end
+            end
+        end 
         u_gradient[cell_dofs_gradient] .+= uᵉ_gradient
     end
     return dh_gradient, u_gradient

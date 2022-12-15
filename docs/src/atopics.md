@@ -131,7 +131,7 @@ FerriteViz.solutionplot!(axs[1], plotter, process=u->norm(ε(u)))
 FerriteViz.solutionplot!(axs[2], plotter, process=u->norm(σ(u)))
 FerriteViz.solutionplot!(axs[3], dh, u, field=:p, deformation_field=:u)
 
-WGLMakie.current_figure()
+f
 ```
 
 An alternative to this approach is to compute gradient quantities at samples points and plot these via `arrows`.

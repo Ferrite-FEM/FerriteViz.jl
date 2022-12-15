@@ -1,5 +1,10 @@
 # Advanced Topics
 
+```@example 1
+import JSServe # hide
+JSServe.Page(exportable=true, offline=true) # hide
+```
+
 ## Live plotting
 
 Plotting while a computational heavy simulation is performed can be easily achieved with FerriteViz.jl.

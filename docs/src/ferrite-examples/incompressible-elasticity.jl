@@ -176,4 +176,5 @@ Emod = 1.
 Gmod = Emod / 2(1 + ν)
 Kmod = Emod * ν / ((1+ν) * (1-2ν))
 mp = LinearElasticity(Gmod, Kmod)
-u,dh = solve(quadratic, linear, mp);
+u_linear,dh_linear = solve(linear, linear, mp);
+u_quadratic,dh_quadratic = solve(quadratic, linear, mp);

@@ -5,6 +5,53 @@ import JSServe # hide
 JSServe.Page(exportable=true, offline=true) # hide
 ```
 
+## Gradient field visualization
+
+FerriteViz also makes it easy to visualize gradient fields, like for example strain or stress fields.
+A common approach to visualize stresses and strains is to compute the L2 projection onto a H1 field and plot this.
+However, a big downside is that we loose the ability to investigate the jumps between elements, as they get smoothed out, hiding possible issues in the solution.
+Therefore, we provide the ability to interpolate the gradient into a piecewise discontinuous field via `FerriteViz.interpolate_gradient_field`.
+This function may be moved to Ferrite in the future.
+
+In this quick example we show how to visualize strains and stresses side-by-side
+```@example 1
+using Ferrite
+import FerriteViz
+using FerriteViz: ε
+import WGLMakie #activating the backend, switch to GLMakie or CairoMakie (for 2D) locally
+WGLMakie.set_theme!(resolution=(1500, 1600)) # hide
+
+include("ferrite-examples/incompressible-elasticity.jl") #defines dh_linear, dh_quadratic, u_linear, u_quadratic and mp
+
+(dh_linear_grad, u_linear_grad) = FerriteViz.interpolate_gradient_field(dh_linear, u_linear, :u)
+(dh_quadratic_grad, u_quadratic_grad) = FerriteViz.interpolate_gradient_field(dh_quadratic, u_quadratic, :u)
+plotter_linear = FerriteViz.MakiePlotter(dh_linear_grad, u_linear_grad)
+plotter_quadratic = FerriteViz.MakiePlotter(dh_quadratic_grad, u_quadratic_grad)
+σ(∇u) = 2*mp.G*dev(ε(∇u)) + mp.K*tr(ε(∇u))*ones(ε(∇u)) #helper function to map gradient to stress
+cmap = :jet
+
+f = WGLMakie.Figure()
+axs = [WGLMakie.Axis(f[1, 1], title="Strain norm (linear)"),WGLMakie.Axis(f[1, 2], title="Stress norm (linear)"),WGLMakie.Axis(f[1, 3], title="Pressure (deformed, linear)"),
+       WGLMakie.Axis(f[3, 1], title="Strain norm (quadratic)"),WGLMakie.Axis(f[3, 2], title="Stress norm (quadratic)"),WGLMakie.Axis(f[3, 3], title="Pressure (deformed, quadratic)")]
+p1 = FerriteViz.solutionplot!(axs[1], plotter_linear, process=∇u->norm(ε(∇u)), colormap=cmap)
+p2 = FerriteViz.solutionplot!(axs[2], plotter_linear, process=∇u->norm(σ(∇u)), colormap=cmap)
+p3 = FerriteViz.solutionplot!(axs[3], dh_linear, u_linear, field=:p, deformation_field=:u, colormap=cmap)
+f[2,1] = WGLMakie.Colorbar(f[1,1], p1, vertical=false)
+f[2,2] = WGLMakie.Colorbar(f[1,2], p2, vertical=false)
+f[2,3] = WGLMakie.Colorbar(f[1,3], p3, vertical=false)
+
+p4 = FerriteViz.solutionplot!(axs[4], plotter_quadratic, process=∇u->norm(ε(∇u)), colormap=cmap)
+p5 = FerriteViz.solutionplot!(axs[5], plotter_quadratic, process=∇u->norm(σ(∇u)), colormap=cmap)
+p6 = FerriteViz.solutionplot!(axs[6], dh_quadratic, u_quadratic, field=:p, deformation_field=:u, colormap=cmap)
+f[4,1] = WGLMakie.Colorbar(f[3,1], p1, vertical=false)
+f[4,2] = WGLMakie.Colorbar(f[3,2], p2, vertical=false)
+f[4,3] = WGLMakie.Colorbar(f[3,3], p3, vertical=false)
+
+f
+```
+
+An alternative to this approach is to compute gradient quantities at samples points and plot these via `arrows`.
+
 ## Live plotting
 
 Plotting while a computational heavy simulation is performed can be easily achieved with FerriteViz.jl.
@@ -25,7 +72,7 @@ For the full source code, please refer to the link. In the following code we onl
 
 ```julia
 function solve(liveplotting=false)
-    # set up your problem 
+    # set up your problem
     # lots of code
     dh = create_dofhandler(grid, interpolation) #helper function from script file
     n_dofs = ndofs(dh)  # total number of dofs
@@ -102,36 +149,3 @@ Since the computational load of one time step is in this example too low, the pl
 
 If you don't need the full viewer as a live plot, you can of course call instead `solutionplot` (or any other plot/plot combination) with appropriate keyword arguments to only have a specific live plot.
 This can be beneficial performancewise.
-
-## Gradient field visualization
-
-FerriteViz also makes it easy to visualize gradient fields, like for example strain or stress fields.
-A common approach to visualize stresses and strains is to compute the L2 projection onto a H1 field and plot this.
-However, a big downside is that we loose the ability to investigate the jumps between elements, as they get smoothed out, hiding possible issues in the solution.
-Therefore, we provide the ability to interpolate the gradient into a piecewise discontinuous field via `FerriteViz.interpolate_gradient_field`.
-This function may be moved to Ferrite in the future.
-
-In this quick example we show how to visualize strains and stresses side-by-side
-```@example 1
-using Ferrite
-import FerriteViz
-using FerriteViz: ε
-import WGLMakie #activating the backend, switch to GLMakie or CairoMakie (for 2D) locally
-WGLMakie.set_theme!(resolution=(800, 400)) # hide
-
-include("ferrite-examples/incompressible-elasticity.jl") #only defines solving function
-
-(dh_grad, u_grad) = FerriteViz.interpolate_gradient_field(dh, u, :u)
-plotter = FerriteViz.MakiePlotter(dh_grad, u_grad)
-
-f = WGLMakie.Figure()
-axs = [WGLMakie.Axis(f[1, 1], title="Strain"),WGLMakie.Axis(f[1, 2], title="Stress"),WGLMakie.Axis(f[1, 3], title="Pressure (deformed)")]
-FerriteViz.solutionplot!(axs[1], plotter, process=u->norm(ε(u)))
-σ(u) = 2*mp.G*dev(ε(u)) + mp.K*tr(ε(u))*ones(ε(u))
-FerriteViz.solutionplot!(axs[2], plotter, process=u->norm(σ(u)))
-FerriteViz.solutionplot!(axs[3], dh, u, field=:p, deformation_field=:u)
-
-f
-```
-
-An alternative to this approach is to compute gradient quantities at samples points and plot these via `arrows`.

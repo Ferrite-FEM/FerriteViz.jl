@@ -97,3 +97,24 @@ Since the computational load of one time step is in this example too low, the pl
 
 If you don't need the full viewer as a live plot, you can of course call instead `solutionplot` (or any other plot/plot combination) with appropriate keyword arguments to only have a specific live plot.
 This can be beneficial performancewise.
+
+## Gradient field visualization
+
+FerriteViz also makes it easy to visualize gradient fields, like for example strain or stress fields.
+A common approach to visualize stresses and strains is to compute the L2 projection onto a H1 field and plot this.
+However, a big downside is that we loose the ability to investigate the jumps between elements, as they get smoothed out, hiding possible issues in the solution.
+Therefore, we provide the ability to interpolate the gradient into a piecewise discontinuous field via `FerriteViz.interpolate_gradient_field`.
+This function may be moved to Ferrite in the future.
+
+
+```@example 1
+using FerriteViz: ε
+include("ferrite-examples/plasticity.jl") #only defines solving function
+u, dh, uhistory, σ, κ = solve()
+plotter = FerriteViz.MakiePlotter(dh,u)
+(dh_grad, u_grad) = FerriteViz.interpolate_gradient_field(dh, u, :u);
+FerriteViz.solutionplot(dh_grad, u_grad, process=x->ε(x))
+WGLMakie.current_figure()
+```
+
+An alternative to this approach is to compute gradient quantities at samples points and plot these via `arrows`.

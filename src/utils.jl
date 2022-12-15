@@ -441,7 +441,7 @@ end
 """
 Compute the piecewise discontinuous gradient field for `field_name`. Returns the flux dof handler and the corresponding flux dof values.
 """
-function compute_gradient_field(dh::Ferrite.DofHandler{dim}, u::AbstractVector, field_name::Symbol) where {dim}
+function interpolate_gradient_field(dh::Ferrite.DofHandler{dim}, u::AbstractVector, field_name::Symbol) where {dim}
     # Get 
     field_idx = Ferrite.find_field(dh, field_name)
     ip = Ferrite.getfieldinterpolation(dh, field_idx)

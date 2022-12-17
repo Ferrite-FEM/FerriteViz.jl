@@ -292,7 +292,9 @@ version = "3.3.10+0"
 
 [[Ferrite]]
 deps = ["EnumX", "LinearAlgebra", "NearestNeighbors", "Preferences", "Reexport", "SparseArrays", "Tensors", "WriteVTK"]
-git-tree-sha1 = "bfd98af45300a814eadf2807374e47f892a79ed1"
+git-tree-sha1 = "1b152ef6d9c96b09e90258094b4526ab80ce8fb6"
+repo-rev = "master"
+repo-url = "https://github.com/Ferrite-FEM/Ferrite.jl.git"
 uuid = "c061ca5d-56c9-439f-9c0e-210fe06d3992"
 version = "0.3.10"
 

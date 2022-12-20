@@ -3,6 +3,8 @@ using Test
 
 include("../docs/src/ferrite-examples/heat-equation.jl")
 
+# TODO move this into Ferrite core
+
 @testset "gradient fields (scalar)" begin
     # Check scalar problems
     for (size, geo, ip) ∈ [(21, Triangle, Lagrange{2,RefTetrahedron,1}()),

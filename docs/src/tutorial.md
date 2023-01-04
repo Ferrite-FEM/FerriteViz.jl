@@ -90,6 +90,17 @@ FerriteViz.wireframe!(plotter,deformation_field=:u,markersize=10,strokewidth=1,d
 WGLMakie.current_figure()
 ```
 
+For such 3D plots we can also inspect the interior of the domain. Currenly we only have crincle clipping
+implemented and it can be used as follows.
+```@example 1
+clip_plane = FerriteViz.ClipPlane(Vec((0.01,0.5,0.5)), 0.7)
+clipped_plotter = FerriteViz.crincle_clip(plotter, clip_plane)
+FerriteViz.solutionplot(clipped_plotter,deformation_field=:u,colormap=:thermal,deformation_scale=2.0)
+WGLMakie.current_figure()
+```
+Note that we can replace the plane withs some other object or a decision function. Such a function takes
+the grid and a cell index as input and returns a boolean which decides whether a cell is visible or not.
+
 Further, this package provides an interactive viewer that you can call with `ferriteviewer(plotter)` and
 `ferriteviewer(plotter,u_history)` for time dependent views, respectively.
 If you want to live plot your solution while solving some finite element system, consider to take a look at the advanced topics page.

@@ -109,9 +109,11 @@ function crincle_clip(plotter::MakiePlotter{3,DH,T}, decision_fun::Function) whe
 
     # We iterate over all triangles and check if the corresponding cell is visible.
     visible_triangles = Vector{Bool}(undef, size(plotter.triangles, 1))
+    visible_coords = Vector{Bool}(undef, 3*size(plotter.triangles, 1))
     for (i, triangle) ∈ enumerate(eachrow(plotter.triangles))
         cell_id = plotter.triangle_cell_map[i]
         visible_triangles[i] = decision_fun(grid, cell_id)
+        visible_coords[3*(i-1)+1] = visible_coords[3*(i-1)+2] = visible_coords[3*(i-1)+3] = visible_triangles[i]
     end
 
     # Create a plotter with views on the data.
@@ -306,8 +308,7 @@ function transfer_solution(plotter::MakiePlotter{2}, u::Vector; field_idx::Int=1
 
     data = fill(0.0, num_vertices(plotter), field_dim)
     current_vertex_index = 1
-    for (cell_index, cell) in enumerate(Ferrite.getcells(plotter.dh.grid))
-        cell_geo = Ferrite.getcells(dh.grid,cell_index)
+    for (cell_index, cell_geo) in enumerate(Ferrite.getcells(grid))
         _celldofs_field = reshape(Ferrite.celldofs(dh,cell_index)[local_dof_range], (field_dim, Ferrite.getnbasefunctions(ip)))
 
         # Loop over all local triangle vertices
@@ -355,15 +356,12 @@ function transfer_solution(plotter::MakiePlotter{3}, u::Vector; field_idx::Int=1
 
     current_vertex_index = 1
     data = fill(0.0, num_vertices(plotter), field_dim)
-    for (triangle_id, triangle) in enumerate(eachrow(plotter.triangles))
-        cell_index = plotter.triangle_cell_map[triangle_id]
-        cell_geo = Ferrite.getcells(dh.grid, cell_index)
-
+    for (cell_index, cell_geo) in enumerate(Ferrite.getcells(grid))
         _local_celldofs = Ferrite.celldofs(dh, cell_index)[local_dof_range]
         _celldofs_field = reshape(_local_celldofs, (field_dim, Ferrite.getnbasefunctions(ip_cell)))
 
-        #for (local_face_idx,_) in enumerate(Ferrite.faces(cell_geo))
-            local_face_idx = plotter.triangle_face_map[triangle_id]
+        for (local_face_idx,_) in enumerate(Ferrite.faces(cell_geo))
+        #    local_face_idx = plotter.triangle_face_map[triangle_id]
             ip_face = getfaceip(ip_cell, local_face_idx)
             face_geo = linear_face_cell(cell_geo, local_face_idx)
 
@@ -371,8 +369,7 @@ function transfer_solution(plotter::MakiePlotter{3}, u::Vector; field_idx::Int=1
             _facedofs_field = _celldofs_field[:,[_faces[local_face_idx]...]]
 
             # Loop over vertices
-            #for i in 1:(ntriangles(face_geo)*n_vertices_per_tri)
-            for i in 1:(n_vertices_per_tri)
+            for i in 1:(ntriangles(face_geo)*n_vertices_per_tri)
                 ξ = Tensors.Vec(ref_coords[current_vertex_index, :]...)
                 for d in 1:field_dim
                     for node_idx ∈ 1:Ferrite.getnbasefunctions(ip_face)
@@ -381,7 +378,7 @@ function transfer_solution(plotter::MakiePlotter{3}, u::Vector; field_idx::Int=1
                 end
                 current_vertex_index += 1
             end
-        #end
+        end
     end
 
     return mapslices(process, data, dims=[2])
@@ -396,11 +393,8 @@ function transfer_scalar_celldata(plotter::MakiePlotter{3}, u::Vector; process::
 
     current_vertex_index = 1
     data = fill(0.0, num_vertices(plotter), 1)
-    for (triangle_id, triangle) in enumerate(plotter.triangles)
-        cell_index = plotter.triangle_cell_map[triangle_id]
-        cell_geo = Ferrite.getcells(dh.grid, cell_index)
-
-        #for (local_face_idx,_) in enumerate(Ferrite.faces(cell_geo))
+    for (cell_index, cell_geo) in enumerate(Ferrite.getcells(grid))
+        for (local_face_idx,_) in enumerate(Ferrite.faces(cell_geo))
             local_face_idx = triangle_face_map[triangle_id]
             face_geo = linear_face_cell(cell_geo, local_face_idx)
             # Loop over vertices
@@ -408,7 +402,7 @@ function transfer_scalar_celldata(plotter::MakiePlotter{3}, u::Vector; process::
                 data[current_vertex_index, 1] = u[cell_index]
                 current_vertex_index += 1
             end
-        #end
+        end
     end
 
     return mapslices(process, data, dims=[2])
@@ -423,8 +417,7 @@ function transfer_scalar_celldata(plotter::MakiePlotter{2}, u::Vector;  process:
 
     current_vertex_index = 1
     data = fill(0.0, num_vertices(plotter), 1)
-    for (cell_index, cell) in enumerate(Ferrite.getcells(grid))
-        cell_geo = grid.cells[cell_index]
+    for (cell_index, cell_geo) in enumerate(Ferrite.getcells(grid))
         for i in 1:(ntriangles(cell_geo)*n_vertices)
             data[current_vertex_index, 1] = u[cell_index]
             current_vertex_index += 1
@@ -438,19 +431,15 @@ function transfer_scalar_celldata(grid::Ferrite.AbstractGrid{3}, num_vertices::N
     n_vertices = 3 # we have 3 vertices per triangle...
     current_vertex_index = 1
     data = fill(0.0, num_vertices, 1)
-    for (triangle_id, triangle) in enumerate(plotter.triangles)
-        cell_index = plotter.triangle_cell_map[triangle_id]
-        cell_geo = Ferrite.getcells(dh.grid, cell_index)
-
-        #for (local_face_idx,_) in enumerate(Ferrite.faces(cell_geo))
-            local_face_idx = triangle_face_map[triangle_id]
+    for (cell_index, cell_geo) in enumerate(Ferrite.getcells(grid))
+        for (local_face_idx,_) in enumerate(Ferrite.faces(cell_geo))
             face_geo = linear_face_cell(cell_geo, local_face_idx)
             # Loop over vertices
             for i in 1:(ntriangles(face_geo)*n_vertices)
                 data[current_vertex_index, 1] = u[cell_index]
                 current_vertex_index += 1
             end
-        #end
+        end
     end
     return mapslices(process, data, dims=[2])
 end
@@ -459,8 +448,7 @@ function transfer_scalar_celldata(grid::Ferrite.AbstractGrid{2}, num_vertices::N
     n_vertices = 3 # we have 3 vertices per triangle...
     current_vertex_index = 1
     data = fill(0.0, num_vertices, 1)
-    for (cell_index, cell) in enumerate(Ferrite.getcells(grid))
-        cell_geo = grid.cells[cell_index]
+    for (cell_index, cell_geo) in enumerate(Ferrite.getcells(grid))
         for i in 1:(ntriangles(cell_geo)*n_vertices)
             data[current_vertex_index, 1] = u[cell_index]
             current_vertex_index += 1

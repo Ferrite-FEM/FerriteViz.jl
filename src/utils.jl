@@ -43,9 +43,14 @@ struct MakiePlotter{dim,DH<:Ferrite.AbstractDofHandler,T} <: AbstractPlotter
     gridnodes::Matrix{AbstractFloat} # coordinates of grid nodes in matrix form
     physical_coords::Matrix{AbstractFloat} # coordinates in physical space of a vertex
     triangles::Matrix{Int} # each row carries a triple with the indices into the coords matrix defining the triangle
-    reference_coords::Matrix{AbstractFloat} # coordinates on the reference cell for the corresponding vertex
+    triangle_cell_map::Vector{Int}
+    triangle_face_map::Vector{Int} #TODO refactor. This is a hotfix for 3d for now.
+    reference_coords::Matrix{AbstractFloat} # coordinates on the associated reference cell for the corresponding triangle vertex
 end
 
+"""
+Build a static triangulation of the grid to render out the solution via Makie.
+"""
 function MakiePlotter(dh::Ferrite.AbstractDofHandler, u::Vector)
     cells = Ferrite.getcells(dh.grid)
     dim = Ferrite.getdim(dh.grid)
@@ -58,17 +63,64 @@ function MakiePlotter(dh::Ferrite.AbstractDofHandler, u::Vector)
 
     # Preallocate the matrices carrying the triangulation information
     triangles = Matrix{Int}(undef, num_triangles, 3)
+    triangle_cell_map = Vector{Int}(undef, num_triangles)
+    triangle_face_map = Vector{Int}(undef, num_triangles)
     physical_coords = Matrix{Float64}(undef, num_triangles*3, dim)
     gridnodes = [node[i] for node in Ferrite.getcoordinates.(Ferrite.getnodes(dh.grid)), i in 1:dim]
-    reference_coords = Matrix{Float64}(undef, num_triangles*3, 2) # for now no 1D
+    reference_coords = Matrix{Float64}(undef, num_triangles*3, 2) # NOTE this should have the dimension of the actual reference element
 
     # Decompose does the heavy lifting for us
     coord_offset = 1
     triangle_offset = 1
-    for cell in cells
+    for (cell_id,cell) ∈ enumerate(cells)
+        triangle_offset_begin = triangle_offset
         (coord_offset, triangle_offset) = decompose!(coord_offset, physical_coords, reference_coords, triangle_offset, triangles, dh.grid, cell)
+        triangle_cell_map[triangle_offset_begin:(triangle_offset-1)] .= cell_id
+        # TODO remove this portion, as it is just for a first version of clipping.
+        if dim == 3
+            if ntriangles(cell) == 6*4 # hex
+                next_triangle = 0
+                for local_face_id ∈ 1:6
+                    for j ∈ 0:3
+                        triangle_face_map[triangle_offset_begin+next_triangle] = local_face_id
+                        next_triangle += 1 # indexing the Julia way
+                    end
+                end
+            elseif ntriangles(cell) == 4 # tet
+                for local_face_id ∈ 1:4
+                    triangle_face_map[triangle_offset_begin+local_face_id-1] = local_face_id
+                end
+            else
+                error("Unkown cell type. Cannot build face relation.")
+            end
+        end
     end
-    return MakiePlotter{dim,typeof(dh),eltype(u)}(dh,Observable(u),[],gridnodes,physical_coords,triangles,reference_coords);
+    return MakiePlotter{dim,typeof(dh),eltype(u)}(dh,Observable(u),[],gridnodes,physical_coords,triangles,triangle_cell_map,triangle_face_map,reference_coords);
+end
+
+"""
+Crincle clip generates a new plotter that deletes some of the triangles, based on an
+implicit description of the clipping surface.
+"""
+function crincle_clip(plotter::MakiePlotter{3,DH,T}, decision_fun::Function) where {DH,T}
+    dh = plotter.dh
+    u = plotter.u
+    grid = dh.grid
+
+    # We iterate over all triangles and check if the corresponding cell is visible.
+    visible_triangles = Vector{Bool}(undef, size(plotter.triangles, 1))
+    for (i, triangle) ∈ enumerate(eachrow(plotter.triangles))
+        cell_id = plotter.triangle_cell_map[i]
+        visible_triangles[i] = decision_fun(grid, cell_id)
+    end
+
+    # Create a plotter with views on the data.
+    return MakiePlotter{3,DH,T}(dh, u, plotter.cells_connectivity, plotter.gridnodes,
+        plotter.physical_coords,
+        plotter.triangles[visible_triangles, :],
+        plotter.triangle_cell_map[visible_triangles],
+        plotter.triangle_face_map[visible_triangles],
+        plotter.reference_coords);
 end
 
 """
@@ -292,6 +344,8 @@ function transfer_solution(plotter::MakiePlotter{3}, u::Vector; field_idx::Int=1
     # @FIXME decouple the interpolation from the geometry, because for discontinuous interpolations
     #   the "interpolation faces" (which we need for dof-assignment) do not coincide with the geometric
     #   faces... Alternatively we could try something similar to FaceValues.
+    # @FIXME The idea here should be to simply evaluate the basis functions on the associated element
+    # at the associated coordinates instead of evaluating the "face values" (in the Ferrite sense).
     ip_cell = dh.field_interpolations[field_idx]
     _faces = Ferrite.faces(ip_cell) # faces of the cell with local dofs
     @assert !isempty(_faces) # Discontinuous interpolations in 3d not supported yet. See above.
@@ -301,13 +355,15 @@ function transfer_solution(plotter::MakiePlotter{3}, u::Vector; field_idx::Int=1
 
     current_vertex_index = 1
     data = fill(0.0, num_vertices(plotter), field_dim)
-    for (cell_index, cell) in enumerate(Ferrite.getcells(plotter.dh.grid))
-        cell_geo = Ferrite.getcells(dh.grid,cell_index)
+    for (triangle_id, triangle) in enumerate(eachrow(plotter.triangles))
+        cell_index = plotter.triangle_cell_map[triangle_id]
+        cell_geo = Ferrite.getcells(dh.grid, cell_index)
 
-        _local_celldofs = Ferrite.celldofs(dh,cell_index)[local_dof_range]
+        _local_celldofs = Ferrite.celldofs(dh, cell_index)[local_dof_range]
         _celldofs_field = reshape(_local_celldofs, (field_dim, Ferrite.getnbasefunctions(ip_cell)))
 
-        for (local_face_idx,_) in enumerate(Ferrite.faces(cell_geo))
+        #for (local_face_idx,_) in enumerate(Ferrite.faces(cell_geo))
+            local_face_idx = plotter.triangle_face_map[triangle_id]
             ip_face = getfaceip(ip_cell, local_face_idx)
             face_geo = linear_face_cell(cell_geo, local_face_idx)
 
@@ -315,7 +371,8 @@ function transfer_solution(plotter::MakiePlotter{3}, u::Vector; field_idx::Int=1
             _facedofs_field = _celldofs_field[:,[_faces[local_face_idx]...]]
 
             # Loop over vertices
-            for i in 1:(ntriangles(face_geo)*n_vertices_per_tri)
+            #for i in 1:(ntriangles(face_geo)*n_vertices_per_tri)
+            for i in 1:(n_vertices_per_tri)
                 ξ = Tensors.Vec(ref_coords[current_vertex_index, :]...)
                 for d in 1:field_dim
                     for node_idx ∈ 1:Ferrite.getnbasefunctions(ip_face)
@@ -324,7 +381,7 @@ function transfer_solution(plotter::MakiePlotter{3}, u::Vector; field_idx::Int=1
                 end
                 current_vertex_index += 1
             end
-        end
+        #end
     end
 
     return mapslices(process, data, dims=[2])
@@ -339,16 +396,19 @@ function transfer_scalar_celldata(plotter::MakiePlotter{3}, u::Vector; process::
 
     current_vertex_index = 1
     data = fill(0.0, num_vertices(plotter), 1)
-    for (cell_index, cell) in enumerate(Ferrite.getcells(grid))
-        cell_geo = grid.cells[cell_index]
-        for (local_face_idx,_) in enumerate(Ferrite.faces(cell_geo))
+    for (triangle_id, triangle) in enumerate(plotter.triangles)
+        cell_index = plotter.triangle_cell_map[triangle_id]
+        cell_geo = Ferrite.getcells(dh.grid, cell_index)
+
+        #for (local_face_idx,_) in enumerate(Ferrite.faces(cell_geo))
+            local_face_idx = triangle_face_map[triangle_id]
             face_geo = linear_face_cell(cell_geo, local_face_idx)
             # Loop over vertices
             for i in 1:(ntriangles(face_geo)*n_vertices)
                 data[current_vertex_index, 1] = u[cell_index]
                 current_vertex_index += 1
             end
-        end
+        #end
     end
 
     return mapslices(process, data, dims=[2])
@@ -378,16 +438,19 @@ function transfer_scalar_celldata(grid::Ferrite.AbstractGrid{3}, num_vertices::N
     n_vertices = 3 # we have 3 vertices per triangle...
     current_vertex_index = 1
     data = fill(0.0, num_vertices, 1)
-    for (cell_index, cell) in enumerate(Ferrite.getcells(grid))
-        cell_geo = grid.cells[cell_index]
-        for (local_face_idx,_) in enumerate(Ferrite.faces(cell_geo))
+    for (triangle_id, triangle) in enumerate(plotter.triangles)
+        cell_index = plotter.triangle_cell_map[triangle_id]
+        cell_geo = Ferrite.getcells(dh.grid, cell_index)
+
+        #for (local_face_idx,_) in enumerate(Ferrite.faces(cell_geo))
+            local_face_idx = triangle_face_map[triangle_id]
             face_geo = linear_face_cell(cell_geo, local_face_idx)
             # Loop over vertices
             for i in 1:(ntriangles(face_geo)*n_vertices)
                 data[current_vertex_index, 1] = u[cell_index]
                 current_vertex_index += 1
             end
-        end
+        #end
     end
     return mapslices(process, data, dims=[2])
 end

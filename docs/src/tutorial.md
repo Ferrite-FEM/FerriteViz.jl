@@ -29,11 +29,6 @@ grid = generate_grid(Hexahedron,(3,3,3))
 FerriteViz.wireframe(grid,markersize=10,strokewidth=2)
 ```
 
-!!! note "Known node issue"
-    It is a known WGLMakie bug that currently scatter plots don't rotate with the camera.
-    [See this issue.](https://github.com/MakieOrg/Makie.jl/issues/2243)
-
-
 FerriteViz.jl also supports showing labels for `Ferrite.AbstractGrid` entities, such as node- and celllabels, as well as plotting cellsets.
 
 ```@example 1

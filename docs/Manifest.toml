@@ -598,9 +598,9 @@ version = "0.21.3"
 
 [[JSServe]]
 deps = ["Base64", "CodecZlib", "Colors", "Dates", "Deno_jll", "HTTP", "Hyperscript", "LinearAlgebra", "Markdown", "MsgPack", "Observables", "RelocatableFolders", "SHA", "Sockets", "Tables", "Test", "URIs", "UUIDs", "WidgetsBase"]
-git-tree-sha1 = "5ce726b25245b7207b030d1593159c6aef7c8975"
+git-tree-sha1 = "a11076dd49f983144d64609ed1e2bce645a45d02"
 uuid = "824d6782-a2ef-11e9-3a09-e5662e0c26f9"
-version = "2.0.2"
+version = "2.0.3"
 
 [[JpegTurbo]]
 deps = ["CEnum", "FileIO", "ImageCore", "JpegTurbo_jll", "TOML"]

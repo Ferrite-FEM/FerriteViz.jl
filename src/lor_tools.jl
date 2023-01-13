@@ -70,11 +70,11 @@ for_nodes(::Union{Ferrite.Lagrange{2,Ferrite.RefTetrahedron,5},Ferrite.Discontin
     (8,7,2),
 )
 # Quadrilateral
-for_nodes(::Union{Ferrite.Lagrange{2,Ferrite.RefCube,1},Ferrite.Quadrilateral}) = (
+for_nodes(::Union{Ferrite.Lagrange{2,Ferrite.RefCube,1},Ferrite.DiscontinuousLagrange{2,Ferrite.RefCube,1},Ferrite.Quadrilateral}) = (
     (1,2,3,4),
 )
 # Quadratic Quadrilateral
-for_nodes(::Union{Ferrite.Lagrange{2,Ferrite.RefCube,2},Ferrite.QuadraticQuadrilateral}) = (
+for_nodes(::Union{Ferrite.Lagrange{2,Ferrite.RefCube,2},Ferrite.DiscontinuousLagrange{2,Ferrite.RefCube,2},Ferrite.QuadraticQuadrilateral}) = (
     (1,5,9,8),
     (5,2,6,9),
     (9,6,3,7),

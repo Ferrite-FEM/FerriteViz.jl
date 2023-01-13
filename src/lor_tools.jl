@@ -1,21 +1,22 @@
 # These functions generate the corresponding first order cells of an interpolation.
-for_nodes(ip::Ferrite.Lagrange{2,Ferrite.RefTetrahedron,1}) = (
+for_nodes(::Union{Ferrite.Lagrange{2,Ferrite.RefTetrahedron,1},Ferrite.Triangle}) = (
     (1,2,3),
 )
-for_nodes(ip::Ferrite.Lagrange{2,Ferrite.RefCube,1}) = (
-    (1,2,3,4),
-)
-for_nodes(ip::Ferrite.Lagrange{2,Ferrite.RefCube,2}) = (
-    (1,5,9,8),
-    (5,2,6,9),
-    (9,6,3,7),
-    (8,9,7,4),
-)
-for_nodes(ip::Ferrite.Lagrange{2,Ferrite.RefTetrahedron,2}) = (
+for_nodes(::Union{Ferrite.Lagrange{2,Ferrite.RefTetrahedron,2},Ferrite.QuadraticTriangle}) = (
     (6,1,4),
     (3,6,4),
     (4,5,3),
     (5,3,2),
+)
+
+for_nodes(::Union{Ferrite.Lagrange{2,Ferrite.RefCube,1},Ferrite.Quadrilateral}) = (
+    (1,2,3,4),
+)
+for_nodes(::Union{Ferrite.Lagrange{2,Ferrite.RefCube,2},Ferrite.QuadraticQuadrilateral}) = (
+    (1,5,9,8),
+    (5,2,6,9),
+    (9,6,3,7),
+    (8,9,7,4),
 )
 
 """
@@ -62,7 +63,7 @@ function for_discretization(dh, u, field_idx)
     # dof_max = 0
     ncells = 0
     for cell ∈ Ferrite.CellIterator(dh)
-        celldofs = Ferrite.celldofs(cell)
+        # celldofs = Ferrite.celldofs(cell)
         # dof_max = max(dof_max, maximum(celldofs))
         # dof_min = min(dof_min, minimum(celldofs))
         ncells += length(for_nodes(ip))

@@ -1,17 +1,79 @@
 # These functions generate the corresponding first order cells of an interpolation.
-for_nodes(::Union{Ferrite.Lagrange{2,Ferrite.RefTetrahedron,1},Ferrite.Triangle}) = (
-    (1,2,3),
+# Triangle
+for_nodes(::Union{Ferrite.Lagrange{2,Ferrite.RefTetrahedron,1},Ferrite.DiscontinuousLagrange{2,Ferrite.RefTetrahedron,1},Ferrite.Triangle}) = (
+    (3,1,2),
 )
-for_nodes(::Union{Ferrite.Lagrange{2,Ferrite.RefTetrahedron,2},Ferrite.QuadraticTriangle}) = (
+# Quadratic Triangle
+for_nodes(::Union{Ferrite.Lagrange{2,Ferrite.RefTetrahedron,2},Ferrite.DiscontinuousLagrange{2,Ferrite.RefTetrahedron,2},Ferrite.QuadraticTriangle}) = (
     (6,1,4),
-    (3,6,4),
-    (4,5,3),
-    (5,3,2),
+    (5,6,4),
+    (3,6,5),
+    (5,4,2),
 )
-
+# Cubic Triangle
+for_nodes(::Union{Ferrite.Lagrange{2,Ferrite.RefTetrahedron,3},Ferrite.DiscontinuousLagrange{2,Ferrite.RefTetrahedron,3},Ferrite.Cell{2,10,3}}) = (
+    (3,8,7),
+    (7,8,10),
+    (8,9,10),
+    (10,9,4),
+    (9,1,4),
+    (7,10,6),
+    (6,10,5),
+    (6,5,2),
+    (10,4,5),
+)
+# Biquadratic Triangle
+for_nodes(::Union{Ferrite.Lagrange{2,Ferrite.RefTetrahedron,4},Ferrite.DiscontinuousLagrange{2,Ferrite.RefTetrahedron,4},Ferrite.Cell{2,15,3}}) = (
+    (3,10,9),
+    (13,9,10),
+    (10,11,13),
+    (14,13,11),
+    (11,12,14),
+    (4,14,12),
+    (12,1,4),
+    (9,13,8),
+    (15,8,13),
+    (13,14,15),
+    (5,15,14),
+    (14,4,5),
+    (8,15,7),
+    (6,7,15),
+    (15,5,6),
+    (7,6,2),
+)
+# Quintic Triangle
+for_nodes(::Union{Ferrite.Lagrange{2,Ferrite.RefTetrahedron,5},Ferrite.DiscontinuousLagrange{2,Ferrite.RefTetrahedron,5},Ferrite.Cell{2,20,3}}) = (
+    (3,12,11),
+    (16,11,12),
+    (12,13,16),
+    (17,16,13),
+    (13,14,17),
+    (18,17,14),
+    (14,15,18),
+    (4,18,15),
+    (15,1,4),
+    (11,16,10),
+    (19,10,16),
+    (16,17,19),
+    (20,19,17),
+    (17,18,20),
+    (5,20,18),
+    (18,4,5),
+    (10,19,9),
+    (21,9,19),
+    (19,20,21),
+    (6,21,20),
+    (20,5,6),
+    (9,21,8),
+    (7,8,21),
+    (21,6,7),
+    (8,7,2),
+)
+# Quadrilateral
 for_nodes(::Union{Ferrite.Lagrange{2,Ferrite.RefCube,1},Ferrite.Quadrilateral}) = (
     (1,2,3,4),
 )
+# Quadratic Quadrilateral
 for_nodes(::Union{Ferrite.Lagrange{2,Ferrite.RefCube,2},Ferrite.QuadraticQuadrilateral}) = (
     (1,5,9,8),
     (5,2,6,9),
@@ -50,7 +112,9 @@ getfieldname(dh, field_idx) = dh.field_names[field_idx]
 Create a first order discretization w.r.t. a field and transfer
 the solution.
 """
-function for_discretization(dh, u, field_idx)
+function for_discretization(dh, u)
+    field_idx=1
+
     # Some helpers
     ip = Ferrite.getfieldinterpolation(dh, field_idx)
     field_dim = Ferrite.getfielddim(dh, field_idx)

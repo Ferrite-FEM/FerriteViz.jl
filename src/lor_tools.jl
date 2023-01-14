@@ -71,7 +71,7 @@ for_nodes(::Union{Ferrite.Lagrange{2,Ferrite.RefTetrahedron,5},Ferrite.Discontin
 )
 # Tetrahedron
 for_nodes(::Union{Ferrite.Lagrange{3,Ferrite.RefTetrahedron,1},Ferrite.DiscontinuousLagrange{3,Ferrite.RefTetrahedron,1},Ferrite.Tetrahedron}) = (
-    (3,1,2,4),
+    (1,2,3,4),
 )
 # Quadratic Tetrahedron
 for_nodes(::Union{Ferrite.Lagrange{3,Ferrite.RefTetrahedron,2},Ferrite.DiscontinuousLagrange{3,Ferrite.RefTetrahedron,2},Ferrite.QuadraticTetrahedron}) = (
@@ -94,6 +94,21 @@ for_nodes(::Union{Ferrite.Lagrange{2,Ferrite.RefCube,2},Ferrite.DiscontinuousLag
     (5,2,6,9),
     (9,6,3,7),
     (8,9,7,4),
+)
+# Hexahedron
+for_nodes(::Union{Ferrite.Lagrange{3,Ferrite.RefCube,1},Ferrite.DiscontinuousLagrange{3,Ferrite.RefCube,1},Ferrite.Hexahedron}) = (
+    (1,2,3,4,5,6,7,8),
+)
+# Quadratic Hexahedron
+for_nodes(::Union{Ferrite.Lagrange{3,Ferrite.RefCube,2},Ferrite.DiscontinuousLagrange{3,Ferrite.RefCube,2},Ferrite.Cell{3,27,6}}) = (
+    (1,9,21,12,17,22,27,25),
+    (17,22,27,25,5,13,26,16),
+    (9,2,10,21,22,18,23,27),
+    (22,18,23,27,13,6,14,26),
+    (12,21,11,4,25,27,24,20),
+    (25,27,24,20,16,26,15,8),
+    (21,10,3,11,27,23,19,24),
+    (27,23,19,24,26,14,7,15)
 )
 
 """

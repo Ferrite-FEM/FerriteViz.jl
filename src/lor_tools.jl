@@ -69,6 +69,21 @@ for_nodes(::Union{Ferrite.Lagrange{2,Ferrite.RefTetrahedron,5},Ferrite.Discontin
     (21,6,7),
     (8,7,2),
 )
+# Tetrahedron
+for_nodes(::Union{Ferrite.Lagrange{3,Ferrite.RefTetrahedron,1},Ferrite.DiscontinuousLagrange{3,Ferrite.RefTetrahedron,1},Ferrite.Tetrahedron}) = (
+    (3,1,2,4),
+)
+# Quadratic Tetrahedron
+for_nodes(::Union{Ferrite.Lagrange{3,Ferrite.RefTetrahedron,2},Ferrite.DiscontinuousLagrange{3,Ferrite.RefTetrahedron,2},Ferrite.QuadraticTetrahedron}) = (
+    (5,2,6,9),
+    (7,6,3,10),
+    (8,9,10,4),
+    (8,5,6,9),
+    (8,6,7,10),
+    (5,8,1,6),
+    (7,6,1,8),
+    (9,10,8,6),
+)
 # Quadrilateral
 for_nodes(::Union{Ferrite.Lagrange{2,Ferrite.RefCube,1},Ferrite.DiscontinuousLagrange{2,Ferrite.RefCube,1},Ferrite.Quadrilateral}) = (
     (1,2,3,4),
@@ -87,7 +102,9 @@ Get the interpolation of the first order refinement.
 for_interpolation(ip::Ferrite.Lagrange{dim,shape,order}) where {dim,shape,order} = Ferrite.Lagrange{dim,shape,1}()
 
 for_base_geometry_type(ip::Ferrite.Lagrange{2,Ferrite.RefCube,order}) where {order} = Ferrite.Quadrilateral
+for_base_geometry_type(ip::Ferrite.Lagrange{3,Ferrite.RefCube,order}) where {order} = Ferrite.Hexahedron
 for_base_geometry_type(ip::Ferrite.Lagrange{2,Ferrite.RefTetrahedron,order}) where {order} = Ferrite.Triangle
+for_base_geometry_type(ip::Ferrite.Lagrange{3,Ferrite.RefTetrahedron,order}) where {order} = Ferrite.Tetrahedron
 
 # TODO move into ferrite core
 function Ferrite.field_offset(dh::Ferrite.DofHandler, field_name::Int)

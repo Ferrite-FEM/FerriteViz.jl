@@ -18,5 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  - Incompressible elasticity solver now takes the Ansatz functions and the actual material 
    parameters instead of the poisson number the Ansatz functions [#51][github-51].
 
+### Fixed
+- An unknown bug has been fixed, which computes the colorbar `(min,max)` wrong. Now the `max` is set to be `1.01` of `min` guaranteeing that the value is larger than `min` if close to zero.
 
 [github-51](https://github.com/Ferrite-FEM/Ferrite.jl/pull/51)

@@ -443,7 +443,7 @@ end
 
 Compute the piecewise discontinuous gradient field for `field_name`. Returns the flux dof handler and the corresponding flux dof values.
 """
-function interpolate_gradient_field(dh::Ferrite.DofHandler{dim}, u::AbstractVector, field_name::Symbol) where {dim}
+function interpolate_gradient_field(dh::Ferrite.DofHandler{spatial_dim}, u::AbstractVector, field_name::Symbol) where {spatial_dim}
     # Get some helpers
     field_idx = Ferrite.find_field(dh, field_name)
     ip = Ferrite.getfieldinterpolation(dh, field_idx)
@@ -452,13 +452,15 @@ function interpolate_gradient_field(dh::Ferrite.DofHandler{dim}, u::AbstractVect
     dh_gradient = Ferrite.DofHandler(getgrid(dh))
     ip_gradient = get_gradient_interpolation(ip)
     field_dim = Ferrite.getfielddim(dh,field_name)
-    push!(dh_gradient, :gradient, field_dim*dim, ip_gradient) # field dim × spatial dim components
+    push!(dh_gradient, :gradient, field_dim*spatial_dim, ip_gradient) # field dim × spatial dim components
     Ferrite.close!(dh_gradient)
+
+    num_base_funs = Ferrite.getnbasefunctions(ip_gradient)
 
     # FIXME this does not work for mixed grids
     ip_geom = Ferrite.default_interpolation(typeof(Ferrite.getcells(getgrid(dh), 1)))
     ref_coords_gradient = Ferrite.reference_coordinates(ip_gradient)
-    qr_gradient = Ferrite.QuadratureRule{dim, refshape(Ferrite.getcells(getgrid(dh), 1)), Float64}(ones(length(ref_coords_gradient)), ref_coords_gradient)
+    qr_gradient = Ferrite.QuadratureRule{spatial_dim, refshape(Ferrite.getcells(getgrid(dh), 1)), Float64}(ones(length(ref_coords_gradient)), ref_coords_gradient)
     cv = (field_dim == 1) ? Ferrite.CellScalarValues(qr_gradient, ip, ip_geom) : Ferrite.CellVectorValues(qr_gradient, ip, ip_geom)
 
     # Buffer for the dofs
@@ -467,26 +469,26 @@ function interpolate_gradient_field(dh::Ferrite.DofHandler{dim}, u::AbstractVect
 
     # Allocate storage for the fluxes to store
     u_gradient = zeros(Ferrite.ndofs(dh_gradient))
-    # In general uᵉ_gradient is an order 3 tensor [num_base_funs, spatial_dim, field_dim]
+    # In general uᵉ_gradient is an order 3 tensor [field_dim, spatial_dim, num_base_funs]
     uᵉ_gradient = zeros(length(cell_dofs_gradient))
+    uᵉ_gradient_view = reshape(uᵉ_gradient, (field_dim, spatial_dim, num_base_funs))
     uᵉ = zeros(field_dim*Ferrite.getnbasefunctions(ip))
 
     for (cell_num, cell) in enumerate(Ferrite.CellIterator(dh))
         # Get element dofs on parent field
         Ferrite.celldofs!(cell_dofs, dh, cell_num)
         uᵉ .= u[cell_dofs[Ferrite.dof_range(dh, field_name)]]
-        
+
         # And initialize cellvalues for the cell to evaluate the gradient at the basis functions 
         # of the gradient field
         Ferrite.reinit!(cv, cell)
 
         # Now we simply loop over all basis functions of the gradient field and evaluate the gradient
-        for i ∈ 1:Ferrite.getnbasefunctions(ip_gradient)
+        for i ∈ 1:num_base_funs
             uᵉgradi = Ferrite.function_gradient(cv, i, uᵉ)
-            for ds in 1:dim
+            for ds in 1:spatial_dim
                 for df in 1:Ferrite.getfielddim(dh,field_name)
-                    # Note that we layout uᵉ_gradient as an order 3 tensor [num_base_funs, spatial_dim, field_dim]
-                    uᵉ_gradient[(i-1)*(dim*field_dim)+(ds-1)*field_dim+df] = uᵉgradi[ds,df]
+                    uᵉ_gradient_view[df, ds, i] = uᵉgradi[ds, df]
                 end
             end
         end

@@ -19,7 +19,6 @@ using Ferrite
 import FerriteViz
 using FerriteViz: ε
 import WGLMakie #activating the backend, switch to GLMakie or CairoMakie (for 2D) locally
-WGLMakie.set_theme!(resolution=(1500, 1600)) # hide
 
 include("ferrite-examples/incompressible-elasticity.jl") #defines dh_linear, dh_quadratic, u_linear, u_quadratic and mp
 

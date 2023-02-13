@@ -471,7 +471,7 @@ function interpolate_gradient_field(dh::Ferrite.DofHandler{spatial_dim}, u::Abst
     u_gradient = zeros(Ferrite.ndofs(dh_gradient))
     # In general uᵉ_gradient is an order 3 tensor [field_dim, spatial_dim, num_base_funs]
     uᵉ_gradient = zeros(length(cell_dofs_gradient))
-    uᵉ_gradient_view = reshape(uᵉ_gradient, (field_dim, spatial_dim, num_base_funs))
+    uᵉ_gradient_view = reshape(uᵉ_gradient, (spatial_dim, field_dim, num_base_funs))
     uᵉ = zeros(field_dim*Ferrite.getnbasefunctions(ip))
 
     for (cell_num, cell) in enumerate(Ferrite.CellIterator(dh))
@@ -488,7 +488,7 @@ function interpolate_gradient_field(dh::Ferrite.DofHandler{spatial_dim}, u::Abst
             uᵉgradi = Ferrite.function_gradient(cv, i, uᵉ)
             for ds in 1:spatial_dim
                 for df in 1:Ferrite.getfielddim(dh,field_name)
-                    uᵉ_gradient_view[df, ds, i] = uᵉgradi[ds, df]
+                    uᵉ_gradient_view[ds, df, i] = uᵉgradi[df, ds]
                 end
             end
         end

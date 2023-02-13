@@ -439,6 +439,12 @@ end
 
 
 """
+This is a helper to access the correct value in Tensors.jl entities, because the gradient index is the outermost one.
+"""
+@inline _tensorsjl_gradient_accessor(v::Tensors.Vec{dim}, field_dim_idx::Int, spatial_dim_idx::Int) where {dim} = v[spatial_dim_idx]
+@inline _tensorsjl_gradient_accessor(m::Tensors.Tensor{2,dim}, field_dim_idx::Int, spatial_dim_idx::Int) where {dim} = m[field_dim_idx, spatial_dim_idx]
+
+"""
     interpolate_gradient_field(dh::DofHandler, u::AbstractVector, field_name::Symbol)
 
 Compute the piecewise discontinuous gradient field for `field_name`. Returns the flux dof handler and the corresponding flux dof values.
@@ -487,8 +493,8 @@ function interpolate_gradient_field(dh::Ferrite.DofHandler{spatial_dim}, u::Abst
         for i ∈ 1:num_base_funs
             uᵉgradi = Ferrite.function_gradient(cv, i, uᵉ)
             for ds in 1:spatial_dim
-                for df in 1:Ferrite.getfielddim(dh,field_name)
-                    uᵉ_gradient_view[ds, df, i] = uᵉgradi[df, ds]
+                for df in 1:field_dim
+                    uᵉ_gradient_view[ds, df, i] = _tensorsjl_gradient_accessor(uᵉgradi, df, ds)
                 end
             end
         end

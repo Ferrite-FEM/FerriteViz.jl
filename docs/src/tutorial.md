@@ -43,9 +43,9 @@ If you solve some boundary value problem with Ferrite.jl keep in mind to safe yo
 With them, we create the `MakiePlotter` struct that dispatches on the plotting functions.
 
 ```@example 1
-include("ferrite-examples/incompressible-elasticity.jl") #defines variables dh and u
+include("ferrite-examples/incompressible-elasticity.jl") #defines variables dh_quadratic and u_quadratic
 
-plotter = FerriteViz.MakiePlotter(dh,u)
+plotter = FerriteViz.MakiePlotter(dh_quadratic,u_quadratic)
 FerriteViz.arrows(plotter)
 ```
 

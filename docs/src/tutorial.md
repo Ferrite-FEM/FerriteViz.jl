@@ -6,11 +6,13 @@ Start with solving a boundary value problem as you would usually do with Ferrite
 and solution vector because we need to pass those objects to `MakiePlotter`.
 
 
-## Plot your results
+## Basics
 
 !!! tip "Plotting Functions"
     Currently, [`FerriteViz.solutionplot`](@ref), [`FerriteViz.wireframe`](@ref), [`FerriteViz.surface`](@ref), [`FerriteViz.arrows`](@ref) and their mutating analogues with `!` are defined for `MakiePlotter`.
     Due to the nature of the documentation we need `WGLMakie`, however, you can simply exchange any `WGLMakie` call by `GLMakie`.
+
+### Mesh utilities
 
 ```@example 1
 import JSServe # hide
@@ -39,6 +41,8 @@ addcellset!(grid,"s3",Set((3,6,9)))
 FerriteViz.wireframe(grid,markersize=10,strokewidth=1,nodelabels=true,celllabels=true,cellsets=true)
 ```
 
+### Solution field of a boundary value problem
+
 If you solve some boundary value problem with Ferrite.jl keep in mind to safe your `dh::DofHandler` and solution vector `u::Vector{T}` in some variable.
 With them, we create the `MakiePlotter` struct that dispatches on the plotting functions.
 
@@ -65,6 +69,8 @@ FerriteViz.solutionplot!(plotter,colormap=:magma)
 WGLMakie.current_figure()
 ```
 
+### Deformed mesh for mechanical boundary value problem
+
 However, in structural mechanics we often would like to see the deformed configuration,
 which can be achieved by providing a `deformation_field::Symbol` as a keyword argument.
 
@@ -78,15 +84,21 @@ FerriteViz.wireframe!(plotter,deformation_field=:u,markersize=10,strokewidth=1)
 WGLMakie.current_figure()
 ```
 
+### Showing per-cell data
+
 FerriteViz.jl also supports to plot cell data, such as the **averaged** von-Mises stress or the drag stress of the plasticity example.
 ```@example 1
+u, dh, uhistory, σ, κ = solve()
 FerriteViz.cellplot(plotter,σ,colormap=:thermal,deformation_field=:u,deformation_scale=2.0)
 FerriteViz.wireframe!(plotter,deformation_field=:u,markersize=10,strokewidth=1,deformation_scale=2.0)
 WGLMakie.current_figure()
 ```
+For a more granular investigation of the stress field consult the advanced tutorial.
 
-For such 3D plots we can also inspect the interior of the domain. Currenly we only have crincle clipping
-implemented and it can be used as follows.
+### Interior of a 3D domain
+
+For 3D problems we can also inspect the interior of the domain. Currenly we only have crinkle clipping
+implemented and it can be used as follows:
 ```@example 1
 clip_plane = FerriteViz.ClipPlane(Vec((0.01,0.5,0.5)), 0.7)
 clipped_plotter = FerriteViz.crincle_clip(plotter, clip_plane)
@@ -95,6 +107,8 @@ WGLMakie.current_figure()
 ```
 Note that we can replace the plane withs some other object or a decision function. Such a function takes
 the grid and a cell index as input and returns a boolean which decides whether a cell is visible or not.
+
+### What next?
 
 Further, this package provides an interactive viewer that you can call with `ferriteviewer(plotter)` and
 `ferriteviewer(plotter,u_history)` for time dependent views, respectively.

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
  - Functionality to obtain a first-order refined mesh and the corresponding
    dof handler and solution to approximately visualize high order solutions [#57](github-57).
+ - Subtitles for the tutorial to find useful stuff faster [#57](github-57).
  - Crincle clip in 3D [#56](github-56), which basically removes all elements above some surface,
    which can be described by a function, from visualization.
  - `ClipPlane` to describe planar surfaces in 3D [#56](github-56).

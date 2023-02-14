@@ -29,11 +29,6 @@ grid = generate_grid(Hexahedron,(3,3,3))
 FerriteViz.wireframe(grid,markersize=10,strokewidth=2)
 ```
 
-!!! note "Known node issue"
-    It is a known WGLMakie bug that currently scatter plots don't rotate with the camera.
-    [See this issue.](https://github.com/MakieOrg/Makie.jl/issues/2243)
-
-
 FerriteViz.jl also supports showing labels for `Ferrite.AbstractGrid` entities, such as node- and celllabels, as well as plotting cellsets.
 
 ```@example 1
@@ -89,6 +84,17 @@ FerriteViz.cellplot(plotter,σ,colormap=:thermal,deformation_field=:u,deformatio
 FerriteViz.wireframe!(plotter,deformation_field=:u,markersize=10,strokewidth=1,deformation_scale=2.0)
 WGLMakie.current_figure()
 ```
+
+For such 3D plots we can also inspect the interior of the domain. Currenly we only have crincle clipping
+implemented and it can be used as follows.
+```@example 1
+clip_plane = FerriteViz.ClipPlane(Vec((0.01,0.5,0.5)), 0.7)
+clipped_plotter = FerriteViz.crincle_clip(plotter, clip_plane)
+FerriteViz.solutionplot(clipped_plotter,deformation_field=:u,colormap=:thermal,deformation_scale=2.0)
+WGLMakie.current_figure()
+```
+Note that we can replace the plane withs some other object or a decision function. Such a function takes
+the grid and a cell index as input and returns a boolean which decides whether a cell is visible or not.
 
 Further, this package provides an interactive viewer that you can call with `ferriteviewer(plotter)` and
 `ferriteviewer(plotter,u_history)` for time dependent views, respectively.

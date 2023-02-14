@@ -424,3 +424,84 @@ function dof_to_node(dh::Ferrite.AbstractDofHandler, u::Array{T,1}; field::Int=1
     end
     return mapslices(process, data, dims=[2])
 end
+
+get_gradient_interpolation(::Ferrite.Lagrange{dim,shape,order}) where {dim,shape,order} = Ferrite.DiscontinuousLagrange{dim,shape,order-1}()
+get_gradient_interpolation_type(::Type{Ferrite.Lagrange{dim,shape,order}}) where {dim,shape,order} = Ferrite.DiscontinuousLagrange{dim,shape,order-1}
+# TODO remove if Knuth's PR on this gets merged (Ferrite PR 552)
+getgrid(dh::Ferrite.DofHandler) = dh.grid
+
+function ε(x::Vector{T}) where T
+    ngrad = length(x)
+    dim = isqrt(ngrad)
+    ∇u = Tensor{2,dim,T,ngrad}(x)
+    return symmetric(∇u)
+end
+
+
+"""
+This is a helper to access the correct value in Tensors.jl entities, because the gradient index is the outermost one.
+"""
+@inline _tensorsjl_gradient_accessor(v::Tensors.Vec{dim}, field_dim_idx::Int, spatial_dim_idx::Int) where {dim} = v[spatial_dim_idx]
+@inline _tensorsjl_gradient_accessor(m::Tensors.Tensor{2,dim}, field_dim_idx::Int, spatial_dim_idx::Int) where {dim} = m[field_dim_idx, spatial_dim_idx]
+
+"""
+    interpolate_gradient_field(dh::DofHandler, u::AbstractVector, field_name::Symbol)
+
+Compute the piecewise discontinuous gradient field for `field_name`. Returns the flux dof handler and the corresponding flux dof values.
+"""
+function interpolate_gradient_field(dh::Ferrite.DofHandler{spatial_dim}, u::AbstractVector, field_name::Symbol) where {spatial_dim}
+    # Get some helpers
+    field_idx = Ferrite.find_field(dh, field_name)
+    ip = Ferrite.getfieldinterpolation(dh, field_idx)
+
+    # Create dof handler for gradient field
+    dh_gradient = Ferrite.DofHandler(getgrid(dh))
+    ip_gradient = get_gradient_interpolation(ip)
+    field_dim = Ferrite.getfielddim(dh,field_name)
+    push!(dh_gradient, :gradient, field_dim*spatial_dim, ip_gradient) # field dim × spatial dim components
+    Ferrite.close!(dh_gradient)
+
+    num_base_funs = Ferrite.getnbasefunctions(ip_gradient)
+
+    # FIXME this does not work for mixed grids
+    ip_geom = Ferrite.default_interpolation(typeof(Ferrite.getcells(getgrid(dh), 1)))
+    ref_coords_gradient = Ferrite.reference_coordinates(ip_gradient)
+    qr_gradient = Ferrite.QuadratureRule{spatial_dim, refshape(Ferrite.getcells(getgrid(dh), 1)), Float64}(ones(length(ref_coords_gradient)), ref_coords_gradient)
+    cv = (field_dim == 1) ? Ferrite.CellScalarValues(qr_gradient, ip, ip_geom) : Ferrite.CellVectorValues(qr_gradient, ip, ip_geom)
+
+    # Buffer for the dofs
+    cell_dofs = zeros(Int, Ferrite.ndofs_per_cell(dh))
+    cell_dofs_gradient = zeros(Int, Ferrite.ndofs_per_cell(dh_gradient))
+
+    # Allocate storage for the fluxes to store
+    u_gradient = zeros(Ferrite.ndofs(dh_gradient))
+    # In general uᵉ_gradient is an order 3 tensor [field_dim, spatial_dim, num_base_funs]
+    uᵉ_gradient = zeros(length(cell_dofs_gradient))
+    uᵉ_gradient_view = reshape(uᵉ_gradient, (spatial_dim, field_dim, num_base_funs))
+    uᵉ = zeros(field_dim*Ferrite.getnbasefunctions(ip))
+
+    for (cell_num, cell) in enumerate(Ferrite.CellIterator(dh))
+        # Get element dofs on parent field
+        Ferrite.celldofs!(cell_dofs, dh, cell_num)
+        uᵉ .= u[cell_dofs[Ferrite.dof_range(dh, field_name)]]
+
+        # And initialize cellvalues for the cell to evaluate the gradient at the basis functions 
+        # of the gradient field
+        Ferrite.reinit!(cv, cell)
+
+        # Now we simply loop over all basis functions of the gradient field and evaluate the gradient
+        for i ∈ 1:num_base_funs
+            uᵉgradi = Ferrite.function_gradient(cv, i, uᵉ)
+            for ds in 1:spatial_dim
+                for df in 1:field_dim
+                    uᵉ_gradient_view[ds, df, i] = _tensorsjl_gradient_accessor(uᵉgradi, df, ds)
+                end
+            end
+        end
+
+        # We finally write back the result to the global dof vector of the gradient field
+        Ferrite.celldofs!(cell_dofs_gradient, dh_gradient, cell_num)
+        u_gradient[cell_dofs_gradient] .+= uᵉ_gradient
+    end
+    return dh_gradient, u_gradient
+end

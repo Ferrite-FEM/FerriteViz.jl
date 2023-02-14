@@ -13,5 +13,6 @@ include("lor_tools.jl")
 
 export MakiePlotter
 export ferriteviewer
+export for_discretization
 
 end

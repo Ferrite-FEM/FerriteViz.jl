@@ -50,7 +50,7 @@ function Makie.plot!(SP::SolutionPlot{<:Tuple{<:MakiePlotter}})
     coords = @lift($(SP[:deformation_field])===:default ? plotter.physical_coords : plotter.physical_coords .+ ($(SP[:deformation_scale]) .* $(u_matrix)))
     mins = @lift(minimum($solution))
     maxs = @lift(maximum($solution))
-    SP[:colorrange] = @lift(isapprox($mins,$maxs) ? (0,1e-8) : ($mins,$maxs))
+    SP[:colorrange] = @lift(isapprox($mins,$maxs) ? ($mins,1.01($maxs)) : ($mins,$maxs))
     return Makie.mesh!(SP, coords, plotter.triangles, color=solution, shading=SP[:shading], scale_plot=SP[:scale_plot], colormap=SP[:colormap], transparent=SP[:transparent])
 end
 
@@ -90,7 +90,7 @@ function Makie.plot!(CP::CellPlot{<:Tuple{<:MakiePlotter{dim},Vector}}) where di
     coords = @lift($(CP[:deformation_field])===:default ? plotter.physical_coords : plotter.physical_coords .+ ($(CP[:deformation_scale]) .* $(u_matrix)))
     mins = minimum(qp_values)
     maxs = maximum(qp_values)
-    CP[:colorrange] = isapprox(mins,maxs) ? (0,1e-8) : (mins,maxs)
+    CP[:colorrange] = @lift(isapprox($mins,$maxs) ? ($mins,1.01($maxs)) : ($mins,$maxs))
     solution =  @lift(reshape(transfer_scalar_celldata(plotter, qp_values; process=$(CP[:process])), num_vertices(plotter)))
     return Makie.mesh!(CP, coords, plotter.triangles, color=solution, shading=CP[:shading], scale_plot=CP[:scale_plot], colormap=CP[:colormap], transparent=CP[:transparent])
 end

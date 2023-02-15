@@ -328,7 +328,7 @@ function transfer_solution(plotter::MakiePlotter{2}, u::Vector; field_idx::Int=1
 end
 
 """
-Transfer the solution of a plotter to the new mesh in 3D. We just evaluate the faces.
+Transfer the solution of a plotter to the new mesh in 3D.
 
 @TODO Refactor. This is peak inefficiency.
 """
@@ -344,38 +344,40 @@ function transfer_solution(plotter::MakiePlotter{3}, u::Vector; field_idx::Int=1
     field_name = Ferrite.getfieldnames(dh)[field_idx]
     field_dim = Ferrite.getfielddim(dh, field_idx)
 
-    # @FIXME decouple the interpolation from the geometry, because for discontinuous interpolations
-    #   the "interpolation faces" (which we need for dof-assignment) do not coincide with the geometric
-    #   faces... Alternatively we could try something similar to FaceValues.
-    # @FIXME The idea here should be to simply evaluate the basis functions on the associated element
-    # at the associated coordinates instead of evaluating the "face values" (in the Ferrite sense).
+    # TODO this should be moved inside the loop below to gt the correct interpolator for the current cell.
     ip_cell = dh.field_interpolations[field_idx]
-    _faces = Ferrite.faces(ip_cell) # faces of the cell with local dofs
-    @assert !isempty(_faces) # Discontinuous interpolations in 3d not supported yet. See above.
 
     # actual data
     local_dof_range = Ferrite.dof_range(dh, field_name)
 
     current_vertex_index = 1
     data = fill(0.0, num_vertices(plotter), field_dim)
-    for (cell_index, cell_geo) in enumerate(Ferrite.getcells(grid))
-        _local_celldofs = Ferrite.celldofs(dh, cell_index)[local_dof_range]
+    for cell in Ferrite.CellIterator(plotter.dh)
+        cell_idx = Ferrite.cellid(cell)
+        cell_geo = Ferrite.getcells(grid, cell_idx)
+        # This should make the loop work for mixed grids
+        ip_geo = Ferrite.default_interpolation(typeof(cell_geo))
+        _local_celldofs = Ferrite.celldofs(cell)[local_dof_range]
         _celldofs_field = reshape(_local_celldofs, (field_dim, Ferrite.getnbasefunctions(ip_cell)))
 
         for (local_face_idx,_) in enumerate(Ferrite.faces(cell_geo))
+            # Construct face values to evaluate
             ip_face = getfaceip(ip_cell, local_face_idx)
             face_geo = linear_face_cell(cell_geo, local_face_idx)
+            # TODO Optimize for mixed geometries
+            nfvertices = ntriangles(face_geo)*n_vertices_per_tri
+            ref_coords_face = [Tensors.Vec(ref_coords[current_vertex_index+i-1, :]...) for i in 1:nfvertices]
+            @show ref_coords_face
+            qr_face = Ferrite.QuadratureRule{2, refshape(face_geo), Float64}(ones(length(ref_coords_face)), ref_coords_face)
 
-            # extract face dofs
-            _facedofs_field = _celldofs_field[:,[_faces[local_face_idx]...]]
+            fv = (field_dim == 1) ? Ferrite.FaceScalarValues(qr_face, ip_cell, ip_geo) : Ferrite.FaceVectorValues(qr_face, ip_cell, ip_geo)
+            Ferrite.reinit!(fv, cell, local_face_idx)
 
             # Loop over vertices
-            for i in 1:(ntriangles(face_geo)*n_vertices_per_tri)
-                ξ = Tensors.Vec(ref_coords[current_vertex_index, :]...)
+            for i in 1:nfvertices
+                val = Ferrite.function_value(fv, i, u[_local_celldofs])
                 for d in 1:field_dim
-                    for node_idx ∈ 1:Ferrite.getnbasefunctions(ip_face)
-                        data[current_vertex_index, d] += Ferrite.value(ip_face, node_idx, ξ) ⋅ u[_facedofs_field[d, node_idx]]
-                    end
+                    data[current_vertex_index, d] += val[d] #current_vertex_index
                 end
                 current_vertex_index += 1
             end

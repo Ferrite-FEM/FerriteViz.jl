@@ -66,12 +66,12 @@ axs = [WGLMakie.Axis3(f[1, 1], title="Coarse"), WGLMakie.Axis3(f[1, 2], title="F
 
 dh,u = manufactured_heat_problem(Triangle, Lagrange{2,RefTetrahedron,5}(), 1)
 dh_for,u_for = FerriteViz.for_discretization(dh, u)
-plotter_for = MakiePlotter(dh_for, u_for)
+plotter_for = FerriteViz.MakiePlotter(dh_for, u_for)
 FerriteViz.surface!(axs[1], plotter_for)
 
 dh,u = manufactured_heat_problem(Triangle, Lagrange{2,RefTetrahedron,5}(), 3)
 dh_for,u_for = FerriteViz.for_discretization(dh, u)
-plotter_for = MakiePlotter(dh_for, u_for)
+plotter_for = FerriteViz.MakiePlotter(dh_for, u_for)
 FerriteViz.surface!(axs[2], plotter_for)
 
 f

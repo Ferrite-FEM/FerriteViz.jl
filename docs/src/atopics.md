@@ -61,8 +61,8 @@ heat problem on a square domain for Lagrange polynomials of order 5 looks like t
 ```@example 1
 include("ferrite-examples/heat-equation.jl"); #defines manufactured_heat_problem
 
-f = GLMakie.Figure()
-axs = [GLMakie.Axis3(f[1, 1], title="Coarse"), GLMakie.Axis3(f[1, 2], title="Fine")]
+f = WGLMakie.Figure()
+axs = [WGLMakie.Axis3(f[1, 1], title="Coarse"), WGLMakie.Axis3(f[1, 2], title="Fine")]
 
 dh,u = manufactured_heat_problem(Triangle, Lagrange{2,RefTetrahedron,5}(), 1)
 dh_for,u_for = for_discretization(dh, u)

@@ -177,22 +177,6 @@ function decompose!(coord_offset, coord_matrix, ref_coord_matrix, triangle_offse
 end
 
 """
-Decompose a tetrahedron into a coordinates and a triangle index list to disconnect it properly. Guarantees to preserve orderings and orientations.
-"""
-function decompose!(coord_offset, coord_matrix, ref_coord_matrix, triangle_offset, triangle_matrix, grid, cell::Ferrite.AbstractCell{3,N,4}) where {N}
-    # Is just 4 triangles :)
-    for (face_index,face_nodes) ∈ enumerate(Ferrite.faces(cell))
-        face_coord_offset = coord_offset
-        (coord_offset, triangle_offset) = decompose!(coord_offset, coord_matrix, ref_coord_matrix, triangle_offset, triangle_matrix, grid, Ferrite.Cell{3,3,1}(face_nodes))
-        for ci ∈ face_coord_offset:(coord_offset-1)
-            new_coord = transfer_quadrature_face_to_cell(ref_coord_matrix[ci, 1:2], cell, face_index)
-            ref_coord_matrix[ci, :] = new_coord
-        end
-    end
-    (coord_offset, triangle_offset)
-end
-
-"""
 Decompose a quadrilateral into a coordinates and a triangle index list to disconnect it properly. Guarantees to preserve orderings and orientations.
 
 Assumes a CCW quadrilateral numbering:
@@ -257,13 +241,13 @@ function decompose!(coord_offset, coord_matrix, ref_coord_matrix, triangle_offse
 end
 
 """
-Decompose a hexahedron into a coordinates and a triangle index list to disconnect it properly. Guarantees to preserve orderings and orientations.
+Decompose volumetric objects via their faces.
 """
-function decompose!(coord_offset, coord_matrix, ref_coord_matrix, triangle_offset, triangle_matrix, grid, cell::Ferrite.AbstractCell{3,N,6}) where {N}
+function decompose!(coord_offset, coord_matrix, ref_coord_matrix, triangle_offset, triangle_matrix, grid, cell::Ferrite.AbstractCell{3,N,M}) where {N,M}
     # Just 6 quadrilaterals :)
-    for (face_index, face_nodes) ∈ enumerate(Ferrite.faces(cell))
+    for face_index ∈ 1:M
         face_coord_offset = coord_offset
-        (coord_offset, triangle_offset) = decompose!(coord_offset, coord_matrix, ref_coord_matrix, triangle_offset, triangle_matrix, grid, Ferrite.Cell{3,4,1}(face_nodes))
+        (coord_offset, triangle_offset) = decompose!(coord_offset, coord_matrix, ref_coord_matrix, triangle_offset, triangle_matrix, grid, linear_face_cell(cell, face_index))
         for ci ∈ face_coord_offset:(coord_offset-1)
             new_coord = transfer_quadrature_face_to_cell(ref_coord_matrix[ci, 1:2], cell, face_index)
             ref_coord_matrix[ci, :] = new_coord
@@ -379,7 +363,7 @@ function transfer_solution(plotter::MakiePlotter{3}, u::Vector; field_idx::Int=1
 
             qr = Ferrite.QuadratureRule{3, refshape(face_geo), Float64}(ones(length(ref_coords_face)), ref_coords_face)
 
-            cv = (field_dim == 1) ? Ferrite.CellScalarValues(qr, ip_cell, ip_geo) : Ferrite.CellVectorValues(qr_face, ip_cell, ip_geo)
+            cv = (field_dim == 1) ? Ferrite.CellScalarValues(qr, ip_cell, ip_geo) : Ferrite.CellVectorValues(qr, ip_cell, ip_geo)
             Ferrite.reinit!(cv, cell)
 
             # Loop over vertices

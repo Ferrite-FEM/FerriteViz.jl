@@ -376,7 +376,7 @@ function transfer_solution(plotter::MakiePlotter{3}, u::Vector; field_idx::Int=1
             end
         end
     end
-    @show data
+
     return mapslices(process, data, dims=[2])
 end
 

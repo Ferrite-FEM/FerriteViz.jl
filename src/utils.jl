@@ -359,16 +359,14 @@ function transfer_solution(plotter::MakiePlotter{3}, u::Vector; field_idx::Int=1
             face_geo = linear_face_cell(cell_geo, local_face_idx)
             # TODO Optimize for mixed geometries
             nfvertices = ntriangles(face_geo)*n_vertices_per_tri
-            ref_coords_face = [Tensors.Vec(ref_coords[current_vertex_index+i-1, :]...) for i in 1:nfvertices]
-
-            qr = Ferrite.QuadratureRule{3, refshape(face_geo), Float64}(ones(length(ref_coords_face)), ref_coords_face)
-
-            cv = (field_dim == 1) ? Ferrite.CellScalarValues(qr, ip_cell, ip_geo) : Ferrite.CellVectorValues(qr, ip_cell, ip_geo)
-            Ferrite.reinit!(cv, cell)
 
             # Loop over vertices
             for i in 1:nfvertices
-                val = Ferrite.function_value(cv, i, u[_local_celldofs])
+                qr = Ferrite.QuadratureRule{3, refshape(face_geo), Float64}([1.0], [Tensors.Vec(ref_coords[current_vertex_index, :]...)])
+                cv = (field_dim == 1) ? Ferrite.CellScalarValues(qr, ip_cell, ip_geo) : Ferrite.CellVectorValues(qr, ip_cell, ip_geo)
+                Ferrite.reinit!(cv, cell)
+                # val = Ferrite.function_value(cv, i, u[_local_celldofs])
+                val = Ferrite.function_value(cv, 1, u[_local_celldofs])
                 for d in 1:field_dim
                     data[current_vertex_index, d] += val[d] #current_vertex_index
                 end

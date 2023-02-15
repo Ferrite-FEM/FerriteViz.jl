@@ -38,3 +38,5 @@ This package offers a set of unique features that are not easily reproducible wi
 - deformed plots available for `solutionplot` and `wireframe`
 - full integration into the Makie ecosystem, e.g. themes, layouts etc. 
 - GPU powered plotting with GLMakie.jl, jupyter/pluto notebook plotting with WGLMakie.jl and vector graphics with CairoMakie.jl
+- visualization of high order solutions via first order refinement
+- visualization of non-conforming solutions, e.g. for Crouzeix-Raviart ansatz

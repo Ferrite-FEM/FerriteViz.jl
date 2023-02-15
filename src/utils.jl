@@ -181,8 +181,13 @@ Decompose a tetrahedron into a coordinates and a triangle index list to disconne
 """
 function decompose!(coord_offset, coord_matrix, ref_coord_matrix, triangle_offset, triangle_matrix, grid, cell::Ferrite.AbstractCell{3,N,4}) where {N}
     # Is just 4 triangles :)
-    for ti ∈ Ferrite.faces(cell)
-        (coord_offset, triangle_offset) = decompose!(coord_offset, coord_matrix, ref_coord_matrix, triangle_offset, triangle_matrix, grid, Ferrite.Cell{3,3,1}(ti))
+    for (face_index,face_nodes) ∈ enumerate(Ferrite.faces(cell))
+        face_coord_offset = coord_offset
+        (coord_offset, triangle_offset) = decompose!(coord_offset, coord_matrix, ref_coord_matrix, triangle_offset, triangle_matrix, grid, Ferrite.Cell{3,3,1}(face_nodes))
+        for ci ∈ face_coord_offset:(coord_offset-1)
+            new_coord = transfer_quadrature_face_to_cell(ref_coord_matrix[ci, 1:2], cell, face_index)
+            ref_coord_matrix[ci, :] = new_coord
+        end
     end
     (coord_offset, triangle_offset)
 end
@@ -387,7 +392,7 @@ function transfer_solution(plotter::MakiePlotter{3}, u::Vector; field_idx::Int=1
             end
         end
     end
-
+    @show data
     return mapslices(process, data, dims=[2])
 end
 
@@ -563,6 +568,20 @@ function interpolate_gradient_field(dh::Ferrite.DofHandler{spatial_dim}, u::Abst
     return dh_gradient, u_gradient
 end
 
+"""
+Mapping from 2D triangle to 3D face of a tetrahedon.
+"""
+function transfer_quadrature_face_to_cell(point::AbstractVector, cell::Ferrite.AbstractCell{3,N,4}, face::Int) where {N}
+    x,y = point
+    face == 1 && return [ 1-x-y,  y,  0]
+    face == 2 && return [ y,  0,  1-x-y]
+    face == 3 && return [ x,  y,  1-x-y]
+    face == 4 && return [ 0,  1-x-y,  y]
+end
+
+"""
+Mapping from 2D quadrilateral to 3D face of a hexahedron.
+"""
 function transfer_quadrature_face_to_cell(point::AbstractVector, cell::Ferrite.AbstractCell{3,N,6}, face::Int) where {N}
     x,y = point
     face == 1 && return [ y,  x, -1]

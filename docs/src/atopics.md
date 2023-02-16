@@ -53,9 +53,8 @@ An alternative to this approach is to compute gradient quantities at samples poi
 
 ### High-order fields
 
-The investigation of high-order fields is currently only supported via a first-order refinment of the
-problem.
-Here the high-order approximation is replaced by a first order approximation of the field, which is
+The investigation of high-order fields is currently only supported via a first-order refinment of the problem.
+Here, the high-order approximation is replaced by a first order approximation of the field, which is
 spanned by the nodes of the high-order approximation. For example, the first order refinement of a
 heat problem on a square domain for Lagrange polynomials of order 5 looks like this:
 ```@example 1

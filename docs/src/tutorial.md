@@ -108,7 +108,7 @@ WGLMakie.current_figure()
 Note that we can replace the plane withs some other object or a decision function. Such a function takes
 the grid and a cell index as input and returns a boolean which decides whether a cell is visible or not.
 
-### What next?
+### What's next?
 
 Further, this package provides an interactive viewer that you can call with `ferriteviewer(plotter)` and
 `ferriteviewer(plotter,u_history)` for time dependent views, respectively.

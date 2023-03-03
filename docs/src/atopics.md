@@ -51,6 +51,34 @@ f
 
 An alternative to this approach is to compute gradient quantities at samples points and plot these via `arrows`.
 
+### High-order fields
+
+The investigation of high-order fields is currently only supported via a first-order refinment of the problem.
+Here, the high-order approximation is replaced by a first order approximation of the field, which is
+spanned by the nodes of the high-order approximation. For example, the first order refinement of a
+heat problem on a square domain for Lagrange polynomials of order 5 looks like this:
+```@example 1
+include("ferrite-examples/heat-equation.jl"); #defines manufactured_heat_problem
+
+f = WGLMakie.Figure()
+axs = [WGLMakie.Axis3(f[1, 1], title="Coarse"), WGLMakie.Axis3(f[1, 2], title="Fine")]
+
+dh,u = manufactured_heat_problem(Triangle, Lagrange{2,RefTetrahedron,5}(), 1)
+dh_for,u_for = FerriteViz.for_discretization(dh, u)
+plotter_for = FerriteViz.MakiePlotter(dh_for, u_for)
+FerriteViz.surface!(axs[1], plotter_for)
+
+dh,u = manufactured_heat_problem(Triangle, Lagrange{2,RefTetrahedron,5}(), 3)
+dh_for,u_for = FerriteViz.for_discretization(dh, u)
+plotter_for = FerriteViz.MakiePlotter(dh_for, u_for)
+FerriteViz.surface!(axs[2], plotter_for)
+
+f
+```
+Note that this method produces small artifacts due to the flattening of the nonlinearities of the high order ansatz.
+However, it is still sufficient to investigate important features of the solution. 
+In future we will also provide an adaptive tessellation algorithm to resolve the high-order fields with full detail.
+
 ## Live plotting
 
 Plotting while a computational heavy simulation is performed can be easily achieved with FerriteViz.jl.

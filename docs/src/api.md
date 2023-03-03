@@ -11,4 +11,5 @@ FerriteViz.surface
 FerriteViz.elementinfo
 FerriteViz.ferriteviewer
 FerriteViz.update!
+FerriteViz.for_discretization
 ```

@@ -297,22 +297,26 @@ function transfer_solution(plotter::MakiePlotter{2}, u::Vector; field_idx::Int=1
     # field related variables
     field_name = Ferrite.getfieldnames(dh)[field_idx]
     field_dim = Ferrite.getfielddim(dh, field_idx)
-    ip = dh.field_interpolations[field_idx]
+    ip_field = dh.field_interpolations[field_idx]
 
     # actual data
     local_dof_range = Ferrite.dof_range(dh, field_name)
 
+    cell_geo_ref = Ferrite.getcells(grid, 1)
+    ip_geo = Ferrite.default_interpolation(typeof(cell_geo_ref))
+    pv = (field_dim == 1) ? Ferrite.PointScalarValues(ip_field, ip_geo) : Ferrite.PointVectorValues(ip_field, ip_geo)
+
     data = fill(0.0, num_vertices(plotter), field_dim)
     current_vertex_index = 1
     for (cell_index, cell_geo) in enumerate(Ferrite.getcells(grid))
-        _celldofs_field = reshape(Ferrite.celldofs(dh,cell_index)[local_dof_range], (field_dim, Ferrite.getnbasefunctions(ip)))
+        _celldofs_field = reshape(Ferrite.celldofs(dh,cell_index)[local_dof_range], (field_dim, Ferrite.getnbasefunctions(ip_field)))
 
         # Loop over all local triangle vertices
         for i in 1:(ntriangles(cell_geo)*n_vertices_per_tri)
             ξ = Tensors.Vec(ref_coords[current_vertex_index, :]...)
             for d in 1:field_dim
-                for node_idx ∈ 1:Ferrite.getnbasefunctions(ip)
-                    data[current_vertex_index, d] += Ferrite.value(ip, node_idx, ξ) ⋅ u[_celldofs_field[d, node_idx]]
+                for node_idx ∈ 1:Ferrite.getnbasefunctions(ip_field)
+                    data[current_vertex_index, d] += Ferrite.value(ip_field, node_idx, ξ) ⋅ u[_celldofs_field[d, node_idx]]
                 end
             end
             current_vertex_index += 1
@@ -339,10 +343,14 @@ function transfer_solution(plotter::MakiePlotter{3}, u::Vector; field_idx::Int=1
     field_dim = Ferrite.getfielddim(dh, field_idx)
 
     # TODO this should be moved inside the loop below to gt the correct interpolator for the current cell.
-    ip_cell = dh.field_interpolations[field_idx]
+    ip_field = dh.field_interpolations[field_idx]
 
     # actual data
     local_dof_range = Ferrite.dof_range(dh, field_name)
+
+    cell_geo_ref = Ferrite.getcells(grid, 1)
+    ip_geo = Ferrite.default_interpolation(typeof(cell_geo_ref))
+    pv = (field_dim == 1) ? Ferrite.PointScalarValues(ip_field, ip_geo) : Ferrite.PointVectorValues(ip_field, ip_geo)
 
     current_vertex_index = 1
     data = fill(0.0, num_vertices(plotter), field_dim)
@@ -350,9 +358,13 @@ function transfer_solution(plotter::MakiePlotter{3}, u::Vector; field_idx::Int=1
         cell_idx = Ferrite.cellid(cell)
         cell_geo = Ferrite.getcells(grid, cell_idx)
         # This should make the loop work for mixed grids
-        ip_geo = Ferrite.default_interpolation(typeof(cell_geo))
+        if typeof(cell_geo_ref) != typeof(cell_geo)
+            ip_geo = Ferrite.default_interpolation(typeof(cell_geo))
+            pv = (field_dim == 1) ? Ferrite.PointScalarValues(ip_field, ip_geo) : Ferrite.PointVectorValues(ip_field, ip_geo)
+            cell_geo_ref = cell_geo
+        end
         _local_celldofs = Ferrite.celldofs(cell)[local_dof_range]
-        _celldofs_field = reshape(_local_celldofs, (field_dim, Ferrite.getnbasefunctions(ip_cell)))
+        _celldofs_field = reshape(_local_celldofs, (field_dim, Ferrite.getnbasefunctions(ip_field)))
         # TODO replace this with a triangle-to-cell map.
         for (local_face_idx,_) in enumerate(Ferrite.faces(cell_geo))
             # Construct face values to evaluate
@@ -362,11 +374,9 @@ function transfer_solution(plotter::MakiePlotter{3}, u::Vector; field_idx::Int=1
 
             # Loop over vertices
             for i in 1:nfvertices
-                qr = Ferrite.QuadratureRule{3, refshape(face_geo), Float64}([1.0], [Tensors.Vec(ref_coords[current_vertex_index, :]...)])
-                cv = (field_dim == 1) ? Ferrite.CellScalarValues(qr, ip_cell, ip_geo) : Ferrite.CellVectorValues(qr, ip_cell, ip_geo)
-                Ferrite.reinit!(cv, cell)
+                Ferrite.reinit!(pv, Ferrite.getcoordinates(grid,cell_idx), Tensors.Vec(ref_coords[current_vertex_index,:]...))
                 # val = Ferrite.function_value(cv, i, u[_local_celldofs])
-                val = Ferrite.function_value(cv, 1, u[_local_celldofs])
+                val = Ferrite.function_value(pv, 1, u[_local_celldofs])
                 for d in 1:field_dim
                     data[current_vertex_index, d] += val[d] #current_vertex_index
                 end

@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    parameters instead of the poisson number the Ansatz functions [#51][github-51].
 
 ### Fixed
+ - Visualization of non-conforming solution fields in 3D [#59][github-59].
  - An unknown bug has been fixed, which computes the colorbar `(min,max)` wrong. Now the `max` is
    set to be `1.01` of `min` guaranteeing that the value is larger than `min` if close to zero [#51][github-51].
  - Update Makie dependencies to fix some visualization bugs [#51][github-51].
@@ -32,3 +33,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * [github-51](https://github.com/Ferrite-FEM/Ferrite.jl/pull/51)
 * [github-56](https://github.com/Ferrite-FEM/Ferrite.jl/pull/56)
 * [github-57](https://github.com/Ferrite-FEM/Ferrite.jl/pull/57)
+* [github-59](https://github.com/Ferrite-FEM/Ferrite.jl/pull/59)

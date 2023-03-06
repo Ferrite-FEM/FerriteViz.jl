@@ -38,13 +38,11 @@ struct MakiePlotter{dim,DH<:Ferrite.AbstractDofHandler,T} <: AbstractPlotter
     dh::DH
     u::Makie.Observable{Vector{T}} # original solution on the original mesh (i.e. dh.mesh)
 
-    cells_connectivity::Vector
-
-    gridnodes::Matrix{AbstractFloat} # coordinates of grid nodes in matrix form
-    physical_coords::Matrix{AbstractFloat} # coordinates in physical space of a vertex
+    gridnodes::Matrix{T} # coordinates of grid nodes in matrix form
+    physical_coords::Matrix{T} # coordinates in physical space of a vertex
     triangles::Matrix{Int} # each row carries a triple with the indices into the coords matrix defining the triangle
     triangle_cell_map::Vector{Int}
-    reference_coords::Matrix{AbstractFloat} # coordinates on the associated reference cell for the corresponding triangle vertex
+    reference_coords::Matrix{T} # coordinates on the associated reference cell for the corresponding triangle vertex
 end
 
 """
@@ -65,7 +63,7 @@ function MakiePlotter(dh::Ferrite.AbstractDofHandler, u::Vector)
     triangle_cell_map = Vector{Int}(undef, num_triangles)
     physical_coords = Matrix{Float64}(undef, num_triangles*3, dim)
     gridnodes = [node[i] for node in Ferrite.getcoordinates.(Ferrite.getnodes(dh.grid)), i in 1:dim]
-    reference_coords = Matrix{Float64}(undef, num_triangles*3, 2) # NOTE this should have the dimension of the actual reference element
+    reference_coords = Matrix{Float64}(undef, num_triangles*3, dim) # NOTE this should have the dimension of the actual reference element
 
     # Decompose does the heavy lifting for us
     coord_offset = 1
@@ -75,7 +73,7 @@ function MakiePlotter(dh::Ferrite.AbstractDofHandler, u::Vector)
         (coord_offset, triangle_offset) = decompose!(coord_offset, physical_coords, reference_coords, triangle_offset, triangles, dh.grid, cell)
         triangle_cell_map[triangle_offset_begin:(triangle_offset-1)] .= cell_id
     end
-    return MakiePlotter{dim,typeof(dh),eltype(u)}(dh,Observable(u),[],gridnodes,physical_coords,triangles,triangle_cell_map,reference_coords);
+    return MakiePlotter{dim,typeof(dh),eltype(u)}(dh,Observable(u),gridnodes,physical_coords,triangles,triangle_cell_map,reference_coords);
 end
 
 """
@@ -120,7 +118,7 @@ function crincle_clip(plotter::MakiePlotter{3,DH,T}, decision_fun) where {DH,T}
     end
 
     # Create a plotter with views on the data.
-    return MakiePlotter{3,DH,T}(dh, u, plotter.cells_connectivity, plotter.gridnodes,
+    return MakiePlotter{3,DH,T}(dh, u, plotter.gridnodes,
         plotter.physical_coords,
         plotter.triangles[visible_triangles, :],
         plotter.triangle_cell_map[visible_triangles],
@@ -168,22 +166,11 @@ Decompose a triangle into a coordinates and a triangle index list to disconnect 
 function decompose!(coord_offset, coord_matrix, ref_coord_matrix, triangle_offset, triangle_matrix, grid, cell::Union{Ferrite.AbstractCell{2,N,3}, Ferrite.AbstractCell{3,3,1}}) where {N}
     for (i,v) in enumerate(vertices(grid, cell))
         coord_matrix[coord_offset, :] = Ferrite.getcoordinates(v)
-        ref_coord_matrix[coord_offset, :] = Ferrite.reference_coordinates(Ferrite.default_interpolation(typeof(cell)))[i]
+        ref_coord_matrix[coord_offset, 1:2] = Ferrite.reference_coordinates(Ferrite.default_interpolation(typeof(cell)))[i]
         triangle_matrix[triangle_offset, i] = coord_offset
         coord_offset+=1
     end
     triangle_offset+=1
-    (coord_offset, triangle_offset)
-end
-
-"""
-Decompose a tetrahedron into a coordinates and a triangle index list to disconnect it properly. Guarantees to preserve orderings and orientations.
-"""
-function decompose!(coord_offset, coord_matrix, ref_coord_matrix, triangle_offset, triangle_matrix, grid, cell::Ferrite.AbstractCell{3,N,4}) where {N}
-    # Is just 4 triangles :)
-    for ti ∈ Ferrite.faces(cell)
-        (coord_offset, triangle_offset) = decompose!(coord_offset, coord_matrix, ref_coord_matrix, triangle_offset, triangle_matrix, grid, Ferrite.Cell{3,3,1}(ti))
-    end
     (coord_offset, triangle_offset)
 end
 
@@ -230,17 +217,17 @@ function decompose!(coord_offset, coord_matrix, ref_coord_matrix, triangle_offse
 
         # current vertex
         coord_matrix[coord_offset, :] = Ferrite.getcoordinates(v1)
-        ref_coord_matrix[coord_offset, :] = Ferrite.reference_coordinates(Ferrite.default_interpolation(typeof(cell)))[i]
+        ref_coord_matrix[coord_offset, 1:2] = Ferrite.reference_coordinates(Ferrite.default_interpolation(typeof(cell)))[i]
         coord_offset+=1
 
         # next vertex in chain
         coord_matrix[coord_offset, :] = Ferrite.getcoordinates(v2)
-        ref_coord_matrix[coord_offset, :] = Ferrite.reference_coordinates(Ferrite.default_interpolation(typeof(cell)))[i2]
+        ref_coord_matrix[coord_offset, 1:2] = Ferrite.reference_coordinates(Ferrite.default_interpolation(typeof(cell)))[i2]
         coord_offset+=1
 
         # center vertex (5)
         coord_matrix[coord_offset, :] = center
-        ref_coord_matrix[coord_offset, :] = [ntuple(x->0.0, 2)...]
+        ref_coord_matrix[coord_offset, 1:2] = [ntuple(x->0.0, 2)...]
         coord_offset+=1
 
         # collect indices
@@ -252,12 +239,17 @@ function decompose!(coord_offset, coord_matrix, ref_coord_matrix, triangle_offse
 end
 
 """
-Decompose a hexahedron into a coordinates and a triangle index list to disconnect it properly. Guarantees to preserve orderings and orientations.
+Decompose volumetric objects via their faces.
 """
-function decompose!(coord_offset, coord_matrix, ref_coord_matrix, triangle_offset, triangle_matrix, grid, cell::Ferrite.AbstractCell{3,N,6}) where {N}
+function decompose!(coord_offset, coord_matrix, ref_coord_matrix, triangle_offset, triangle_matrix, grid, cell::Ferrite.AbstractCell{3,N,M}) where {N,M}
     # Just 6 quadrilaterals :)
-    for ti ∈ Ferrite.faces(cell)
-        (coord_offset, triangle_offset) = decompose!(coord_offset, coord_matrix, ref_coord_matrix, triangle_offset, triangle_matrix, grid, Ferrite.Cell{3,4,1}(ti))
+    for face_index ∈ 1:M
+        face_coord_offset = coord_offset
+        (coord_offset, triangle_offset) = decompose!(coord_offset, coord_matrix, ref_coord_matrix, triangle_offset, triangle_matrix, grid, linear_face_cell(cell, face_index))
+        for ci ∈ face_coord_offset:(coord_offset-1)
+            new_coord = transfer_quadrature_face_to_cell(ref_coord_matrix[ci, 1:2], cell, face_index)
+            ref_coord_matrix[ci, :] = new_coord
+        end
     end
     (coord_offset, triangle_offset)
 end
@@ -292,7 +284,7 @@ Transfer the solution of a plotter to the new mesh in 2D.
 
 @TODO Refactor. This is peak inefficiency.
 """
-function transfer_solution(plotter::MakiePlotter{2}, u::Vector; field_idx::Int=1, process::Function=FerriteViz.postprocess)
+function transfer_solution(plotter::MakiePlotter{2,DH,T}, u::Vector; field_idx::Int=1, process::Function=FerriteViz.postprocess) where {DH<:Ferrite.AbstractDofHandler,T}
     n_vertices_per_tri = 3 # we have 3 vertices per triangle...
 
     # select objects from plotter
@@ -303,36 +295,40 @@ function transfer_solution(plotter::MakiePlotter{2}, u::Vector; field_idx::Int=1
     # field related variables
     field_name = Ferrite.getfieldnames(dh)[field_idx]
     field_dim = Ferrite.getfielddim(dh, field_idx)
-    ip = dh.field_interpolations[field_idx]
+    ip_field = dh.field_interpolations[field_idx]
 
     # actual data
     local_dof_range = Ferrite.dof_range(dh, field_name)
 
+    cell_geo_ref = Ferrite.getcells(grid, 1)
+    ip_geo = Ferrite.default_interpolation(typeof(cell_geo_ref))
+    pv = (field_dim == 1) ? Ferrite.PointScalarValues(ip_field, ip_geo) : Ferrite.PointVectorValues(ip_field, ip_geo)
+
     data = fill(0.0, num_vertices(plotter), field_dim)
     current_vertex_index = 1
     for (cell_index, cell_geo) in enumerate(Ferrite.getcells(grid))
-        _celldofs_field = reshape(Ferrite.celldofs(dh,cell_index)[local_dof_range], (field_dim, Ferrite.getnbasefunctions(ip)))
+        _celldofs_field = reshape(Ferrite.celldofs(dh,cell_index)[local_dof_range], (field_dim, Ferrite.getnbasefunctions(ip_field)))
 
         # Loop over all local triangle vertices
         for i in 1:(ntriangles(cell_geo)*n_vertices_per_tri)
-            ξ = Tensors.Vec(ref_coords[current_vertex_index, :]...)
+            ξ = Tensors.Vec{2}(ref_coords[current_vertex_index, :])
             for d in 1:field_dim
-                for node_idx ∈ 1:Ferrite.getnbasefunctions(ip)
-                    data[current_vertex_index, d] += Ferrite.value(ip, node_idx, ξ) ⋅ u[_celldofs_field[d, node_idx]]
+                for node_idx ∈ 1:Ferrite.getnbasefunctions(ip_field)
+                    data[current_vertex_index, d] += Ferrite.value(ip_field, node_idx, ξ) ⋅ u[_celldofs_field[d, node_idx]]
                 end
             end
             current_vertex_index += 1
         end
     end
-    return mapslices(process, data, dims=[2])
+    return mapslices(process, data, dims=[2])::Matrix{T}
 end
 
 """
-Transfer the solution of a plotter to the new mesh in 3D. We just evaluate the faces.
+Transfer the solution of a plotter to the new mesh in 3D.
 
 @TODO Refactor. This is peak inefficiency.
 """
-function transfer_solution(plotter::MakiePlotter{3}, u::Vector; field_idx::Int=1, process::Function=FerriteViz.postprocess)
+function transfer_solution(plotter::MakiePlotter{3,DH,T}, u::Vector; field_idx::Int=1, process::Function=FerriteViz.postprocess) where {DH<:Ferrite.AbstractDofHandler,T}
     n_vertices_per_tri = 3 # we have 3 vertices per triangle...
 
     # select objects from plotter
@@ -344,48 +340,53 @@ function transfer_solution(plotter::MakiePlotter{3}, u::Vector; field_idx::Int=1
     field_name = Ferrite.getfieldnames(dh)[field_idx]
     field_dim = Ferrite.getfielddim(dh, field_idx)
 
-    # @FIXME decouple the interpolation from the geometry, because for discontinuous interpolations
-    #   the "interpolation faces" (which we need for dof-assignment) do not coincide with the geometric
-    #   faces... Alternatively we could try something similar to FaceValues.
-    # @FIXME The idea here should be to simply evaluate the basis functions on the associated element
-    # at the associated coordinates instead of evaluating the "face values" (in the Ferrite sense).
-    ip_cell = dh.field_interpolations[field_idx]
-    _faces = Ferrite.faces(ip_cell) # faces of the cell with local dofs
-    @assert !isempty(_faces) # Discontinuous interpolations in 3d not supported yet. See above.
+    # TODO this should be moved inside the loop below to gt the correct interpolator for the current cell.
+    ip_field = dh.field_interpolations[field_idx]
 
     # actual data
     local_dof_range = Ferrite.dof_range(dh, field_name)
 
+    cell_geo_ref = Ferrite.getcells(grid, 1)
+    ip_geo = Ferrite.default_interpolation(typeof(cell_geo_ref))
+    pv = (field_dim == 1) ? Ferrite.PointScalarValues(ip_field, ip_geo) : Ferrite.PointVectorValues(ip_field, ip_geo)
+
     current_vertex_index = 1
     data = fill(0.0, num_vertices(plotter), field_dim)
-    for (cell_index, cell_geo) in enumerate(Ferrite.getcells(grid))
-        _local_celldofs = Ferrite.celldofs(dh, cell_index)[local_dof_range]
-        _celldofs_field = reshape(_local_celldofs, (field_dim, Ferrite.getnbasefunctions(ip_cell)))
-
+    for cell in Ferrite.CellIterator(plotter.dh)
+        cell_idx = Ferrite.cellid(cell)
+        cell_geo = Ferrite.getcells(grid, cell_idx)
+        # This should make the loop work for mixed grids
+        if typeof(cell_geo_ref) != typeof(cell_geo)
+            ip_geo = Ferrite.default_interpolation(typeof(cell_geo))
+            pv = (field_dim == 1) ? Ferrite.PointScalarValues(ip_field, ip_geo) : Ferrite.PointVectorValues(ip_field, ip_geo)
+            cell_geo_ref = cell_geo
+        end
+        _local_celldofs = Ferrite.celldofs(cell)[local_dof_range]
+        _celldofs_field = reshape(_local_celldofs, (field_dim, Ferrite.getnbasefunctions(ip_field)))
+        # TODO replace this with a triangle-to-cell map.
         for (local_face_idx,_) in enumerate(Ferrite.faces(cell_geo))
-            ip_face = getfaceip(ip_cell, local_face_idx)
+            # Construct face values to evaluate
             face_geo = linear_face_cell(cell_geo, local_face_idx)
-
-            # extract face dofs
-            _facedofs_field = _celldofs_field[:,[_faces[local_face_idx]...]]
+            # TODO Optimize for mixed geometries
+            nfvertices = ntriangles(face_geo)*n_vertices_per_tri
 
             # Loop over vertices
-            for i in 1:(ntriangles(face_geo)*n_vertices_per_tri)
-                ξ = Tensors.Vec(ref_coords[current_vertex_index, :]...)
+            for i in 1:nfvertices
+                Ferrite.reinit!(pv, Ferrite.getcoordinates(grid,cell_idx), Tensors.Vec(ref_coords[current_vertex_index,:]...))
+                # val = Ferrite.function_value(cv, i, u[_local_celldofs])
+                val = Ferrite.function_value(pv, 1, u[_local_celldofs])
                 for d in 1:field_dim
-                    for node_idx ∈ 1:Ferrite.getnbasefunctions(ip_face)
-                        data[current_vertex_index, d] += Ferrite.value(ip_face, node_idx, ξ) ⋅ u[_facedofs_field[d, node_idx]]
-                    end
+                    data[current_vertex_index, d] += val[d] #current_vertex_index
                 end
                 current_vertex_index += 1
             end
         end
     end
 
-    return mapslices(process, data, dims=[2])
+    return mapslices(process, data, dims=[2])::Matrix{T}
 end
 
-function transfer_scalar_celldata(plotter::MakiePlotter{3}, u::Vector; process::Function=FerriteViz.postprocess)
+function transfer_scalar_celldata(plotter::MakiePlotter{3,DH,T}, u::Vector; process::Function=FerriteViz.postprocess) where {DH<:Ferrite.AbstractDofHandler,T}
     n_vertices = 3 # we have 3 vertices per triangle...
 
     # select objects from plotter
@@ -405,10 +406,10 @@ function transfer_scalar_celldata(plotter::MakiePlotter{3}, u::Vector; process::
         end
     end
 
-    return mapslices(process, data, dims=[2])
+    return mapslices(process, data, dims=[2])::Matrix{T}
 end
 
-function transfer_scalar_celldata(plotter::MakiePlotter{2}, u::Vector;  process::Function=FerriteViz.postprocess)
+function transfer_scalar_celldata(plotter::MakiePlotter{2,DH,T}, u::Vector;  process::Function=FerriteViz.postprocess) where {DH<:Ferrite.AbstractDofHandler,T}
     n_vertices = 3 # we have 3 vertices per triangle...
 
     # select objects from plotter
@@ -424,10 +425,10 @@ function transfer_scalar_celldata(plotter::MakiePlotter{2}, u::Vector;  process:
         end
     end
 
-    return mapslices(process, data, dims=[2])
+    return mapslices(process, data, dims=[2])::Matrix{T}
 end
 
-function transfer_scalar_celldata(grid::Ferrite.AbstractGrid{3}, num_vertices::Number, u::Vector; process::Function=FerriteViz.postprocess)
+function transfer_scalar_celldata(grid::Ferrite.AbstractGrid{3}, num_vertices::Number, u::Vector{T}; process::Function=FerriteViz.postprocess) where T
     n_vertices = 3 # we have 3 vertices per triangle...
     current_vertex_index = 1
     data = fill(0.0, num_vertices, 1)
@@ -441,10 +442,10 @@ function transfer_scalar_celldata(grid::Ferrite.AbstractGrid{3}, num_vertices::N
             end
         end
     end
-    return mapslices(process, data, dims=[2])
+    return mapslices(process, data, dims=[2])::Matrix{T}
 end
 
-function transfer_scalar_celldata(grid::Ferrite.AbstractGrid{2}, num_vertices::Number, u::Vector;  process::Function=FerriteViz.postprocess)
+function transfer_scalar_celldata(grid::Ferrite.AbstractGrid{2}, num_vertices::Number, u::Vector{T};  process::Function=FerriteViz.postprocess) where T
     n_vertices = 3 # we have 3 vertices per triangle...
     current_vertex_index = 1
     data = fill(0.0, num_vertices, 1)
@@ -454,7 +455,7 @@ function transfer_scalar_celldata(grid::Ferrite.AbstractGrid{2}, num_vertices::N
             current_vertex_index += 1
         end
     end
-    return mapslices(process, data, dims=[2])
+    return mapslices(process, data, dims=[2])::Matrix{T}
 end
 
 function dof_to_node(dh::Ferrite.AbstractDofHandler, u::Array{T,1}; field::Int=1, process::Function=postprocess) where T
@@ -473,7 +474,7 @@ function dof_to_node(dh::Ferrite.AbstractDofHandler, u::Array{T,1}; field::Int=1
             end
         end
     end
-    return mapslices(process, data, dims=[2])
+    return mapslices(process, data, dims=[2])::Matrix{T}
 end
 
 get_gradient_interpolation(::Ferrite.Lagrange{dim,shape,order}) where {dim,shape,order} = Ferrite.DiscontinuousLagrange{dim,shape,order-1}()
@@ -555,4 +556,28 @@ function interpolate_gradient_field(dh::Ferrite.DofHandler{spatial_dim}, u::Abst
         u_gradient[cell_dofs_gradient] .+= uᵉ_gradient
     end
     return dh_gradient, u_gradient
+end
+
+"""
+Mapping from 2D triangle to 3D face of a tetrahedon.
+"""
+function transfer_quadrature_face_to_cell(point::AbstractVector, cell::Ferrite.AbstractCell{3,N,4}, face::Int) where {N}
+    x,y = point
+    face == 1 && return [ 1-x-y,  y,  0]
+    face == 2 && return [ y,  0,  1-x-y]
+    face == 3 && return [ x,  y,  1-x-y]
+    face == 4 && return [ 0,  1-x-y,  y]
+end
+
+"""
+Mapping from 2D quadrilateral to 3D face of a hexahedron.
+"""
+function transfer_quadrature_face_to_cell(point::AbstractVector, cell::Ferrite.AbstractCell{3,N,6}, face::Int) where {N}
+    x,y = point
+    face == 1 && return [ y,  x, -1]
+    face == 2 && return [ x, -1,  y]
+    face == 3 && return [ 1,  x,  y]
+    face == 4 && return [-x,  1,  y]
+    face == 5 && return [-1,  y,  x]
+    face == 6 && return [ x,  y,  1]
 end

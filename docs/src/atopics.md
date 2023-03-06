@@ -51,7 +51,7 @@ f
 
 An alternative to this approach is to compute gradient quantities at samples points and plot these via `arrows`.
 
-### High-order fields
+## High-order fields
 
 The investigation of high-order fields is currently only supported via a first-order refinment of the problem.
 Here, the high-order approximation is replaced by a first order approximation of the field, which is

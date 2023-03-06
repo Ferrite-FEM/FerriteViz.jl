@@ -38,13 +38,11 @@ struct MakiePlotter{dim,DH<:Ferrite.AbstractDofHandler,T} <: AbstractPlotter
     dh::DH
     u::Makie.Observable{Vector{T}} # original solution on the original mesh (i.e. dh.mesh)
 
-    cells_connectivity::Vector
-
-    gridnodes::Matrix{AbstractFloat} # coordinates of grid nodes in matrix form
-    physical_coords::Matrix{AbstractFloat} # coordinates in physical space of a vertex
+    gridnodes::Matrix{T} # coordinates of grid nodes in matrix form
+    physical_coords::Matrix{T} # coordinates in physical space of a vertex
     triangles::Matrix{Int} # each row carries a triple with the indices into the coords matrix defining the triangle
     triangle_cell_map::Vector{Int}
-    reference_coords::Matrix{AbstractFloat} # coordinates on the associated reference cell for the corresponding triangle vertex
+    reference_coords::Matrix{T} # coordinates on the associated reference cell for the corresponding triangle vertex
 end
 
 """
@@ -65,7 +63,7 @@ function MakiePlotter(dh::Ferrite.AbstractDofHandler, u::Vector)
     triangle_cell_map = Vector{Int}(undef, num_triangles)
     physical_coords = Matrix{Float64}(undef, num_triangles*3, dim)
     gridnodes = [node[i] for node in Ferrite.getcoordinates.(Ferrite.getnodes(dh.grid)), i in 1:dim]
-    reference_coords = Matrix{Float64}(undef, num_triangles*3, 3) # NOTE this should have the dimension of the actual reference element
+    reference_coords = Matrix{Float64}(undef, num_triangles*3, dim) # NOTE this should have the dimension of the actual reference element
 
     # Decompose does the heavy lifting for us
     coord_offset = 1
@@ -75,7 +73,7 @@ function MakiePlotter(dh::Ferrite.AbstractDofHandler, u::Vector)
         (coord_offset, triangle_offset) = decompose!(coord_offset, physical_coords, reference_coords, triangle_offset, triangles, dh.grid, cell)
         triangle_cell_map[triangle_offset_begin:(triangle_offset-1)] .= cell_id
     end
-    return MakiePlotter{dim,typeof(dh),eltype(u)}(dh,Observable(u),[],gridnodes,physical_coords,triangles,triangle_cell_map,reference_coords);
+    return MakiePlotter{dim,typeof(dh),eltype(u)}(dh,Observable(u),gridnodes,physical_coords,triangles,triangle_cell_map,reference_coords);
 end
 
 """
@@ -120,7 +118,7 @@ function crincle_clip(plotter::MakiePlotter{3,DH,T}, decision_fun) where {DH,T}
     end
 
     # Create a plotter with views on the data.
-    return MakiePlotter{3,DH,T}(dh, u, plotter.cells_connectivity, plotter.gridnodes,
+    return MakiePlotter{3,DH,T}(dh, u, plotter.gridnodes,
         plotter.physical_coords,
         plotter.triangles[visible_triangles, :],
         plotter.triangle_cell_map[visible_triangles],
@@ -313,7 +311,7 @@ function transfer_solution(plotter::MakiePlotter{2}, u::Vector; field_idx::Int=1
 
         # Loop over all local triangle vertices
         for i in 1:(ntriangles(cell_geo)*n_vertices_per_tri)
-            ξ = Tensors.Vec(ref_coords[current_vertex_index, :]...)
+            ξ = Tensors.Vec{2}(ref_coords[current_vertex_index, :])
             for d in 1:field_dim
                 for node_idx ∈ 1:Ferrite.getnbasefunctions(ip_field)
                     data[current_vertex_index, d] += Ferrite.value(ip_field, node_idx, ξ) ⋅ u[_celldofs_field[d, node_idx]]

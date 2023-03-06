@@ -284,7 +284,7 @@ Transfer the solution of a plotter to the new mesh in 2D.
 
 @TODO Refactor. This is peak inefficiency.
 """
-function transfer_solution(plotter::MakiePlotter{2}, u::Vector; field_idx::Int=1, process::Function=FerriteViz.postprocess)
+function transfer_solution(plotter::MakiePlotter{2,DH,T}, u::Vector; field_idx::Int=1, process::Function=FerriteViz.postprocess) where {DH<:Ferrite.AbstractDofHandler,T}
     n_vertices_per_tri = 3 # we have 3 vertices per triangle...
 
     # select objects from plotter
@@ -320,7 +320,7 @@ function transfer_solution(plotter::MakiePlotter{2}, u::Vector; field_idx::Int=1
             current_vertex_index += 1
         end
     end
-    return mapslices(process, data, dims=[2])
+    return mapslices(process, data, dims=[2])::Matrix{T}
 end
 
 """
@@ -328,7 +328,7 @@ Transfer the solution of a plotter to the new mesh in 3D.
 
 @TODO Refactor. This is peak inefficiency.
 """
-function transfer_solution(plotter::MakiePlotter{3}, u::Vector; field_idx::Int=1, process::Function=FerriteViz.postprocess)
+function transfer_solution(plotter::MakiePlotter{3,DH,T}, u::Vector; field_idx::Int=1, process::Function=FerriteViz.postprocess) where {DH<:Ferrite.AbstractDofHandler,T}
     n_vertices_per_tri = 3 # we have 3 vertices per triangle...
 
     # select objects from plotter
@@ -383,10 +383,10 @@ function transfer_solution(plotter::MakiePlotter{3}, u::Vector; field_idx::Int=1
         end
     end
 
-    return mapslices(process, data, dims=[2])
+    return mapslices(process, data, dims=[2])::Matrix{T}
 end
 
-function transfer_scalar_celldata(plotter::MakiePlotter{3}, u::Vector; process::Function=FerriteViz.postprocess)
+function transfer_scalar_celldata(plotter::MakiePlotter{3,DH,T}, u::Vector; process::Function=FerriteViz.postprocess) where {DH<:Ferrite.AbstractDofHandler,T}
     n_vertices = 3 # we have 3 vertices per triangle...
 
     # select objects from plotter
@@ -406,10 +406,10 @@ function transfer_scalar_celldata(plotter::MakiePlotter{3}, u::Vector; process::
         end
     end
 
-    return mapslices(process, data, dims=[2])
+    return mapslices(process, data, dims=[2])::Matrix{T}
 end
 
-function transfer_scalar_celldata(plotter::MakiePlotter{2}, u::Vector;  process::Function=FerriteViz.postprocess)
+function transfer_scalar_celldata(plotter::MakiePlotter{2,DH,T}, u::Vector;  process::Function=FerriteViz.postprocess) where {DH<:Ferrite.AbstractDofHandler,T}
     n_vertices = 3 # we have 3 vertices per triangle...
 
     # select objects from plotter
@@ -425,10 +425,10 @@ function transfer_scalar_celldata(plotter::MakiePlotter{2}, u::Vector;  process:
         end
     end
 
-    return mapslices(process, data, dims=[2])
+    return mapslices(process, data, dims=[2])::Matrix{T}
 end
 
-function transfer_scalar_celldata(grid::Ferrite.AbstractGrid{3}, num_vertices::Number, u::Vector; process::Function=FerriteViz.postprocess)
+function transfer_scalar_celldata(grid::Ferrite.AbstractGrid{3}, num_vertices::Number, u::Vector{T}; process::Function=FerriteViz.postprocess) where T
     n_vertices = 3 # we have 3 vertices per triangle...
     current_vertex_index = 1
     data = fill(0.0, num_vertices, 1)
@@ -442,10 +442,10 @@ function transfer_scalar_celldata(grid::Ferrite.AbstractGrid{3}, num_vertices::N
             end
         end
     end
-    return mapslices(process, data, dims=[2])
+    return mapslices(process, data, dims=[2])::Matrix{T}
 end
 
-function transfer_scalar_celldata(grid::Ferrite.AbstractGrid{2}, num_vertices::Number, u::Vector;  process::Function=FerriteViz.postprocess)
+function transfer_scalar_celldata(grid::Ferrite.AbstractGrid{2}, num_vertices::Number, u::Vector{T};  process::Function=FerriteViz.postprocess) where T
     n_vertices = 3 # we have 3 vertices per triangle...
     current_vertex_index = 1
     data = fill(0.0, num_vertices, 1)
@@ -455,7 +455,7 @@ function transfer_scalar_celldata(grid::Ferrite.AbstractGrid{2}, num_vertices::N
             current_vertex_index += 1
         end
     end
-    return mapslices(process, data, dims=[2])
+    return mapslices(process, data, dims=[2])::Matrix{T}
 end
 
 function dof_to_node(dh::Ferrite.AbstractDofHandler, u::Array{T,1}; field::Int=1, process::Function=postprocess) where T
@@ -474,7 +474,7 @@ function dof_to_node(dh::Ferrite.AbstractDofHandler, u::Array{T,1}; field::Int=1
             end
         end
     end
-    return mapslices(process, data, dims=[2])
+    return mapslices(process, data, dims=[2])::Matrix{T}
 end
 
 get_gradient_interpolation(::Ferrite.Lagrange{dim,shape,order}) where {dim,shape,order} = Ferrite.DiscontinuousLagrange{dim,shape,order-1}()

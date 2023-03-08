@@ -326,7 +326,11 @@ function transfer_solution(plotter::MakiePlotter{dim,DH,T}, u::Vector; field_idx
     pv = (field_dim == 1) ? Ferrite.PointScalarValues(ip_field, ip_geo) : Ferrite.PointVectorValues(ip_field, ip_geo)
 
     current_vertex_index = 1
-    data = fill(0.0, num_vertices(plotter))
+
+    Ferrite.reinit!(pv, Ferrite.getcoordinates(grid,1), Tensors.Vec(ref_coords[current_vertex_index,:]...))
+    _processreturn = process(Ferrite.function_value(pv,1,u[Ferrite.celldofs(dh,1)[local_dof_range]]))
+
+    data = fill(0.0, num_vertices(plotter),length(_processreturn))
     localbuffer = zeros(T,field_dim)
 
     for (isvisible,(cell_idx,cell_geo)) in zip(plotter.visible,enumerate(Ferrite.getcells(dh.grid)))
@@ -347,16 +351,16 @@ function transfer_solution(plotter::MakiePlotter{dim,DH,T}, u::Vector; field_idx
         for i in 1:ncvertices
             Ferrite.reinit!(pv, Ferrite.getcoordinates(grid,cell_idx), Tensors.Vec(ref_coords[current_vertex_index,:]...))
             val = Ferrite.function_value(pv, 1, u[_local_celldofs])
-            data[current_vertex_index] = process(val)
+            data[current_vertex_index,:] .= process(val)
             current_vertex_index += 1
         end
     end
 
-    return data::Vector{T}
+    return data::Matrix{T}
 end
 
-function transfer_scalar_celldata(plotter::MakiePlotter{3,DH,T}, u::Vector; process::Function=FerriteViz.postprocess) where {DH<:Ferrite.AbstractDofHandler,T}
-    n_vertices = 3 # we have 3 vertices per triangle...
+function transfer_scalar_celldata(plotter::MakiePlotter{dim,DH,T}, u::Vector; process::FUN=FerriteViz.postprocess) where {dim,DH<:Ferrite.AbstractDofHandler,T,FUN<:Function}
+    n_vertices_per_tri = 3 # we have 3 vertices per triangle...
 
     boundaryfaces = findall(isempty,plotter.topology.face_neighbor)
     boundaryelements = Ferrite.getindex.(boundaryfaces,1)
@@ -366,57 +370,20 @@ function transfer_scalar_celldata(plotter::MakiePlotter{3,DH,T}, u::Vector; proc
     grid = dh.grid
 
     current_vertex_index = 1
-    data = fill(0.0, num_vertices(plotter), 1)
-    for (cell_index, cell_geo) in zip(boundaryelements,Ferrite.getcells(grid,boundaryelements))
-        for (local_face_idx,_) in enumerate(Ferrite.faces(cell_geo))
-            face_geo = linear_face_cell(cell_geo, local_face_idx)
-            # Loop over vertices
-            for i in 1:(ntriangles(face_geo)*n_vertices)
-                data[current_vertex_index, 1] = u[cell_index]
-                current_vertex_index += 1
-            end
+    data = fill(0.0, num_vertices(plotter))
+    for (isvisible,(cell_idx,cell_geo)) in zip(plotter.visible,enumerate(Ferrite.getcells(dh.grid)))
+        if !isvisible
+            current_vertex_index += ntriangles(cell_geo)*n_vertices_per_tri
+            continue
         end
-    end
-
-    return mapslices(process, data, dims=[2])::Matrix{T}
-end
-
-function transfer_scalar_celldata(plotter::MakiePlotter{2,DH,T}, u::Vector;  process::Function=FerriteViz.postprocess) where {DH<:Ferrite.AbstractDofHandler,T}
-    n_vertices = 3 # we have 3 vertices per triangle...
-
-    # select objects from plotter
-    dh = plotter.dh
-    grid = dh.grid
-
-    current_vertex_index = 1
-    data = fill(0.0, num_vertices(plotter), 1)
-    for (cell_index, cell_geo) in enumerate(Ferrite.getcells(grid))
-        for i in 1:(ntriangles(cell_geo)*n_vertices)
-            data[current_vertex_index, 1] = u[cell_index]
+        ncvertices = ntriangles(cell_geo)*n_vertices_per_tri
+        for i in 1:ncvertices
+            data[current_vertex_index] = process(u[cell_idx])
             current_vertex_index += 1
         end
     end
 
-    return mapslices(process, data, dims=[2])::Matrix{T}
-end
-
-function dof_to_node(dh::Ferrite.AbstractDofHandler, u::Array{T,1}; field::Int=1, process::Function=postprocess) where T
-    fieldnames = Ferrite.getfieldnames(dh)
-    field_dim = Ferrite.getfielddim(dh, field)
-    data = fill(NaN, Ferrite.getnnodes(dh.grid), field_dim)
-    offset = Ferrite.field_offset(dh, fieldnames[field])
-
-    for cell in Ferrite.CellIterator(dh)
-        _celldofs = Ferrite.celldofs(cell)
-        counter = 1
-        for node in cell.nodes
-            for d in 1:field_dim
-                data[node, d] = u[_celldofs[counter + offset]]
-                counter += 1
-            end
-        end
-    end
-    return mapslices(process, data, dims=[2])::Matrix{T}
+    return data::Vector{T}
 end
 
 get_gradient_interpolation(::Ferrite.Lagrange{dim,shape,order}) where {dim,shape,order} = Ferrite.DiscontinuousLagrange{dim,shape,order-1}()

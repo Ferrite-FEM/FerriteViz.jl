@@ -1,0 +1,20 @@
+cff-version: 1.2.0
+title: FerriteViz.jl
+message: >-
+  Vizualization framework for nonlinear finite element
+  fields on nonlinear geometries.
+type: software
+authors:
+  - given-names: Maximilian
+    family-names: Köhler
+    affiliation: Ruhr-University Bochum
+    orcid: 'https://orcid.org/0000-0003-0981-8215'
+  - given-names: Dennis
+    family-names: Ogiermann
+    affiliation: Ruhr-University Bochum
+    orcid: 'https://orcid.org/0000-0002-2659-0809'
+  - family-names: Contributors
+    given-names: " "
+repository-code: 'https://github.com/Ferrite-FEM/FerriteViz.jl'
+url: 'https://ferrite-fem.github.io/FerriteViz.jl/stable/'
+license: MIT

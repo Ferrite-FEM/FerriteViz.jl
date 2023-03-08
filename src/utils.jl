@@ -38,7 +38,7 @@ struct MakiePlotter{dim,DH<:Ferrite.AbstractDofHandler,T,TOP<:Union{Nothing,Ferr
     dh::DH
     u::Makie.Observable{Vector{T}} # original solution on the original mesh (i.e. dh.mesh)
     topology::TOP
-    visible::Vector{Bool}
+    visible::Vector{Bool} #TODO change from per cell to per triangle
     gridnodes::Matrix{T} # coordinates of grid nodes in matrix form
     physical_coords::Matrix{T} # coordinates in physical space of a vertex
     triangles::Matrix{Int} # each row carries a triple with the indices into the coords matrix defining the triangle
@@ -99,13 +99,13 @@ visible(plotter::MakiePlotter{2}) = plotter.triangles
 """
 Clip plane described by the normal and its distance to the coordinate origin.
 """
-struct ClipPlane
-    normal::Tensors.Vec{3}
-    distance::Real
+struct ClipPlane{T}
+    normal::Tensors.Vec{3,T}
+    distance::T
 end
 
 """
-Binary decision function to clip a cell with a plane for the crincle clip.
+Binary decision function to clip a cell with a plane for the crinkle clip.
 """
 function (plane::ClipPlane)(grid, cellid)
     cell = grid.cells[cellid]
@@ -119,35 +119,39 @@ function (plane::ClipPlane)(grid, cellid)
 end
 
 """
-Crincle clip generates a new plotter that deletes some of the triangles, based on an
+    crinkle_clip!(plotter::MakiePlotter{3}, decision_fun)
+Crinkle clip updates the visibility of the triangles, based on an
 implicit description of the clipping surface. Here `decision_fun` takes the grid and
 a cell index as input and returns whether the cell is visible or not.
+Note that chained calls to `crinkle_clip!` won't work.
 """
-function crincle_clip(plotter::MakiePlotter{3,DH,T}, decision_fun) where {DH,T}
+function crinkle_clip!(plotter::MakiePlotter{3,DH,T}, decision_fun::FUN) where {DH,T,FUN<:Function}
     dh = plotter.dh
     u = plotter.u
     grid = dh.grid
 
     # We iterate over all triangles and check if the corresponding cell is visible.
-    visible_triangles = Vector{Bool}(undef, size(plotter.triangles, 1))
-    visible_coords = Vector{Bool}(undef, 3*size(plotter.triangles, 1))
-    for (i, triangle) ∈ enumerate(eachrow(plotter.triangles))
-        cell_id = plotter.triangle_cell_map[i]
-        visible_triangles[i] = decision_fun(grid, cell_id)
-        visible_coords[3*(i-1)+1] = visible_coords[3*(i-1)+2] = visible_coords[3*(i-1)+3] = visible_triangles[i]
+    for (cell_id, cell) ∈ enumerate(Ferrite.getcells(plotter.dh.grid))
+        dfun_visible = decision_fun(grid, cell_id)
+        if dfun_visible
+            cell_neighbors = Ferrite.getneighborhood(plotter.topology, grid, Ferrite.CellIndex(cell_id))
+            plotter.visible[cell_id] = !all(decision_fun.((grid,),cell_neighbors)) || plotter.visible[cell_id]
+        else
+            plotter.visible[cell_id] = false
+        end
     end
+end
 
-    # Create a plotter with views on the data.
-    return MakiePlotter{3,DH,T,typeof(plotter.topology)}(
-        dh,
-        u,
-        plotter.topology,
-        visible_triangles,
-        plotter.gridnodes,
-        plotter.physical_coords,
-        plotter.triangles[visible_triangles, :],
-        plotter.triangle_cell_map[visible_triangles],
-        plotter.reference_coords);
+"""
+    crinkle_clip(plotter::MakiePlotter{3}, decision_fun) -> MakiePlotter
+Crinkle clip generates a new plotter with updated visibility of the triangles.
+Non-mutating version of `crinkle_clip!`.
+Note that chained calls to `crinkle_clip` won't work.
+"""
+function crinkle_clip(plotter::MakiePlotter{3,DH,T}, decision_fun) where {DH,T}
+    plotter_clipped = MakiePlotter{3,DH,T,typeof(plotter.topology)}(plotter.dh,plotter.u,plotter.topology,copy(plotter.visible),plotter.gridnodes,plotter.physical_coords,plotter.triangles,plotter.triangle_cell_map,plotter.reference_coords);
+    crinkle_clip!(plotter_clipped,decision_fun)
+    return plotter_clipped
 end
 
 """

@@ -9,7 +9,7 @@ function update!(plotter::MakiePlotter, u::Vector)
 end
 
 function Makie.convert_arguments(P::Type{<:Makie.Mesh}, plotter::MakiePlotter)
-    return Makie.convert_arguments(P,plotter.physical_coords,plotter.triangles)
+    return Makie.convert_arguments(P,plotter.physical_coords,visible(plotter))
 end
 
 """
@@ -51,7 +51,7 @@ function Makie.plot!(SP::SolutionPlot{<:Tuple{<:MakiePlotter}})
     mins = @lift(minimum($solution))
     maxs = @lift(maximum($solution))
     SP[:colorrange] = @lift(isapprox($mins,$maxs) ? ($mins,1.01($maxs)) : ($mins,$maxs))
-    return Makie.mesh!(SP, coords, plotter.triangles, color=solution, shading=SP[:shading], scale_plot=SP[:scale_plot], colormap=SP[:colormap], transparent=SP[:transparent])
+    return Makie.mesh!(SP, coords, visible(plotter), color=solution, shading=SP[:shading], scale_plot=SP[:scale_plot], colormap=SP[:colormap], transparent=SP[:transparent])
 end
 
 """
@@ -92,7 +92,7 @@ function Makie.plot!(CP::CellPlot{<:Tuple{<:MakiePlotter{dim},Vector}}) where di
     maxs = maximum(qp_values)
     CP[:colorrange] = @lift(isapprox($mins,$maxs) ? ($mins,1.01($maxs)) : ($mins,$maxs))
     solution =  @lift(reshape(transfer_scalar_celldata(plotter, qp_values; process=$(CP[:process])), num_vertices(plotter)))
-    return Makie.mesh!(CP, coords, plotter.triangles, color=solution, shading=CP[:shading], scale_plot=CP[:scale_plot], colormap=CP[:colormap], transparent=CP[:transparent])
+    return Makie.mesh!(CP, coords, visible(plotter), color=solution, shading=CP[:shading], scale_plot=CP[:scale_plot], colormap=CP[:colormap], transparent=CP[:transparent])
 end
 
 """
@@ -174,7 +174,7 @@ function Makie.plot!(WF::Wireframe{<:Tuple{<:MakiePlotter{dim}}}) where dim
     coords = @lift($(WF[:deformation_field])===:default ? plotter.physical_coords : plotter.physical_coords .+ ($(WF[:deformation_scale]) .* $(u_matrix)))
     colorrange = isempty(cellset_to_value) ? (0,1) : (0,maximum(values(cellset_to_value)))
     cellset_u =  reshape(transfer_scalar_celldata(plotter, cellset_u; process=identity), num_vertices(plotter))
-    Makie.mesh!(WF, coords, plotter.triangles, color=cellset_u, shading=false, scale_plot=false, colormap=:darktest, visible=WF[:cellsets])
+    Makie.mesh!(WF, coords, visible(plotter), color=cellset_u, shading=false, scale_plot=false, colormap=:darktest, visible=WF[:cellsets])
     #plot the nodes
     Makie.scatter!(WF,gridnodes,markersize=WF[:markersize], color=WF[:color], visible=WF[:visible])
     #set up nodelabels
@@ -222,7 +222,7 @@ function Makie.plot!(WF::Wireframe{<:Tuple{<:Ferrite.AbstractGrid{dim}}}) where 
     plotter = MakiePlotter(dh,cellset_u)
     cellset_u =  reshape(transfer_scalar_celldata(plotter, cellset_u; process=identity), num_vertices(plotter))
     colorrange = isempty(cellset_to_value) ? (0,1) : (0,maximum(values(cellset_to_value)))
-    Makie.mesh!(WF, plotter.physical_coords, plotter.triangles, color=cellset_u, shading=false, scale_plot=false, colormap=:darktest, visible=WF[:cellsets])
+    Makie.mesh!(WF, plotter.physical_coords, visible(plotter), color=cellset_u, shading=false, scale_plot=false, colormap=:darktest, visible=WF[:cellsets])
     Makie.text!(WF,nodelabels, position=nodepositions, textsize=WF[:textsize], offset=WF[:offset],color=WF[:nodelabelcolor])
     Makie.text!(WF,celllabels, position=cellpositions, textsize=WF[:textsize], color=WF[:celllabelcolor], align=(:center,:center))
     Makie.linesegments!(WF,lines,color=WF[:color], strokewidth=WF[:strokewidth])
@@ -257,7 +257,7 @@ function Makie.plot!(SF::Surface{<:Tuple{<:MakiePlotter{2}}})
     field = @lift($(SF[:field])===:default ? 1 : Ferrite.find_field(plotter.dh,$(SF[:field])))
     solution = @lift(reshape(transfer_solution(plotter, $(plotter.u); field_idx=$(field), process=$(SF[:process])), num_vertices(plotter)))
     points = @lift([Point3f(coord[1], coord[2], $(solution)[idx]) for (idx, coord) in enumerate(eachrow(plotter.physical_coords))])
-    return Makie.mesh!(SF,points, plotter.triangles, color=solution, scale_plot=SF[:scale_plot], shading=SF[:shading], colormap=SF[:colormap])
+    return Makie.mesh!(SF,points, visible(plotter), color=solution, scale_plot=SF[:scale_plot], shading=SF[:shading], colormap=SF[:colormap])
 end
 
 """

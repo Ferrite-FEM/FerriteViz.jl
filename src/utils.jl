@@ -138,7 +138,12 @@ function crincle_clip(plotter::MakiePlotter{3,DH,T}, decision_fun) where {DH,T}
     end
 
     # Create a plotter with views on the data.
-    return MakiePlotter{3,DH,T}(dh, u, plotter.gridnodes,
+    return MakiePlotter{3,DH,T,typeof(plotter.topology)}(
+        dh,
+        u,
+        plotter.topology,
+        visible_triangles,
+        plotter.gridnodes,
         plotter.physical_coords,
         plotter.triangles[visible_triangles, :],
         plotter.triangle_cell_map[visible_triangles],

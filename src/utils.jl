@@ -467,6 +467,26 @@ function interpolate_gradient_field(dh::Ferrite.DofHandler{spatial_dim}, u::Abst
     return dh_gradient, u_gradient
 end
 
+# maps the dof vector in nodal order, only needed for wireframe nodal deformation (since we display the original nodes)
+function dof_to_node(dh::Ferrite.AbstractDofHandler, u::Vector{T}; field::Int=1) where T
+    fieldnames = Ferrite.getfieldnames(dh)
+    field_dim = Ferrite.getfielddim(dh, field)
+    data = fill(NaN, Ferrite.getnnodes(dh.grid), field_dim)
+    offset = Ferrite.field_offset(dh, fieldnames[field])
+
+    for cell in Ferrite.CellIterator(dh)
+        _celldofs = Ferrite.celldofs(cell)
+        counter = 1
+        for node in cell.nodes
+            for d in 1:field_dim
+                data[node, d] = u[_celldofs[counter + offset]]
+                counter += 1
+            end
+        end
+    end
+    return data::Matrix{T}
+end
+
 """
 Mapping from 2D triangle to 3D face of a tetrahedon.
 """

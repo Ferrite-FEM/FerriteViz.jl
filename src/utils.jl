@@ -34,7 +34,7 @@ linear_face_cell(cell::Ferrite.Cell{3,N,6}, local_face_idx::Int) where N = Ferri
 # Obtain the face interpolation on regular geometries.
 getfaceip(ip::Ferrite.Interpolation{dim, shape, order}, local_face_idx::Int) where {dim, shape <: Union{Ferrite.RefTetrahedron, Ferrite.RefCube}, order} = Ferrite.getlowerdim(ip)
 
-struct MakiePlotter{dim,DH<:Ferrite.AbstractDofHandler,T,TOP<:Ferrite.AbstractTopology} <: AbstractPlotter
+struct MakiePlotter{dim,DH<:Ferrite.AbstractDofHandler,T,TOP<:Union{Nothing,Ferrite.AbstractTopology}} <: AbstractPlotter
     dh::DH
     u::Makie.Observable{Vector{T}} # original solution on the original mesh (i.e. dh.mesh)
     topology::TOP
@@ -55,7 +55,7 @@ The triangulation acts as a "L2" triangulation, i.e. each triangle node is doubl
 For large 3D grids, prefer to use the second constructor if you have already a `topology`.
 Otherwise, it will be rebuilt which is time consuming.
 """
-function MakiePlotter(dh::Ferrite.AbstractDofHandler, u::Vector, topology::TOP) where {TOP<:Ferrite.AbstractTopology}
+function MakiePlotter(dh::Ferrite.AbstractDofHandler, u::Vector, topology::TOP) where {TOP<:Union{Nothing,Ferrite.AbstractTopology}}
     cells = Ferrite.getcells(dh.grid)
     dim = Ferrite.getdim(dh.grid)
     visible = zeros(Bool,length(cells))
@@ -90,7 +90,7 @@ function MakiePlotter(dh::Ferrite.AbstractDofHandler, u::Vector, topology::TOP) 
     end
     return MakiePlotter{dim,typeof(dh),eltype(u),typeof(topology)}(dh,Observable(u),topology,visible,gridnodes,physical_coords,triangles,triangle_cell_map,reference_coords);
 end
-MakiePlotter(dh,u) = MakiePlotter(dh,u,Ferrite.ExclusiveTopology(dh.grid.cells))
+MakiePlotter(dh,u) = MakiePlotter(dh,u,Ferrite.getdim(dh.grid) > 2 ? Ferrite.ExclusiveTopology(dh.grid.cells) : nothing)
 
 # triangle_to_cell -> visible -> triangle access
 visible(plotter::MakiePlotter{3}) = plotter.triangles[plotter.visible[plotter.triangle_cell_map],:]

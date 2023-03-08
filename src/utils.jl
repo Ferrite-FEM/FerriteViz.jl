@@ -85,7 +85,7 @@ struct ClipPlane
 end
 
 """
-Binary decision function to clip a cell with a plane for the crincle clip.
+Binary decision function to clip a cell with a plane for the crinkle clip.
 """
 function (plane::ClipPlane)(grid, cellid)
     cell = grid.cells[cellid]
@@ -99,11 +99,11 @@ function (plane::ClipPlane)(grid, cellid)
 end
 
 """
-Crincle clip generates a new plotter that deletes some of the triangles, based on an
+Crinkle clip generates a new plotter that deletes some of the triangles, based on an
 implicit description of the clipping surface. Here `decision_fun` takes the grid and
 a cell index as input and returns whether the cell is visible or not.
 """
-function crincle_clip(plotter::MakiePlotter{3,DH,T}, decision_fun) where {DH,T}
+function crinkle_clip(plotter::MakiePlotter{3,DH,T}, decision_fun) where {DH,T}
     dh = plotter.dh
     u = plotter.u
     grid = dh.grid

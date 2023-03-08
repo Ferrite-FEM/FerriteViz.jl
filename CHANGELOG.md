@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+ - Citation file ([#65](github-65))
+
+### Fixed
+ - Typo in `crinkle_clip` function name ([#65](github-65))
+
 ## [0.2.0] - 2023-03-06
 ### Added
  - Functionality to obtain a first-order refined mesh and the corresponding
@@ -35,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [github-56]: https://github.com/Ferrite-FEM/FerriteViz.jl/pull/56
 [github-57]: https://github.com/Ferrite-FEM/FerriteViz.jl/pull/57
 [github-59]: https://github.com/Ferrite-FEM/FerriteViz.jl/pull/59
+[github-65]: https://github.com/Ferrite-FEM/FerriteViz.jl/pull/65
 
 [Unreleased]: https://github.com/Ferrite-FEM/FerriteViz.jl/compare/v0.2.0...HEAD
 [0.2.0]: https://github.com/Ferrite-FEM/FerriteViz.jl/compare/v0.2.0...v0.1.4

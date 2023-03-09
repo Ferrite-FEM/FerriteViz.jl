@@ -125,7 +125,7 @@ implicit description of the clipping surface. Here `decision_fun` takes the grid
 a cell index as input and returns whether the cell is visible or not.
 Note that chained calls to `crinkle_clip!` won't work.
 """
-function crinkle_clip!(plotter::MakiePlotter{3,DH,T}, decision_fun::FUN) where {DH,T,FUN<:Function}
+function crinkle_clip!(plotter::MakiePlotter{3,DH,T}, decision_fun::DF) where {DH,T,DF}
     dh = plotter.dh
     u = plotter.u
     grid = dh.grid

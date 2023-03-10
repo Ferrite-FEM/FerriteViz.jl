@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Added
  - Basic culling where all faces of all boundary elements are rendered ([#56][github-56])
+ - Citation file ([#65](github-65))
 ### Modified
  - Removed unnecessary extra dispatches for three-dimensional case ([#56][github-56])
 ### Fixed
@@ -41,6 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [github-56]: https://github.com/Ferrite-FEM/FerriteViz.jl/pull/56
 [github-57]: https://github.com/Ferrite-FEM/FerriteViz.jl/pull/57
 [github-59]: https://github.com/Ferrite-FEM/FerriteViz.jl/pull/59
+[github-65]: https://github.com/Ferrite-FEM/FerriteViz.jl/pull/65
 [github-63]: https://github.com/Ferrite-FEM/FerriteViz.jl/pull/63
 
 [Unreleased]: https://github.com/Ferrite-FEM/FerriteViz.jl/compare/v0.2.0...HEAD

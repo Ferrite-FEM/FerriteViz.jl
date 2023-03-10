@@ -100,8 +100,8 @@ For a more granular investigation of the stress field consult the advanced tutor
 For 3D problems we can also inspect the interior of the domain. Currenly we only have crinkle clipping
 implemented and it can be used as follows:
 ```@example 1
-clip_plane = FerriteViz.ClipPlane(Vec((0.01,0.5,0.5)), 0.7)
-clipped_plotter = FerriteViz.crincle_clip(plotter, clip_plane)
+clip_plane = FerriteViz.ClipPlane(Vec((0.0,0.5,0.5)), 0.7)
+clipped_plotter = FerriteViz.crinkle_clip(plotter, clip_plane)
 FerriteViz.solutionplot(clipped_plotter,deformation_field=:u,colormap=:thermal,deformation_scale=2.0)
 WGLMakie.current_figure()
 ```

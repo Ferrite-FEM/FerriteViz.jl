@@ -34,10 +34,11 @@ linear_face_cell(cell::Ferrite.Cell{3,N,6}, local_face_idx::Int) where N = Ferri
 # Obtain the face interpolation on regular geometries.
 getfaceip(ip::Ferrite.Interpolation{dim, shape, order}, local_face_idx::Int) where {dim, shape <: Union{Ferrite.RefTetrahedron, Ferrite.RefCube}, order} = Ferrite.getlowerdim(ip)
 
-struct MakiePlotter{dim,DH<:Ferrite.AbstractDofHandler,T} <: AbstractPlotter
+struct MakiePlotter{dim,DH<:Ferrite.AbstractDofHandler,T,TOP<:Union{Nothing,Ferrite.AbstractTopology}} <: AbstractPlotter
     dh::DH
     u::Makie.Observable{Vector{T}} # original solution on the original mesh (i.e. dh.mesh)
-
+    topology::TOP
+    visible::Vector{Bool} #TODO change from per cell to per triangle
     gridnodes::Matrix{T} # coordinates of grid nodes in matrix form
     physical_coords::Matrix{T} # coordinates in physical space of a vertex
     triangles::Matrix{Int} # each row carries a triple with the indices into the coords matrix defining the triangle
@@ -46,11 +47,25 @@ struct MakiePlotter{dim,DH<:Ferrite.AbstractDofHandler,T} <: AbstractPlotter
 end
 
 """
-Build a static triangulation of the grid to render out the solution via Makie.
+    MakiePlotter(dh::Ferrite.AbstractDofHandler, u::Vector)
+    MakiePlotter(dh::Ferrite.AbstractDofHandler, u::Vector, topology::TOP) where {TOP<:Ferrite.AbstractTopology}
+
+Builds a static triangulation of the underlying `grid` in `dh.grid` for rendering via Makie.
+The triangulation acts as a "L2" triangulation, i.e. each triangle node is doubled.
+For large 3D grids, prefer to use the second constructor if you have already a `topology`.
+Otherwise, it will be rebuilt which is time consuming.
 """
-function MakiePlotter(dh::Ferrite.AbstractDofHandler, u::Vector)
+function MakiePlotter(dh::Ferrite.AbstractDofHandler, u::Vector, topology::TOP) where {TOP<:Union{Nothing,Ferrite.AbstractTopology}}
     cells = Ferrite.getcells(dh.grid)
     dim = Ferrite.getdim(dh.grid)
+    visible = zeros(Bool,length(cells))
+    if dim > 2
+        boundaryfaces = findall(isempty,topology.face_neighbor)
+        boundaryelements = Ferrite.getindex.(boundaryfaces,1)
+    else
+        boundaryelements = collect(1:Ferrite.getncells(dh.grid))
+    end
+    visible[boundaryelements] .= true
 
     # We do not take any assumptions on the mesh, so first we have to loopkup
     num_triangles = 0
@@ -73,15 +88,20 @@ function MakiePlotter(dh::Ferrite.AbstractDofHandler, u::Vector)
         (coord_offset, triangle_offset) = decompose!(coord_offset, physical_coords, reference_coords, triangle_offset, triangles, dh.grid, cell)
         triangle_cell_map[triangle_offset_begin:(triangle_offset-1)] .= cell_id
     end
-    return MakiePlotter{dim,typeof(dh),eltype(u)}(dh,Observable(u),gridnodes,physical_coords,triangles,triangle_cell_map,reference_coords);
+    return MakiePlotter{dim,typeof(dh),eltype(u),typeof(topology)}(dh,Observable(u),topology,visible,gridnodes,physical_coords,triangles,triangle_cell_map,reference_coords);
 end
+MakiePlotter(dh,u) = MakiePlotter(dh,u,Ferrite.getdim(dh.grid) > 2 ? Ferrite.ExclusiveTopology(dh.grid.cells) : nothing)
+
+# triangle_to_cell -> visible -> triangle access
+visible(plotter::MakiePlotter{3}) = @views plotter.triangles[plotter.visible[plotter.triangle_cell_map],:]
+visible(plotter::MakiePlotter{2}) = plotter.triangles
 
 """
 Clip plane described by the normal and its distance to the coordinate origin.
 """
-struct ClipPlane
-    normal::Tensors.Vec{3}
-    distance::Real
+struct ClipPlane{T}
+    normal::Tensors.Vec{3,T}
+    distance::T
 end
 
 """
@@ -99,30 +119,39 @@ function (plane::ClipPlane)(grid, cellid)
 end
 
 """
-Crinkle clip generates a new plotter that deletes some of the triangles, based on an
+    crinkle_clip!(plotter::MakiePlotter{3}, decision_fun)
+Crinkle clip updates the visibility of the triangles, based on an
 implicit description of the clipping surface. Here `decision_fun` takes the grid and
 a cell index as input and returns whether the cell is visible or not.
+Note that chained calls to `crinkle_clip!` won't work.
 """
-function crinkle_clip(plotter::MakiePlotter{3,DH,T}, decision_fun) where {DH,T}
+function crinkle_clip!(plotter::MakiePlotter{3,DH,T}, decision_fun::DF) where {DH,T,DF}
     dh = plotter.dh
     u = plotter.u
     grid = dh.grid
 
     # We iterate over all triangles and check if the corresponding cell is visible.
-    visible_triangles = Vector{Bool}(undef, size(plotter.triangles, 1))
-    visible_coords = Vector{Bool}(undef, 3*size(plotter.triangles, 1))
-    for (i, triangle) ∈ enumerate(eachrow(plotter.triangles))
-        cell_id = plotter.triangle_cell_map[i]
-        visible_triangles[i] = decision_fun(grid, cell_id)
-        visible_coords[3*(i-1)+1] = visible_coords[3*(i-1)+2] = visible_coords[3*(i-1)+3] = visible_triangles[i]
+    for (cell_id, cell) ∈ enumerate(Ferrite.getcells(plotter.dh.grid))
+        dfun_visible = decision_fun(grid, cell_id)
+        if dfun_visible
+            cell_neighbors = Ferrite.getneighborhood(plotter.topology, grid, Ferrite.CellIndex(cell_id))
+            plotter.visible[cell_id] = !all(decision_fun.((grid,),cell_neighbors)) || plotter.visible[cell_id]
+        else
+            plotter.visible[cell_id] = false
+        end
     end
+end
 
-    # Create a plotter with views on the data.
-    return MakiePlotter{3,DH,T}(dh, u, plotter.gridnodes,
-        plotter.physical_coords,
-        plotter.triangles[visible_triangles, :],
-        plotter.triangle_cell_map[visible_triangles],
-        plotter.reference_coords);
+"""
+    crinkle_clip(plotter::MakiePlotter{3}, decision_fun) -> MakiePlotter
+Crinkle clip generates a new plotter with updated visibility of the triangles.
+Non-mutating version of `crinkle_clip!`.
+Note that chained calls to `crinkle_clip` won't work.
+"""
+function crinkle_clip(plotter::MakiePlotter{3,DH,T}, decision_fun) where {DH,T}
+    plotter_clipped = MakiePlotter{3,DH,T,typeof(plotter.topology)}(plotter.dh,plotter.u,plotter.topology,copy(plotter.visible),plotter.gridnodes,plotter.physical_coords,plotter.triangles,plotter.triangle_cell_map,plotter.reference_coords);
+    crinkle_clip!(plotter_clipped,decision_fun)
+    return plotter_clipped
 end
 
 """
@@ -278,57 +307,12 @@ function postprocess(node_values)
 end
 
 """
-Transfer the solution of a plotter to the new mesh in 2D.
-
-@precondition: Assumes that the number of basis function for each dof is equal.
-
-@TODO Refactor. This is peak inefficiency.
-"""
-function transfer_solution(plotter::MakiePlotter{2,DH,T}, u::Vector; field_idx::Int=1, process::Function=FerriteViz.postprocess) where {DH<:Ferrite.AbstractDofHandler,T}
-    n_vertices_per_tri = 3 # we have 3 vertices per triangle...
-
-    # select objects from plotter
-    dh = plotter.dh
-    ref_coords = plotter.reference_coords
-    grid = dh.grid
-
-    # field related variables
-    field_name = Ferrite.getfieldnames(dh)[field_idx]
-    field_dim = Ferrite.getfielddim(dh, field_idx)
-    ip_field = dh.field_interpolations[field_idx]
-
-    # actual data
-    local_dof_range = Ferrite.dof_range(dh, field_name)
-
-    cell_geo_ref = Ferrite.getcells(grid, 1)
-    ip_geo = Ferrite.default_interpolation(typeof(cell_geo_ref))
-    pv = (field_dim == 1) ? Ferrite.PointScalarValues(ip_field, ip_geo) : Ferrite.PointVectorValues(ip_field, ip_geo)
-
-    data = fill(0.0, num_vertices(plotter), field_dim)
-    current_vertex_index = 1
-    for (cell_index, cell_geo) in enumerate(Ferrite.getcells(grid))
-        _celldofs_field = reshape(Ferrite.celldofs(dh,cell_index)[local_dof_range], (field_dim, Ferrite.getnbasefunctions(ip_field)))
-
-        # Loop over all local triangle vertices
-        for i in 1:(ntriangles(cell_geo)*n_vertices_per_tri)
-            ξ = Tensors.Vec{2}(ref_coords[current_vertex_index, :])
-            for d in 1:field_dim
-                for node_idx ∈ 1:Ferrite.getnbasefunctions(ip_field)
-                    data[current_vertex_index, d] += Ferrite.value(ip_field, node_idx, ξ) ⋅ u[_celldofs_field[d, node_idx]]
-                end
-            end
-            current_vertex_index += 1
-        end
-    end
-    return mapslices(process, data, dims=[2])::Matrix{T}
-end
-
-"""
-Transfer the solution of a plotter to the new mesh in 3D.
+    transfer_solution(plotter::MakiePlotter{dim,DH,T}, u::Vector; field_idx::Int=1, process::Function=FerriteViz.postprocess) where {dim,DH<:Ferrite.AbstractDofHandler,T}
+Transfer the solution of a plotter to the tessellated mesh in `dim`.
 
 @TODO Refactor. This is peak inefficiency.
 """
-function transfer_solution(plotter::MakiePlotter{3,DH,T}, u::Vector; field_idx::Int=1, process::Function=FerriteViz.postprocess) where {DH<:Ferrite.AbstractDofHandler,T}
+function transfer_solution(plotter::MakiePlotter{dim,DH,T}, u::Vector; field_idx::Int=1, process::FUN=FerriteViz.postprocess) where {dim,DH<:Ferrite.AbstractDofHandler,T,FUN}
     n_vertices_per_tri = 3 # we have 3 vertices per triangle...
 
     # select objects from plotter
@@ -348,133 +332,81 @@ function transfer_solution(plotter::MakiePlotter{3,DH,T}, u::Vector; field_idx::
 
     cell_geo_ref = Ferrite.getcells(grid, 1)
     ip_geo = Ferrite.default_interpolation(typeof(cell_geo_ref))
-    pv = (field_dim == 1) ? Ferrite.PointScalarValues(ip_field, ip_geo) : Ferrite.PointVectorValues(ip_field, ip_geo)
+    pv = Ferrite.PointScalarValues(ip_field, ip_geo)
 
     current_vertex_index = 1
-    data = fill(0.0, num_vertices(plotter), field_dim)
-    for cell in Ferrite.CellIterator(plotter.dh)
-        cell_idx = Ferrite.cellid(cell)
-        cell_geo = Ferrite.getcells(grid, cell_idx)
+
+    Ferrite.reinit!(pv, Ferrite.getcoordinates(grid,1), Tensors.Vec(ref_coords[current_vertex_index,:]...))
+    n_basefuncs = Ferrite.getnbasefunctions(pv)
+    val_buffer = zeros(T,field_dim)
+    val = process(val_buffer)
+    for d in 1:field_dim
+        val_buffer[d] = Ferrite.function_value(pv,1,u[Ferrite.celldofs(dh,1)[local_dof_range][d:field_dim:((n_basefuncs*field_dim)-(field_dim-d))]])
+    end
+    _processreturn::Int = length(process(val_buffer))
+
+    data = fill(0.0, num_vertices(plotter),_processreturn)
+    localbuffer = zeros(T,field_dim)
+    _local_coords = Ferrite.getcoordinates(grid,1)
+    _local_celldofs = Ferrite.celldofs(dh,1)
+    _celldofs_field = reshape(_local_celldofs[local_dof_range], (field_dim, Ferrite.getnbasefunctions(ip_field)))
+    _local_ref_coords = Tensors.Vec{dim}(ref_coords[1,:])
+
+    for (isvisible,(cell_idx,cell_geo)) in zip(plotter.visible,enumerate(Ferrite.getcells(dh.grid)))
         # This should make the loop work for mixed grids
-        if typeof(cell_geo_ref) != typeof(cell_geo)
-            ip_geo = Ferrite.default_interpolation(typeof(cell_geo))
-            pv = (field_dim == 1) ? Ferrite.PointScalarValues(ip_field, ip_geo) : Ferrite.PointVectorValues(ip_field, ip_geo)
-            cell_geo_ref = cell_geo
+        if !isvisible
+            current_vertex_index += ntriangles(cell_geo)*n_vertices_per_tri
+            continue
         end
-        _local_celldofs = Ferrite.celldofs(cell)[local_dof_range]
-        _celldofs_field = reshape(_local_celldofs, (field_dim, Ferrite.getnbasefunctions(ip_field)))
+        #if typeof(cell_geo_ref) != typeof(cell_geo)
+        #    ip_geo = Ferrite.default_interpolation(typeof(cell_geo))
+        #    pv = getpointvalues(Val(field_dim),ip_field,ip_geo)
+        #    cell_geo_ref = cell_geo
+        #end
+        Ferrite.getcoordinates!(_local_coords,grid,cell_idx)
+        Ferrite.celldofs!(_local_celldofs,dh,cell_idx)
+        _celldofs_field = reshape(@view(_local_celldofs[local_dof_range]), (field_dim, Ferrite.getnbasefunctions(ip_field)))
+        ncvertices = ntriangles(cell_geo)*n_vertices_per_tri
         # TODO replace this with a triangle-to-cell map.
-        for (local_face_idx,_) in enumerate(Ferrite.faces(cell_geo))
-            # Construct face values to evaluate
-            face_geo = linear_face_cell(cell_geo, local_face_idx)
-            # TODO Optimize for mixed geometries
-            nfvertices = ntriangles(face_geo)*n_vertices_per_tri
-
-            # Loop over vertices
-            for i in 1:nfvertices
-                Ferrite.reinit!(pv, Ferrite.getcoordinates(grid,cell_idx), Tensors.Vec(ref_coords[current_vertex_index,:]...))
-                # val = Ferrite.function_value(cv, i, u[_local_celldofs])
-                val = Ferrite.function_value(pv, 1, u[_local_celldofs])
-                for d in 1:field_dim
-                    data[current_vertex_index, d] += val[d] #current_vertex_index
-                end
-                current_vertex_index += 1
-            end
-        end
-    end
-
-    return mapslices(process, data, dims=[2])::Matrix{T}
-end
-
-function transfer_scalar_celldata(plotter::MakiePlotter{3,DH,T}, u::Vector; process::Function=FerriteViz.postprocess) where {DH<:Ferrite.AbstractDofHandler,T}
-    n_vertices = 3 # we have 3 vertices per triangle...
-
-    # select objects from plotter
-    dh = plotter.dh
-    grid = dh.grid
-
-    current_vertex_index = 1
-    data = fill(0.0, num_vertices(plotter), 1)
-    for (cell_index, cell_geo) in enumerate(Ferrite.getcells(grid))
-        for (local_face_idx,_) in enumerate(Ferrite.faces(cell_geo))
-            face_geo = linear_face_cell(cell_geo, local_face_idx)
-            # Loop over vertices
-            for i in 1:(ntriangles(face_geo)*n_vertices)
-                data[current_vertex_index, 1] = u[cell_index]
-                current_vertex_index += 1
-            end
-        end
-    end
-
-    return mapslices(process, data, dims=[2])::Matrix{T}
-end
-
-function transfer_scalar_celldata(plotter::MakiePlotter{2,DH,T}, u::Vector;  process::Function=FerriteViz.postprocess) where {DH<:Ferrite.AbstractDofHandler,T}
-    n_vertices = 3 # we have 3 vertices per triangle...
-
-    # select objects from plotter
-    dh = plotter.dh
-    grid = dh.grid
-
-    current_vertex_index = 1
-    data = fill(0.0, num_vertices(plotter), 1)
-    for (cell_index, cell_geo) in enumerate(Ferrite.getcells(grid))
-        for i in 1:(ntriangles(cell_geo)*n_vertices)
-            data[current_vertex_index, 1] = u[cell_index]
-            current_vertex_index += 1
-        end
-    end
-
-    return mapslices(process, data, dims=[2])::Matrix{T}
-end
-
-function transfer_scalar_celldata(grid::Ferrite.AbstractGrid{3}, num_vertices::Number, u::Vector{T}; process::Function=FerriteViz.postprocess) where T
-    n_vertices = 3 # we have 3 vertices per triangle...
-    current_vertex_index = 1
-    data = fill(0.0, num_vertices, 1)
-    for (cell_index, cell_geo) in enumerate(Ferrite.getcells(grid))
-        for (local_face_idx,_) in enumerate(Ferrite.faces(cell_geo))
-            face_geo = linear_face_cell(cell_geo, local_face_idx)
-            # Loop over vertices
-            for i in 1:(ntriangles(face_geo)*n_vertices)
-                data[current_vertex_index, 1] = u[cell_index]
-                current_vertex_index += 1
-            end
-        end
-    end
-    return mapslices(process, data, dims=[2])::Matrix{T}
-end
-
-function transfer_scalar_celldata(grid::Ferrite.AbstractGrid{2}, num_vertices::Number, u::Vector{T};  process::Function=FerriteViz.postprocess) where T
-    n_vertices = 3 # we have 3 vertices per triangle...
-    current_vertex_index = 1
-    data = fill(0.0, num_vertices, 1)
-    for (cell_index, cell_geo) in enumerate(Ferrite.getcells(grid))
-        for i in 1:(ntriangles(cell_geo)*n_vertices)
-            data[current_vertex_index, 1] = u[cell_index]
-            current_vertex_index += 1
-        end
-    end
-    return mapslices(process, data, dims=[2])::Matrix{T}
-end
-
-function dof_to_node(dh::Ferrite.AbstractDofHandler, u::Array{T,1}; field::Int=1, process::Function=postprocess) where T
-    fieldnames = Ferrite.getfieldnames(dh)
-    field_dim = Ferrite.getfielddim(dh, field)
-    data = fill(NaN, Ferrite.getnnodes(dh.grid), field_dim)
-    offset = Ferrite.field_offset(dh, fieldnames[field])
-
-    for cell in Ferrite.CellIterator(dh)
-        _celldofs = Ferrite.celldofs(cell)
-        counter = 1
-        for node in cell.nodes
+        for i in 1:ncvertices
+            _local_ref_coords = Tensors.Vec{dim}(@view(ref_coords[current_vertex_index,:]))
+            Ferrite.reinit!(pv, _local_coords, _local_ref_coords)
             for d in 1:field_dim
-                data[node, d] = u[_celldofs[counter + offset]]
-                counter += 1
+                val_buffer[d] = Ferrite.function_value(pv, 1, @view(u[_celldofs_field[d,:]]))
             end
+            val = process(val_buffer)
+            for d in 1:_processreturn
+                data[current_vertex_index,d] = val[d]
+            end
+            current_vertex_index += 1
         end
     end
-    return mapslices(process, data, dims=[2])::Matrix{T}
+
+    return data
+end
+
+function transfer_scalar_celldata(plotter::MakiePlotter{dim,DH,T}, u::Vector; process::FUN=FerriteViz.postprocess) where {dim,DH<:Ferrite.AbstractDofHandler,T,FUN<:Function}
+    n_vertices_per_tri = 3 # we have 3 vertices per triangle...
+
+    # select objects from plotter
+    dh = plotter.dh
+    grid = dh.grid
+
+    current_vertex_index = 1
+    data = fill(0.0, num_vertices(plotter))
+    for (isvisible,(cell_idx,cell_geo)) in zip(plotter.visible,enumerate(Ferrite.getcells(dh.grid)))
+        if !isvisible
+            current_vertex_index += ntriangles(cell_geo)*n_vertices_per_tri
+            continue
+        end
+        ncvertices = ntriangles(cell_geo)*n_vertices_per_tri
+        for i in 1:ncvertices
+            data[current_vertex_index] = process(u[cell_idx])
+            current_vertex_index += 1
+        end
+    end
+
+    return data::Vector{T}
 end
 
 get_gradient_interpolation(::Ferrite.Lagrange{dim,shape,order}) where {dim,shape,order} = Ferrite.DiscontinuousLagrange{dim,shape,order-1}()
@@ -556,6 +488,26 @@ function interpolate_gradient_field(dh::Ferrite.DofHandler{spatial_dim}, u::Abst
         u_gradient[cell_dofs_gradient] .+= uᵉ_gradient
     end
     return dh_gradient, u_gradient
+end
+
+# maps the dof vector in nodal order, only needed for wireframe nodal deformation (since we display the original nodes)
+function dof_to_node(dh::Ferrite.AbstractDofHandler, u::Vector{T}; field::Int=1) where T
+    fieldnames = Ferrite.getfieldnames(dh)
+    field_dim = Ferrite.getfielddim(dh, field)
+    data = fill(NaN, Ferrite.getnnodes(dh.grid), field_dim)
+    offset = Ferrite.field_offset(dh, fieldnames[field])
+
+    for cell in Ferrite.CellIterator(dh)
+        _celldofs = Ferrite.celldofs(cell)
+        counter = 1
+        for node in cell.nodes
+            for d in 1:field_dim
+                data[node, d] = u[_celldofs[counter + offset]]
+                counter += 1
+            end
+        end
+    end
+    return data::Matrix{T}
 end
 
 """

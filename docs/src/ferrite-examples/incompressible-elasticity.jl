@@ -6,7 +6,7 @@ function create_cook_grid(nx, ny)
                Tensors.Vec{2}((48.0, 44.0)),
                Tensors.Vec{2}((48.0, 60.0)),
                Tensors.Vec{2}((0.0,  44.0))]
-    grid = generate_grid(Triangle, (nx, ny), corners);
+    grid = generate_grid(Quadrilateral, (nx, ny), corners);
     # facesets for boundary conditions
     addfaceset!(grid, "clamped", x -> norm(x[1]) ≈ 0.0);
     addfaceset!(grid, "traction", x -> norm(x[1]) ≈ 48.0);
@@ -15,11 +15,11 @@ end;
 
 function create_values(interpolation_u, interpolation_p)
     # quadrature rules
-    qr      = QuadratureRule{2,RefTetrahedron}(3)
-    face_qr = QuadratureRule{1,RefTetrahedron}(3)
+    qr      = QuadratureRule{2,RefCube}(3)
+    face_qr = QuadratureRule{1,RefCube}(3)
 
     # geometric interpolation
-    interpolation_geom = Lagrange{2,RefTetrahedron,1}()
+    interpolation_geom = Lagrange{2,RefCube,1}()
 
     # cell and facevalues for u
     cellvalues_u = CellVectorValues(qr, interpolation_u, interpolation_geom)
@@ -160,7 +160,7 @@ function solve(interpolation_u, interpolation_p, mp)
     u = Symmetric(K) \ f;
 
     # export
-    filename = "cook_" * (isa(interpolation_u, Lagrange{2,RefTetrahedron,1}) ? "linear" : "quadratic") *
+    filename = "cook_" * (isa(interpolation_u, Lagrange{2,RefCube,1}) ? "linear" : "quadratic") *
                          "_linear"
     vtk_grid(filename, dh) do vtkfile
         vtk_point_data(vtkfile, dh, u)
@@ -168,8 +168,8 @@ function solve(interpolation_u, interpolation_p, mp)
     return u,dh
 end
 
-linear    = Lagrange{2,RefTetrahedron,1}()
-quadratic = Lagrange{2,RefTetrahedron,2}()
+linear    = Lagrange{2,RefCube,1}()
+quadratic = Lagrange{2,RefCube,2}()
 
 ν = 0.4999999
 Emod = 1.

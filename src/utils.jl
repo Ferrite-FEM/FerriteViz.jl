@@ -347,7 +347,7 @@ function transfer_solution(plotter::MakiePlotter{dim,DH,T}, u::Vector; field_idx
     localbuffer = zeros(T,field_dim)
     _local_coords = Ferrite.getcoordinates(grid,1)
     _local_celldofs = Ferrite.celldofs(dh,1)
-    _celldofs_field = reshape(_local_celldofs[local_dof_range], (field_dim, Ferrite.getnbasefunctions(ip_field)))
+    _celldofs_field = @view _local_celldofs[local_dof_range]
     _local_ref_coords = Tensors.Vec{dim}(ref_coords[1,:])
 
     for (isvisible,(cell_idx,cell_geo)) in zip(plotter.visible,enumerate(Ferrite.getcells(dh.grid)))
@@ -363,14 +363,14 @@ function transfer_solution(plotter::MakiePlotter{dim,DH,T}, u::Vector; field_idx
         #end
         Ferrite.getcoordinates!(_local_coords,grid,cell_idx)
         Ferrite.celldofs!(_local_celldofs,dh,cell_idx)
-        _celldofs_field = reshape(_local_celldofs[local_dof_range], (field_dim, Ferrite.getnbasefunctions(ip_field)))
+        _celldofs_field = @view _local_celldofs[local_dof_range]
         ncvertices = ntriangles(cell_geo)*n_vertices_per_tri
         # TODO replace this with a triangle-to-cell map.
         for i in 1:ncvertices
             _local_ref_coords = Tensors.Vec{dim}(@view(ref_coords[current_vertex_index,:]))
             Ferrite.reinit!(pv, _local_coords, _local_ref_coords)
-            val = process(Ferrite.function_value(pv, 1, u[_local_celldofs]))
-            for d in 1:field_dim
+            val = process(Ferrite.function_value(pv, 1, @view(u[_celldofs_field])))
+            for d in 1:_processreturn
                 data[current_vertex_index,d] = val[d]
             end
             current_vertex_index += 1
@@ -382,9 +382,6 @@ end
 
 function transfer_scalar_celldata(plotter::MakiePlotter{dim,DH,T}, u::Vector; process::FUN=FerriteViz.postprocess) where {dim,DH<:Ferrite.AbstractDofHandler,T,FUN<:Function}
     n_vertices_per_tri = 3 # we have 3 vertices per triangle...
-
-    boundaryfaces = findall(isempty,plotter.topology.face_neighbor)
-    boundaryelements = Ferrite.getindex.(boundaryfaces,1)
 
     # select objects from plotter
     dh = plotter.dh

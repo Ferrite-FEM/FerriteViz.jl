@@ -297,10 +297,15 @@ midpoint(cell::Ferrite.AbstractCell{2,N,4}, points) where N = Point2f(0.5 * (poi
 midpoint(cell::Ferrite.AbstractCell{3,N,4}, points) where N = Point3f((1/4) * (points[cell.nodes[1],:] + points[cell.nodes[2],:] + points[cell.nodes[3],:] + points[cell.nodes[4],:]))
 midpoint(cell::Ferrite.AbstractCell{3,N,6}, points) where N = Point3f(0.5 * (points[cell.nodes[1],:] + points[cell.nodes[7],:]))
 
+"""
+    postprocess(node_values::Vector{T}) -> T
+Takes the nodal dof vector and maps it either to the scalar or to the
+euclidean norm (in the vectorial case)
+"""
 function postprocess(node_values)
     dim = length(node_values)
     if dim == 1
-        return node_values[1]
+        return node_values[1] #scalar values vectors with length 1
     else
         return sqrt(sum(node_values.^2))
     end

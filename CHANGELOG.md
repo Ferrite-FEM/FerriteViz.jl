@@ -7,12 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
- - Basic culling where all faces of all boundary elements are rendered ([#56][github-56])
+ - Basic culling where all faces of all boundary elements are rendered ([#56][github-56]).
  - Citation file ([#65](github-65))
 ### Modified
- - Removed unnecessary extra dispatches for three-dimensional case ([#56][github-56])
+ - Removed unnecessary extra dispatches for three-dimensional case ([#56][github-56]).
+ - function barrier for `transfer_solution` such that its closer to type groundedness ([#68][github-68]).
 ### Fixed
- - Renamed `Crincle` to `Crinkle` ([#56][github-56])
+ - Renamed `Crincle` to `Crinkle` ([#56][github-56]).
 
 ## [0.2.0] - 2023-03-06
 ### Added
@@ -44,6 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [github-59]: https://github.com/Ferrite-FEM/FerriteViz.jl/pull/59
 [github-65]: https://github.com/Ferrite-FEM/FerriteViz.jl/pull/65
 [github-63]: https://github.com/Ferrite-FEM/FerriteViz.jl/pull/63
+[github-68]: https://github.com/Ferrite-FEM/FerriteViz.jl/pull/68
 
 [Unreleased]: https://github.com/Ferrite-FEM/FerriteViz.jl/compare/v0.2.0...HEAD
 [0.2.0]: https://github.com/Ferrite-FEM/FerriteViz.jl/compare/v0.2.0...v0.1.4

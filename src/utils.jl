@@ -313,37 +313,42 @@ Transfer the solution of a plotter to the tessellated mesh in `dim`.
 @TODO Refactor. This is peak inefficiency.
 """
 function transfer_solution(plotter::MakiePlotter{dim,DH,T}, u::Vector; field_idx::Int=1, process::FUN=FerriteViz.postprocess) where {dim,DH<:Ferrite.AbstractDofHandler,T,FUN}
-    n_vertices_per_tri = 3 # we have 3 vertices per triangle...
-
     # select objects from plotter
     dh = plotter.dh
-    ref_coords = plotter.reference_coords
     grid = dh.grid
 
     # field related variables
     field_name = Ferrite.getfieldnames(dh)[field_idx]
     field_dim = Ferrite.getfielddim(dh, field_idx)
 
-    # TODO this should be moved inside the loop below to gt the correct interpolator for the current cell.
+    # interpolation extraction
     ip_field = dh.field_interpolations[field_idx]
+    cell_geo_ref = Ferrite.getcells(grid, 1)
+    ip_geo = Ferrite.default_interpolation(typeof(cell_geo_ref))
 
+    return _transfer_solution(ip_geo,ip_field,field_name,field_dim,plotter,u,process) #function barrier for ip_field and thus pointvalues
+end
+
+function _transfer_solution(ip_geo,ip_field,field_name,field_dim,plotter::MakiePlotter{dim,DH,T}, u::Vector, process::FUN) where {dim,DH<:Ferrite.AbstractDofHandler,T,FUN}
+    n_vertices_per_tri = 3 # we have 3 vertices per triangle...
+    dh = plotter.dh
+    ref_coords = plotter.reference_coords
+    grid = dh.grid
     # actual data
     local_dof_range = Ferrite.dof_range(dh, field_name)
 
-    cell_geo_ref = Ferrite.getcells(grid, 1)
-    ip_geo = Ferrite.default_interpolation(typeof(cell_geo_ref))
     pv = Ferrite.PointScalarValues(ip_field, ip_geo)
 
     current_vertex_index = 1
 
-    Ferrite.reinit!(pv, Ferrite.getcoordinates(grid,1), Tensors.Vec(ref_coords[current_vertex_index,:]...))
+    Ferrite.reinit!(pv, Ferrite.getcoordinates(grid,1), Tensors.Vec{dim}(ref_coords[current_vertex_index,:]))
     n_basefuncs = Ferrite.getnbasefunctions(pv)::Int
     val_buffer = zeros(T,field_dim)
     val = process(val_buffer)
     for d in 1:field_dim
         val_buffer[d] = Ferrite.function_value(pv,1,u[Ferrite.celldofs(dh,1)[local_dof_range][d:field_dim:((n_basefuncs*field_dim)-(field_dim-d))]])
     end
-    _processreturn::Int = length(process(val_buffer))
+    _processreturn = length(process(val_buffer))::Int
 
     data = fill(0.0, num_vertices(plotter),_processreturn)
     localbuffer = zeros(T,field_dim)
@@ -381,7 +386,6 @@ function transfer_solution(plotter::MakiePlotter{dim,DH,T}, u::Vector; field_idx
             current_vertex_index += 1
         end
     end
-
     return data
 end
 

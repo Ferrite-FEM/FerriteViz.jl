@@ -300,7 +300,7 @@ midpoint(cell::Ferrite.AbstractCell{3,N,6}, points) where N = Point3f(0.5 * (poi
 function postprocess(node_values)
     dim = length(node_values)
     if dim == 1
-        return node_values
+        return node_values[1]
     else
         return sqrt(sum(node_values.^2))
     end
@@ -325,11 +325,13 @@ function transfer_solution(plotter::MakiePlotter{dim,DH,T}, u::Vector; field_idx
     ip_field = dh.field_interpolations[field_idx]
     cell_geo_ref = Ferrite.getcells(grid, 1)
     ip_geo = Ferrite.default_interpolation(typeof(cell_geo_ref))
+    val_buffer = zeros(T,field_dim)
+    val = process(val_buffer)
 
-    return _transfer_solution(ip_geo,ip_field,field_name,field_dim,plotter,u,process) #function barrier for ip_field and thus pointvalues
+    return _transfer_solution(ip_geo,ip_field,val_buffer,val,field_name,field_dim,plotter,u,process) #function barrier for ip_field and thus pointvalues
 end
 
-function _transfer_solution(ip_geo,ip_field,field_name,field_dim,plotter::MakiePlotter{dim,DH,T}, u::Vector, process::FUN) where {dim,DH<:Ferrite.AbstractDofHandler,T,FUN}
+function _transfer_solution(ip_geo,ip_field,val_buffer,val,field_name,field_dim,plotter::MakiePlotter{dim,DH,T}, u::Vector, process::FUN) where {dim,DH<:Ferrite.AbstractDofHandler,T,FUN}
     n_vertices_per_tri = 3 # we have 3 vertices per triangle...
     dh = plotter.dh
     ref_coords = plotter.reference_coords
@@ -342,16 +344,10 @@ function _transfer_solution(ip_geo,ip_field,field_name,field_dim,plotter::MakieP
     current_vertex_index = 1
 
     Ferrite.reinit!(pv, Ferrite.getcoordinates(grid,1), Tensors.Vec{dim}(ref_coords[current_vertex_index,:]))
-    n_basefuncs = Ferrite.getnbasefunctions(pv)::Int
-    val_buffer = zeros(T,field_dim)
-    val = process(val_buffer)
-    for d in 1:field_dim
-        val_buffer[d] = Ferrite.function_value(pv,1,u[Ferrite.celldofs(dh,1)[local_dof_range][d:field_dim:((n_basefuncs*field_dim)-(field_dim-d))]])
-    end
-    _processreturn = length(process(val_buffer))::Int
+    n_basefuncs = Ferrite.getnbasefunctions(pv)
+    _processreturn = length(process(val_buffer))
 
     data = fill(0.0, num_vertices(plotter),_processreturn)
-    localbuffer = zeros(T,field_dim)
     _local_coords = Ferrite.getcoordinates(grid,1)
     _local_celldofs = Ferrite.celldofs(dh,1)
     _celldofs_field = reshape(_local_celldofs[local_dof_range], (field_dim, n_basefuncs))

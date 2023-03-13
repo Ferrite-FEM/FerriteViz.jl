@@ -51,7 +51,7 @@ function Makie.plot!(SP::SolutionPlot{<:Tuple{<:MakiePlotter}})
     mins = @lift(minimum($solution))
     maxs = @lift(maximum($solution))
     SP[:colorrange] = @lift(isapprox($mins,$maxs) ? ($mins,1.01($maxs)) : ($mins,$maxs))
-    return Makie.mesh!(SP, coords, visible(plotter), color=solution, shading=SP[:shading], scale_plot=SP[:scale_plot], colormap=SP[:colormap], transparent=SP[:transparent])
+    return Makie.mesh!(SP, plotter.mesh, color=solution, shading=SP[:shading], scale_plot=SP[:scale_plot], colormap=SP[:colormap], transparent=SP[:transparent])
 end
 
 """

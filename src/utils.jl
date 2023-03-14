@@ -34,14 +34,15 @@ linear_face_cell(cell::Ferrite.Cell{3,N,6}, local_face_idx::Int) where N = Ferri
 # Obtain the face interpolation on regular geometries.
 getfaceip(ip::Ferrite.Interpolation{dim, shape, order}, local_face_idx::Int) where {dim, shape <: Union{Ferrite.RefTetrahedron, Ferrite.RefCube}, order} = Ferrite.getlowerdim(ip)
 
-struct MakiePlotter{dim,DH<:Ferrite.AbstractDofHandler,T1,TOP<:Union{Nothing,Ferrite.AbstractTopology},T2,M} <: AbstractPlotter
+struct MakiePlotter{dim,DH<:Ferrite.AbstractDofHandler,T1,TOP<:Union{Nothing,Ferrite.AbstractTopology},T2,M,TRI} <: AbstractPlotter
     dh::DH
     u::Makie.Observable{Vector{T1}} # original solution on the original mesh (i.e. dh.mesh)
     topology::TOP
     visible::Vector{Bool} #TODO change from per cell to per triangle
     gridnodes::Vector{GeometryBasics.Point{dim,T2}} # coordinates of grid nodes in matrix form
     physical_coords::Vector{GeometryBasics.Point{dim,T2}} # coordinates in physical space of a vertex
-    triangles::Vector{GeometryBasics.TriangleFace}
+    all_triangles::Vector{TRI}
+    vis_triangles::ShaderAbstractions.Buffer{TRI,Vector{TRI}}
     triangle_cell_map::Vector{Int}
     reference_coords::Matrix{T1} # coordinates on the associated reference cell for the corresponding triangle vertex
     mesh::M
@@ -89,9 +90,14 @@ function MakiePlotter(dh::Ferrite.AbstractDofHandler, u::Vector, topology::TOP) 
         (coord_offset, triangle_offset) = decompose!(coord_offset, physical_coords, reference_coords, triangle_offset, triangles, dh.grid, cell)
         triangle_cell_map[triangle_offset_begin:(triangle_offset-1)] .= cell_id
     end
-    triangles = Makie.to_triangles(triangles)
-    mesh = GeometryBasics.normal_mesh(physical_coords,triangles)
-    return MakiePlotter{dim,typeof(dh),eltype(u),typeof(topology),Float32,typeof(mesh)}(dh,Observable(u),topology,visible,gridnodes,physical_coords,triangles,triangle_cell_map,reference_coords,mesh)
+    all_triangles = Makie.to_triangles(triangles)
+    vis_triangles = copy(all_triangles)
+    n_visible = sum(visible[triangle_cell_map])
+    n_notvisible = length(all_triangles) - n_visible
+    vis_triangles[ .! visible[triangle_cell_map]] .= (GeometryBasics.GLTriangleFace(1,1,1) for i in 1:n_notvisible)
+    vis_triangles = ShaderAbstractions.Buffer(Makie.Observable(vis_triangles))
+    mesh = GeometryBasics.Mesh(physical_coords,vis_triangles)
+    return MakiePlotter{dim,typeof(dh),eltype(u),typeof(topology),Float32,typeof(mesh),eltype(vis_triangles)}(dh,Observable(u),topology,visible,gridnodes,physical_coords,all_triangles,vis_triangles,triangle_cell_map,reference_coords,mesh)
 end
 MakiePlotter(dh,u) = MakiePlotter(dh,u,Ferrite.getdim(dh.grid) > 2 ? Ferrite.ExclusiveTopology(dh.grid.cells) : nothing)
 

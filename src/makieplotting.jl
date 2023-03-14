@@ -8,10 +8,6 @@ function update!(plotter::MakiePlotter, u::Vector)
     Makie.notify(plotter.u)
 end
 
-function Makie.convert_arguments(P::Type{<:Makie.Mesh}, plotter::MakiePlotter)
-    return Makie.convert_arguments(P,plotter.physical_coords,visible(plotter))
-end
-
 """
     solutionplot(plotter::MakiePlotter; kwargs...)
     solutionplot(dh::AbstractDofHandler, u::Vector; kwargs...)
@@ -45,13 +41,13 @@ end
 
 function Makie.plot!(SP::SolutionPlot{<:Tuple{<:MakiePlotter}})
     plotter = SP[1][]
-    solution = @lift($(SP[:field])===:default ? reshape(transfer_solution(plotter,$(plotter.u); field_idx=1, process=$(SP[:process])), num_vertices(plotter)) : reshape(transfer_solution(plotter,$(plotter.u); field_idx=Ferrite.find_field(plotter.dh,$(SP[:field])), process=$(SP[:process])), num_vertices(plotter)))
-    u_matrix = @lift($(SP[:deformation_field])===:default ? zeros(0,3) : transfer_solution(plotter,$(plotter.u); field_idx=Ferrite.find_field(plotter.dh,$(SP[:deformation_field])), process=identity))
-    coords = @lift($(SP[:deformation_field])===:default ? plotter.physical_coords : plotter.physical_coords .+ ($(SP[:deformation_scale]) .* $(u_matrix)))
-    mins = @lift(minimum($solution))
-    maxs = @lift(maximum($solution))
-    SP[:colorrange] = @lift(isapprox($mins,$maxs) ? ($mins,1.01($maxs)) : ($mins,$maxs))
-    return Makie.mesh!(SP, plotter.mesh, color=solution, shading=SP[:shading], scale_plot=SP[:scale_plot], colormap=SP[:colormap], transparent=SP[:transparent])
+    #solution = @lift($(SP[:field])===:default ? transfer_solution(plotter,$(plotter.u); field_idx=1, process=$(SP[:process])) : transfer_solution(plotter,$(plotter.u); field_idx=Ferrite.find_field(plotter.dh,$(SP[:field])), process=$(SP[:process])))
+    #u_matrix = @lift($(SP[:deformation_field])===:default ? zeros(0,3) : transfer_solution(plotter,$(plotter.u); field_idx=Ferrite.find_field(plotter.dh,$(SP[:deformation_field])), process=identity))
+    #coords = @lift($(SP[:deformation_field])===:default ? plotter.physical_coords : plotter.physical_coords .+ ($(SP[:deformation_scale]) .* $(u_matrix)))
+    #mins = @lift(minimum($solution))
+    #maxs = @lift(maximum($solution))
+    #SP[:colorrange] = @lift(isapprox($mins,$maxs) ? ($mins,1.01($maxs)) : ($mins,$maxs))
+    return Makie.mesh!(SP, plotter.mesh)#, color=solution, shading=SP[:shading], scale_plot=SP[:scale_plot], colormap=SP[:colormap], transparent=SP[:transparent])
 end
 
 """

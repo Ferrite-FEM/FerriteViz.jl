@@ -491,9 +491,8 @@ end
 
 function ferriteviewer(plotter::MakiePlotter, data::Vector{Vector{T}}) where T
     fig = ferriteviewer(plotter)
-    timeslider = labelslider!(fig, "timestep n:", 1:length(data); format = x->"$x", sliderkw = Dict(:snap=>false))
-    fig[2,1] = timeslider.layout
-    @lift(FerriteViz.update!(plotter,data[$(timeslider.slider.value)]))
+    sg = SliderGrid(fig[2,1], (label="timestep n:", range=1:length(data), format = x->"$x"))
+    @lift(FerriteViz.update!(plotter,data[$(sg.sliders[1].value)]))
     display(fig)
 end
 

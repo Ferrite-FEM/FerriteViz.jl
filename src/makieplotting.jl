@@ -57,7 +57,7 @@ function Makie.plot!(SP::SolutionPlot{<:Tuple{<:MakiePlotter}})
     end
     @lift begin
         if $(SP[:deformation_field])===:default
-            plotter.physical_coords_mesh[1:end] = copy(plotter.physical_coords)
+            plotter.physical_coords_mesh[1:end] = plotter.physical_coords
         else
             plotter.physical_coords_mesh[1:end] = copy(plotter.physical_coords) .+ ($(SP[:deformation_scale]) .* $(u_matrix))
         end

@@ -41,13 +41,31 @@ end
 
 function Makie.plot!(SP::SolutionPlot{<:Tuple{<:MakiePlotter}})
     plotter = SP[1][]
-    #solution = @lift($(SP[:field])===:default ? transfer_solution(plotter,$(plotter.u); field_idx=1, process=$(SP[:process])) : transfer_solution(plotter,$(plotter.u); field_idx=Ferrite.find_field(plotter.dh,$(SP[:field])), process=$(SP[:process])))
-    #u_matrix = @lift($(SP[:deformation_field])===:default ? zeros(0,3) : transfer_solution(plotter,$(plotter.u); field_idx=Ferrite.find_field(plotter.dh,$(SP[:deformation_field])), process=identity))
-    #coords = @lift($(SP[:deformation_field])===:default ? plotter.physical_coords : plotter.physical_coords .+ ($(SP[:deformation_scale]) .* $(u_matrix)))
-    #mins = @lift(minimum($solution))
-    #maxs = @lift(maximum($solution))
-    #SP[:colorrange] = @lift(isapprox($mins,$maxs) ? ($mins,1.01($maxs)) : ($mins,$maxs))
-    return Makie.mesh!(SP, plotter.mesh)#, color=solution, shading=SP[:shading], scale_plot=SP[:scale_plot], colormap=SP[:colormap], transparent=SP[:transparent])
+    solution = @lift begin
+        if $(SP[:field])===:default
+            reshape(transfer_solution(plotter,$(plotter.u); field_idx=1, process=$(SP[:process])), num_vertices(plotter))
+        else
+            transfer_solution(plotter,$(plotter.u); field_idx=Ferrite.find_field(plotter.dh,$(SP[:field])), process=$(SP[:process]))
+        end
+    end
+    u_matrix = @lift begin
+        if $(SP[:deformation_field])===:default
+             Point3f[Point3f(0,0,0)]
+        else
+             Makie.to_vertices(transfer_solution(plotter,$(plotter.u); field_idx=Ferrite.find_field(plotter.dh,$(SP[:deformation_field])), process=identity))
+        end
+    end
+    @lift begin
+        if $(SP[:deformation_field])===:default
+            plotter.physical_coords_mesh[1:end] = copy(plotter.physical_coords)
+        else
+            plotter.physical_coords_mesh[1:end] = copy(plotter.physical_coords) .+ ($(SP[:deformation_scale]) .* $(u_matrix))
+        end
+    end
+    mins = @lift(minimum($solution))
+    maxs = @lift(maximum($solution))
+    SP[:colorrange] = @lift(isapprox($mins,$maxs) ? ($mins,1.01($maxs)) : ($mins,$maxs))
+    return Makie.mesh!(SP, plotter.mesh, color=solution, shading=SP[:shading], scale_plot=SP[:scale_plot], colormap=SP[:colormap], transparent=SP[:transparent])
 end
 
 """
@@ -427,11 +445,11 @@ function ferriteviewer(plotter::MakiePlotter{dim}) where dim
     strokewidth = lift(x->x,strokewidthslider.value)
 
     #plot the fe-mesh
-    wireframep = wireframe!(plotter,markersize=markersize,strokewidth=strokewidth,deformation_field= @lift $(toggles[2].active) ? $(deformation_field) : :default)
+    #wireframep = wireframe!(plotter,markersize=markersize,strokewidth=strokewidth,deformation_field= @lift $(toggles[2].active) ? $(deformation_field) : :default)
     #connect fe-mesh plot to the toggle
-    connect!(wireframep.visible,toggles[1].active)
-    connect!(wireframep.nodelabels,toggles[3].active)
-    connect!(wireframep.celllabels,toggles[3].active)
+    #connect!(wireframep.visible,toggles[1].active)
+    #connect!(wireframep.nodelabels,toggles[3].active)
+    #connect!(wireframep.celllabels,toggles[3].active)
 
     #set up dropdown menus for colormap, field, deformation field and processing function
     menu_cm = Menu(fig, options=["cividis", "inferno", "thermal"], direction=:up)
@@ -461,7 +479,7 @@ function ferriteviewer(plotter::MakiePlotter{dim}) where dim
 
     on(menu_deformation_field.selection) do field
         solutionp.deformation_field = field
-        wireframep.deformation_field = field
+        #wireframep.deformation_field = field
     end
 
     on(menu_process.selection) do process_function

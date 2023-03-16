@@ -93,9 +93,6 @@ function MakiePlotter(dh::Ferrite.AbstractDofHandler, u::Vector, topology::TOP) 
 end
 MakiePlotter(dh,u) = MakiePlotter(dh,u,Ferrite.getdim(dh.grid) > 2 ? Ferrite.ExclusiveTopology(dh.grid.cells) : nothing)
 
-# triangle_to_cell -> visible -> triangle access
-visible(plotter::MakiePlotter{3}) = @views plotter.triangles[plotter.visible[plotter.triangle_cell_map],:]
-
 """
 Clip plane described by the normal and its distance to the coordinate origin.
 """

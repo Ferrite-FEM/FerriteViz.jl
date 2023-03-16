@@ -13,16 +13,6 @@ function field_offset(dh::Ferrite.DofHandler, field_idx::Int)
     return offset
 end
 
-function facedofs(cell, local_face_idx::Int, field_idx::Int)
-    celldofs_ = Ferrite.celldofs(cell)
-    offset_ = field_offset(cell.dh, field_idx)
-    fip = Ferrite.getfieldinterpolation(cell.dh, field_idx)
-    faces_ = Ferrite.faces(fip)
-    isempty(faces_) && return () # no face dofs :)
-    indices = faces_[local_face_idx] .+ offset_
-    celldofs_[[indices...]]
-end
-
 Ferrite.vertices(cell::Ferrite.Cell{3,3,1}) = cell.nodes
 
 Ferrite.default_interpolation(::Type{Ferrite.Cell{3,3,1}}) = Ferrite.Lagrange{2,Ferrite.RefTetrahedron,1}()
@@ -105,7 +95,6 @@ MakiePlotter(dh,u) = MakiePlotter(dh,u,Ferrite.getdim(dh.grid) > 2 ? Ferrite.Exc
 
 # triangle_to_cell -> visible -> triangle access
 visible(plotter::MakiePlotter{3}) = @views plotter.triangles[plotter.visible[plotter.triangle_cell_map],:]
-visible(plotter::MakiePlotter{2}) = plotter.triangles
 
 """
 Clip plane described by the normal and its distance to the coordinate origin.
@@ -151,6 +140,9 @@ function crinkle_clip!(plotter::MakiePlotter{3,DH,T}, decision_fun::DF) where {D
             plotter.visible[cell_id] = false
         end
     end
+    plotter.vis_triangles[plotter.visible[plotter.triangle_cell_map]] = plotter.all_triangles[plotter.visible[plotter.triangle_cell_map]]
+    plotter.vis_triangles[ .! plotter.visible[plotter.triangle_cell_map]] = [GeometryBasics.GLTriangleFace(1,1,1) for i in 1:sum(.! plotter.visible[plotter.triangle_cell_map])]
+    nothing
 end
 
 """
@@ -160,7 +152,7 @@ Non-mutating version of `crinkle_clip!`.
 Note that chained calls to `crinkle_clip` won't work.
 """
 function crinkle_clip(plotter::MakiePlotter{3,DH,T}, decision_fun) where {DH,T}
-    plotter_clipped = MakiePlotter{3,DH,T,typeof(plotter.topology)}(plotter.dh,plotter.u,plotter.topology,copy(plotter.visible),plotter.gridnodes,plotter.physical_coords,plotter.triangles,plotter.triangle_cell_map,plotter.reference_coords);
+    plotter_clipped = MakiePlotter{3,DH,T,typeof(plotter.topology),Float32,typeof(plotter.mesh),eltype(plotter.vis_triangles)}(plotter.dh,plotter.u,plotter.topology,plotter.visible,plotter.gridnodes,plotter.physical_coords,plotter.physical_coords_mesh,copy(plotter.all_triangles),copy(plotter.vis_triangles),plotter.triangle_cell_map,plotter.reference_coords,plotter.mesh)
     crinkle_clip!(plotter_clipped,decision_fun)
     return plotter_clipped
 end
@@ -169,17 +161,6 @@ end
 Total number of vertices
 """
 num_vertices(p::MakiePlotter) = size(p.physical_coords,1)
-
-#Visualization is just fancy triangle plotting, every element needs to be translatable to a triangle *sadnoises*
-to_triangle(cell::Ferrite.AbstractCell{2,N,3}) where N = [Ferrite.vertices(cell)[1:3]]
-to_triangle(cell::Ferrite.AbstractCell{3,N,4}) where N = [Ferrite.vertices(cell)[[1,2,3]], Ferrite.vertices(cell)[[1,2,4]], Ferrite.vertices(cell)[[2,3,4]], Ferrite.vertices(cell)[[1,4,3]]]
-to_triangle(cell::Ferrite.AbstractCell{2,N,4}) where N = [Ferrite.vertices(cell)[[1,2,3]], Ferrite.vertices(cell)[[3,4,1]]]
-to_triangle(cell::Ferrite.AbstractCell{3,N,6}) where N = [Ferrite.vertices(cell)[[1,2,3]], Ferrite.vertices(cell)[[3,4,1]],
-                                                          Ferrite.vertices(cell)[[1,5,6]], Ferrite.vertices(cell)[[6,2,1]],
-                                                          Ferrite.vertices(cell)[[2,6,7]], Ferrite.vertices(cell)[[7,3,2]],
-                                                          Ferrite.vertices(cell)[[3,7,8]], Ferrite.vertices(cell)[[8,4,3]],
-                                                          Ferrite.vertices(cell)[[1,4,8]], Ferrite.vertices(cell)[[8,5,1]],
-                                                          Ferrite.vertices(cell)[[5,8,7]], Ferrite.vertices(cell)[[7,6,5]]]
 
 """
 TODO this looks faulty...think harder.
@@ -302,10 +283,10 @@ x₃(x) = x[3]
 l2(x) = LinearAlgebra.norm(x,2)
 l1(x) = LinearAlgebra.norm(x,1)
 
-midpoint(cell::Ferrite.AbstractCell{2,N,3}, points) where N = Point2f((1/3) * (points[cell.nodes[1],:] + points[cell.nodes[2],:] + points[cell.nodes[3],:]))
-midpoint(cell::Ferrite.AbstractCell{2,N,4}, points) where N = Point2f(0.5 * (points[cell.nodes[1],:] + points[cell.nodes[3],:]))
-midpoint(cell::Ferrite.AbstractCell{3,N,4}, points) where N = Point3f((1/4) * (points[cell.nodes[1],:] + points[cell.nodes[2],:] + points[cell.nodes[3],:] + points[cell.nodes[4],:]))
-midpoint(cell::Ferrite.AbstractCell{3,N,6}, points) where N = Point3f(0.5 * (points[cell.nodes[1],:] + points[cell.nodes[7],:]))
+midpoint(cell::Ferrite.AbstractCell{2,N,3}, points) where N = Point2f((1/3) * (points[cell.nodes[1]] + points[cell.nodes[2]] + points[cell.nodes[3]]))
+midpoint(cell::Ferrite.AbstractCell{2,N,4}, points) where N = Point2f(0.5 * (points[cell.nodes[1]] + points[cell.nodes[3]]))
+midpoint(cell::Ferrite.AbstractCell{3,N,4}, points) where N = Point3f((1/4) * (points[cell.nodes[1]] + points[cell.nodes[2]] + points[cell.nodes[3]] + points[cell.nodes[4]]))
+midpoint(cell::Ferrite.AbstractCell{3,N,6}, points) where N = Point3f(0.5 * (points[cell.nodes[1]] + points[cell.nodes[7]]))
 
 """
     postprocess(node_values::Vector{T}) -> T

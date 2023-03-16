@@ -60,7 +60,7 @@ function Makie.plot!(SP::SolutionPlot{<:Tuple{<:MakiePlotter}})
         if $(SP[:deformation_field])===:default
             plotter.physical_coords_mesh[1:end] = plotter.physical_coords
         else
-            plotter.physical_coords_mesh[1:end] = copy(plotter.physical_coords) .+ ($(SP[:deformation_scale]) .* $(u_matrix))
+            plotter.physical_coords_mesh[1:end] = plotter.physical_coords .+ ($(SP[:deformation_scale]) .* $(u_matrix))
         end
     end
     mins = @lift(minimum($solution))
@@ -112,7 +112,7 @@ function Makie.plot!(CP::CellPlot{<:Tuple{<:MakiePlotter{dim},Vector}}) where di
         if $(CP[:deformation_field])===:default
             plotter.physical_coords_mesh[1:end] = plotter.physical_coords            
         else
-            plotter.physical_coords_mesh[1:end] = copy(plotter.physical_coords) .+ ($(CP[:deformation_scale]) .* $(u_matrix))
+            plotter.physical_coords_mesh[1:end] = plotter.physical_coords .+ ($(CP[:deformation_scale]) .* $(u_matrix))
         end
     end
     mins = minimum(qp_values)
@@ -220,7 +220,7 @@ function Makie.plot!(WF::Wireframe{<:Tuple{<:MakiePlotter{dim}}}) where dim
         if $(WF[:deformation_field])===:default
             plotter.physical_coords_mesh[1:end] = plotter.physical_coords            
         else
-            plotter.physical_coords_mesh[1:end] = copy(plotter.physical_coords) .+ ($(WF[:deformation_scale]) .* $(u_matrix))
+            plotter.physical_coords_mesh[1:end] = plotter.physical_coords .+ ($(WF[:deformation_scale]) .* $(u_matrix))
         end
     end
     colorrange = isempty(cellset_to_value) ? (0,1) : (0,maximum(values(cellset_to_value)))

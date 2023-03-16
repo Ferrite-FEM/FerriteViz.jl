@@ -152,7 +152,21 @@ Non-mutating version of `crinkle_clip!`.
 Note that chained calls to `crinkle_clip` won't work.
 """
 function crinkle_clip(plotter::MakiePlotter{3,DH,T}, decision_fun) where {DH,T}
-    plotter_clipped = MakiePlotter{3,DH,T,typeof(plotter.topology),Float32,typeof(plotter.mesh),eltype(plotter.vis_triangles)}(plotter.dh,plotter.u,plotter.topology,plotter.visible,plotter.gridnodes,plotter.physical_coords,plotter.physical_coords_mesh,copy(plotter.all_triangles),copy(plotter.vis_triangles),plotter.triangle_cell_map,plotter.reference_coords,plotter.mesh)
+    physical_coords_m = ShaderAbstractions.Buffer(Makie.Observable(copy(plotter.physical_coords_mesh)))
+    vis_triangles =  ShaderAbstractions.Buffer(Makie.Observable(copy(plotter.vis_triangles)))
+    plotter_clipped = MakiePlotter{3,DH,T,typeof(plotter.topology),Float32,typeof(plotter.mesh),eltype(plotter.vis_triangles)}(
+         plotter.dh,
+         plotter.u,
+         plotter.topology,
+         plotter.visible,
+         plotter.gridnodes,
+         plotter.physical_coords,
+         physical_coords_m,
+         plotter.all_triangles,
+         vis_triangles,
+         plotter.triangle_cell_map,
+         plotter.reference_coords,
+         GeometryBasics.Mesh(physical_coords_m,vis_triangles))
     crinkle_clip!(plotter_clipped,decision_fun)
     return plotter_clipped
 end

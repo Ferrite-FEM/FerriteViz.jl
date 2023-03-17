@@ -357,7 +357,7 @@ function _transfer_solution(ip_geo,ip_field,val_buffer,val,field_name,field_dim,
     data = fill(0.0, num_vertices(plotter),_processreturn)
     _local_coords = Ferrite.getcoordinates(grid,1)
     _local_celldofs = Ferrite.celldofs(dh,1)
-    _celldofs_field = reshape(_local_celldofs[local_dof_range], (field_dim, n_basefuncs))
+    _celldofs_field = reshape(@view(_local_celldofs[local_dof_range]), (field_dim, n_basefuncs))
     _local_ref_coords = Tensors.Vec{dim}(ref_coords[1,:])
 
     for (isvisible,(cell_idx,cell_geo)) in zip(plotter.visible,enumerate(Ferrite.getcells(dh.grid)))
@@ -380,7 +380,7 @@ function _transfer_solution(ip_geo,ip_field,val_buffer,val,field_name,field_dim,
             _local_ref_coords = Tensors.Vec{dim}(@view(ref_coords[current_vertex_index,:]))
             Ferrite.reinit!(pv, _local_coords, _local_ref_coords)
             for d in 1:field_dim
-                val_buffer[d] = Ferrite.function_value(pv, 1, @view(u[_celldofs_field[d,:]]))
+                val_buffer[d] = Ferrite.function_value(pv, 1, @views(u[_celldofs_field[d,:]]))
             end
             val = process(val_buffer)
             for d in 1:_processreturn

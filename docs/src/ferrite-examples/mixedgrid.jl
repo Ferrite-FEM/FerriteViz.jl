@@ -68,3 +68,8 @@ for cell in CellIterator(dh,collect(dh.fieldhandlers[1].cellset))
     celldofs_ = celldofs(cell)
     u[celldofs_] .= 1
 end
+for cell in CellIterator(dh,collect(dh.fieldhandlers[2].cellset))
+    celldofs_ = celldofs(cell)
+    dof_range_ = Ferrite.dof_range(dh.fieldhandlers[2],:u)
+    u[celldofs_[dof_range_]] .= 0.5
+end

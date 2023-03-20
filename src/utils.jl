@@ -347,7 +347,7 @@ function transfer_solution(plotter::MakiePlotter{dim,DH,T}, u::Vector; field_nam
     val_buffer = zeros(T,field_dim)
     val = process(val_buffer)
     _processreturn = length(process(val_buffer))
-    data = fill(0.0, num_vertices(plotter),_processreturn)
+    data = fill(NaN, num_vertices(plotter),_processreturn)
     for fh in getfieldhandlers(dh,field_name)
         ip_field = Ferrite.getfieldinterpolation(fh,field_name)
         cellset_ = collect(fh.cellset)

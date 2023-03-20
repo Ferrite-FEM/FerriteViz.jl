@@ -63,8 +63,8 @@ function Makie.plot!(SP::SolutionPlot{<:Tuple{<:MakiePlotter}})
             plotter.physical_coords_mesh[1:end] = plotter.physical_coords .+ ($(SP[:deformation_scale]) .* $(u_matrix))
         end
     end
-    mins = @lift(minimum($solution))
-    maxs = @lift(maximum($solution))
+    mins = @lift(minimum(filter(!isnan,$solution)))
+    maxs = @lift(maximum(filter(!isnan,$solution)))
     SP[:colorrange] = @lift(isapprox($mins,$maxs) ? ($mins,1.01($maxs)) : ($mins,$maxs))
     return Makie.mesh!(SP, plotter.mesh, color=solution, shading=SP[:shading], scale_plot=SP[:scale_plot], colormap=SP[:colormap], transparent=SP[:transparent])
 end

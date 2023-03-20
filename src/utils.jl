@@ -314,8 +314,10 @@ function postprocess(node_values)
 end
 
 function getfieldhandlers(dh::Ferrite.DofHandler,field_name)
-    ip_field = Ferrite.getfieldinterpolation(dh,field_name)
-    return [Ferrite.FieldHandler([Ferrite.Field(:u,ip_field)],Set(1:Ferrite.getncells(dh.grid)))]
+    field_idx = Ferrite.find_field(dh,field_name)
+    ip_field = Ferrite.getfieldinterpolation(dh,field_idx)
+    field_dim_ = Ferrite.getfielddim(dh,field_idx)
+    return [Ferrite.FieldHandler([Ferrite.Field(:u,ip_field,field_dim_)],Set(1:Ferrite.getncells(dh.grid)))]
 end
 
 function getfieldhandlers(dh::Ferrite.MixedDofHandler,field_name)
@@ -354,7 +356,7 @@ function transfer_solution(plotter::MakiePlotter{dim,DH,T}, u::Vector; field_nam
         cell_geo_ref = Ferrite.getcells(grid, cellset_[1])
         ip_geo = Ferrite.default_interpolation(typeof(cell_geo_ref))
         pv = Ferrite.PointScalarValues(ip_field, ip_geo)
-        last_vertex_in_fh = _transfer_solution!(data,pv,fh,ip_geo,ip_field,cellset_,val_buffer,val,field_name,field_dim,plotter,u,process) #function barrier for ip_field and thus pointvalues
+        _transfer_solution!(data,pv,fh,ip_geo,ip_field,cellset_,val_buffer,val,field_name,field_dim,plotter,u,process) #function barrier for ip_field and thus pointvalues
     end
     return data
 end
@@ -404,7 +406,6 @@ function _transfer_solution!(data,pv,fh,ip_geo,ip_field,cellset_,val_buffer,val,
             current_vertex_index += 1
         end
     end
-    return current_vertex_index
 end
 
 function transfer_scalar_celldata(plotter::MakiePlotter{dim,DH,T}, u::Vector; process::FUN=FerriteViz.postprocess) where {dim,DH<:Ferrite.AbstractDofHandler,T,FUN<:Function}

@@ -313,50 +313,68 @@ function postprocess(node_values)
     end
 end
 
+function getfieldhandlers(dh::Ferrite.DofHandler,field_name)
+    ip_field = Ferrite.getfieldinterpolation(dh,field_name)
+    return [Ferrite.FieldHandler([Ferrite.Field(:u,ip_field)],Set(1:Ferrite.getncells(dh.grid)))]
+end
+
+function getfieldhandlers(dh::Ferrite.MixedDofHandler,field_name)
+    fhs = Ferrite.FieldHandler[]
+    for fh in dh.fieldhandlers
+        for field in fh.fields
+            if field.name == field_name
+                push!(fhs,fh)
+                break
+            end 
+        end
+    end 
+    return fhs
+end
+
 """
     transfer_solution(plotter::MakiePlotter{dim,DH,T}, u::Vector; field_idx::Int=1, process::Function=FerriteViz.postprocess) where {dim,DH<:Ferrite.AbstractDofHandler,T}
 Transfer the solution of a plotter to the tessellated mesh in `dim`.
 
 @TODO Refactor. This is peak inefficiency.
 """
-function transfer_solution(plotter::MakiePlotter{dim,DH,T}, u::Vector; field_idx=1, process::FUN=FerriteViz.postprocess) where {dim,DH<:Ferrite.AbstractDofHandler,T,FUN}
+function transfer_solution(plotter::MakiePlotter{dim,DH,T}, u::Vector; field_name=:u, process::FUN=FerriteViz.postprocess) where {dim,DH<:Ferrite.AbstractDofHandler,T,FUN}
     # select objects from plotter
     dh = plotter.dh
     grid = dh.grid
 
     # field related variables
-    #field_name = Ferrite.getfieldnames(dh)[field_idx]
-    field_dim = Ferrite.getfielddim(dh, field_idx)
-
-    # interpolation extraction
-    ip_field = Ferrite.getfieldinterpolation(dh,field_idx)
-    cellset_ = collect(dh.fieldhandlers[1].cellset)
-    cell_geo_ref = Ferrite.getcells(grid, cellset_[1])
-    ip_geo = Ferrite.default_interpolation(typeof(cell_geo_ref))
+    field_dim = Ferrite.getfielddim(dh, field_name)
     val_buffer = zeros(T,field_dim)
     val = process(val_buffer)
-
-    return _transfer_solution(ip_geo,ip_field,cellset_,val_buffer,val,field_idx,field_dim,plotter,u,process) #function barrier for ip_field and thus pointvalues
+    _processreturn = length(process(val_buffer))
+    data = fill(0.0, num_vertices(plotter),_processreturn)
+    for fh in getfieldhandlers(dh,field_name)
+        ip_field = Ferrite.getfieldinterpolation(fh,field_name)
+        cellset_ = collect(fh.cellset)
+        cell_geo_ref = Ferrite.getcells(grid, cellset_[1])
+        ip_geo = Ferrite.default_interpolation(typeof(cell_geo_ref))
+        pv = Ferrite.PointScalarValues(ip_field, ip_geo)
+        last_vertex_in_fh = _transfer_solution!(data,pv,fh,ip_geo,ip_field,cellset_,val_buffer,val,field_name,field_dim,plotter,u,process) #function barrier for ip_field and thus pointvalues
+    end
+    return data
 end
 
-function _transfer_solution(ip_geo,ip_field,cellset_,val_buffer,val,field_idx,field_dim,plotter::MakiePlotter{dim,DH,T}, u::Vector, process::FUN) where {dim,DH<:Ferrite.AbstractDofHandler,T,FUN}
+function _transfer_solution!(data,pv,fh,ip_geo,ip_field,cellset_,val_buffer,val,field_name,field_dim,plotter::MakiePlotter{dim,DH,T}, u::Vector, process::FUN) where {dim,DH<:Ferrite.AbstractDofHandler,T,FUN}
     n_vertices_per_tri = 3 # we have 3 vertices per triangle...
     dh = plotter.dh
     ref_coords = plotter.reference_coords
     grid = dh.grid
     # actual data
-    local_dof_range = Ferrite.dof_range(dh, field_idx)
-
-    pv = Ferrite.PointScalarValues(ip_field, ip_geo)
+    local_dof_range = Ferrite.dof_range(fh, field_name)
+    _processreturn = length(process(val_buffer))
 
     current_vertex_index = 1
+
     cell_geo_ref = Ferrite.getcells(grid, cellset_[1])
 
     Ferrite.reinit!(pv, Ferrite.getcoordinates(grid,cellset_[1]), Tensors.Vec{dim}(ref_coords[current_vertex_index,:]))
     n_basefuncs = Ferrite.getnbasefunctions(pv)
-    _processreturn = length(process(val_buffer))
 
-    data = fill(0.0, num_vertices(plotter),_processreturn)
     _local_coords = Ferrite.getcoordinates(grid,cellset_[1])
     _local_celldofs = Ferrite.celldofs(dh,cellset_[1])
     _celldofs_field = reshape(@view(_local_celldofs[local_dof_range]), (field_dim, n_basefuncs))
@@ -367,11 +385,6 @@ function _transfer_solution(ip_geo,ip_field,cellset_,val_buffer,val,field_idx,fi
         if !isvisible || cell_idx ∉ cellset_
             current_vertex_index += ntriangles(cell_geo)*n_vertices_per_tri
             continue
-        end
-        if typeof(cell_geo_ref) != typeof(cell_geo)
-            ip_geo = Ferrite.default_interpolation(typeof(cell_geo))
-            pv = Ferrite.PointScalarValues(ip_field,ip_geo)
-            cell_geo_ref = cell_geo
         end
         Ferrite.getcoordinates!(_local_coords,grid,cell_idx)
         Ferrite.celldofs!(_local_celldofs,dh,cell_idx)
@@ -391,7 +404,7 @@ function _transfer_solution(ip_geo,ip_field,cellset_,val_buffer,val,field_idx,fi
             current_vertex_index += 1
         end
     end
-    return data
+    return current_vertex_index
 end
 
 function transfer_scalar_celldata(plotter::MakiePlotter{dim,DH,T}, u::Vector; process::FUN=FerriteViz.postprocess) where {dim,DH<:Ferrite.AbstractDofHandler,T,FUN<:Function}

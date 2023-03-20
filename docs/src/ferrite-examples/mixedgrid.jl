@@ -58,8 +58,8 @@ cellsets = tocellsets(2,gmsh_eleidx)
 grid = Grid(elements,nodes,facesets=facesets,cellsets=cellsets)
 
 dh = MixedDofHandler(grid)
-push!(dh,FieldHandler([Field(:u,Lagrange{2,RefCube,1}(),1)], getcellset(grid,"quad")))
-#push!(dh,FieldHandler([Field(:u,Lagrange{2,RefTetrahedron,1}(),1)], getcellset(grid,"triangle")))
+push!(dh,FieldHandler([Field(:p,Lagrange{2,RefTetrahedron,1}(),1),Field(:u,Lagrange{2,RefTetrahedron,1}(),2)], getcellset(grid,"triangle")))
+push!(dh,FieldHandler([Field(:u,Lagrange{2,RefCube,1}(),2)], getcellset(grid,"quad")))
 close!(dh)
 
 u = zeros(ndofs(dh))

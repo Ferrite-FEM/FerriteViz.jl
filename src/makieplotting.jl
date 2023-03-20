@@ -43,9 +43,9 @@ function Makie.plot!(SP::SolutionPlot{<:Tuple{<:MakiePlotter}})
     plotter = SP[1][]
     solution = @lift begin
         if $(SP[:field])===:default
-            reshape(transfer_solution(plotter,$(plotter.u); field_idx=1, process=$(SP[:process])), num_vertices(plotter))
+            reshape(transfer_solution(plotter,$(plotter.u); field_name=Ferrite.getfieldnames(plotter.dh)[1], process=$(SP[:process])), num_vertices(plotter))
         else
-            reshape(transfer_solution(plotter,$(plotter.u); field_idx=Ferrite.find_field(plotter.dh,$(SP[:field])), process=$(SP[:process])), num_vertices(plotter))
+            reshape(transfer_solution(plotter,$(plotter.u); field_name=$(SP[:field]), process=$(SP[:process])), num_vertices(plotter))
         end
     end
     u_matrix = @lift begin
@@ -53,7 +53,7 @@ function Makie.plot!(SP::SolutionPlot{<:Tuple{<:MakiePlotter}})
              Ferrite.getdim(plotter.dh.grid) > 2 ? Point3f[Point3f(0,0,0)] : Point2f[Point2f(0,0)]
         else
             #TODO remove convert
-            convert(Vector{Point{Ferrite.getdim(plotter.dh.grid),Float32}},Makie.to_vertices(transfer_solution(plotter,$(plotter.u); field_idx=Ferrite.find_field(plotter.dh,$(SP[:deformation_field])), process=identity)))
+            convert(Vector{Point{Ferrite.getdim(plotter.dh.grid),Float32}},Makie.to_vertices(transfer_solution(plotter,$(plotter.u); field_name=$(SP[:deformation_field]), process=identity)))
         end
     end
     @lift begin

@@ -16,7 +16,7 @@ end
 Solutionplot produces the classical contour plot onto the finite element mesh. Most important
 keyword arguments are:
 
-- `field::Symbol=:default` representing the field which gets plotted, defaults to the first field in the `dh`.
+- `field::Symbol=:u` representing the field which gets plotted, defaults to the first field in the `dh`.
 - `deformation_field::Symbol=:default` field that transforms the mesh by the given deformation, defaults to no deformation
 - `process::Function=postprocess` function to construct nodal scalar values from a vector valued problem
 - `colormap::Symbol=:cividis`
@@ -29,7 +29,7 @@ keyword arguments are:
     Attributes(
     scale_plot=false,
     shading=false,
-    field=:default,
+    field=:u,
     deformation_field=:default,
     process=postprocess,
     colormap=:cividis,
@@ -42,11 +42,7 @@ end
 function Makie.plot!(SP::SolutionPlot{<:Tuple{<:MakiePlotter}})
     plotter = SP[1][]
     solution = @lift begin
-        if $(SP[:field])===:default
-            reshape(transfer_solution(plotter,$(plotter.u); field_name=Ferrite.getfieldnames(plotter.dh)[1], process=$(SP[:process])), num_vertices(plotter))
-        else
-            reshape(transfer_solution(plotter,$(plotter.u); field_name=$(SP[:field]), process=$(SP[:process])), num_vertices(plotter))
-        end
+        reshape(transfer_solution(plotter,$(plotter.u); field_name=Ferrite.getfieldnames(plotter.dh)[1], process=$(SP[:process])), num_vertices(plotter))
     end
     u_matrix = @lift begin
         if $(SP[:deformation_field])===:default
@@ -300,7 +296,7 @@ values are transformed to a scalar based on `process` which defaults to the magn
 """
 @recipe(Surface) do scene
     Attributes(
-    field = :default,
+    field = :u,
     process = postprocess,
     scale_plot = false,
     shading = false,
@@ -337,7 +333,7 @@ the arrows are unicolored. Otherwise the color corresponds to the magnitude, or 
     Attributes(
     arrowsize = Makie.Automatic(),
     normalize = true, #TODO: broken
-    field = :default,
+    field = :u,
     color = :default,
     colormap = :cividis,
     process=postprocess,

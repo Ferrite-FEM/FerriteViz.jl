@@ -327,9 +327,9 @@ function getfieldhandlers(dh::Ferrite.MixedDofHandler,field_name)
             if field.name == field_name
                 push!(fhs,fh)
                 break
-            end 
+            end
         end
-    end 
+    end
     return fhs
 end
 
@@ -514,23 +514,24 @@ function interpolate_gradient_field(dh::Ferrite.DofHandler{spatial_dim}, u::Abst
 end
 
 # maps the dof vector in nodal order, only needed for wireframe nodal deformation (since we display the original nodes)
-function dof_to_node(dh::Ferrite.AbstractDofHandler, u::Vector{T}; field::Int=1) where T
-    fieldnames = Ferrite.getfieldnames(dh)
-    field_dim = Ferrite.getfielddim(dh, field)
+function dof_to_node(dh::Ferrite.AbstractDofHandler, u::Vector{T}; field_name=:u) where T
+    field_dim = Ferrite.getfielddim(dh, field_name)
     data = fill(NaN, Ferrite.getnnodes(dh.grid), field_dim)
-    offset = Ferrite.field_offset(dh, fieldnames[field])
+    fhs = getfieldhandlers(dh,field_name)
 
-    for cell in Ferrite.CellIterator(dh)
-        _celldofs = Ferrite.celldofs(cell)
-        counter = 1
-        for node in cell.nodes
-            for d in 1:field_dim
-                data[node, d] = u[_celldofs[counter + offset]]
-                counter += 1
+    for fh in fhs
+        dof_range_ = Ferrite.dof_range(fh, field_name)
+        for cell in Ferrite.CellIterator(dh,fh.cellset)
+            _celldofs = Ferrite.celldofs(cell)
+            local_celldofs_field = reshape(@view(_celldofs[dof_range_]), (field_dim,length(cell.nodes)))
+            for (local_nodeid,node) in enumerate(cell.nodes)
+                for d in 1:field_dim
+                    data[node, d] = u[local_celldofs_field[d,local_nodeid]]
+                end
             end
         end
     end
-    return data::Matrix{T}
+    return data
 end
 
 """

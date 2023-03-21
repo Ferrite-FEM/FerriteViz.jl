@@ -101,16 +101,16 @@ end
 function Makie.plot!(CP::CellPlot{<:Tuple{<:MakiePlotter{dim},Vector}}) where dim
     plotter = CP[1][]
     qp_values = CP[2][]
-    u_matrix = @lift begin 
+    u_matrix = @lift begin
         if $(CP[:deformation_field])===:default
             Point3f[Point3f(0,0,0)]
         else
-            convert(Vector{Point{Ferrite.getdim(plotter.dh.grid),Float32}},Makie.to_vertices(transfer_solution(plotter,$(plotter.u); field_idx=Ferrite.find_field(plotter.dh,$(CP[:deformation_field])), process=identity)))
+            convert(Vector{Point{Ferrite.getdim(plotter.dh.grid),Float32}},Makie.to_vertices(transfer_solution(plotter,$(plotter.u); field_name=$(CP[:deformation_field]), process=identity)))
         end
     end
     coords = @lift begin
         if $(CP[:deformation_field])===:default
-            plotter.physical_coords_mesh[1:end] = plotter.physical_coords            
+            plotter.physical_coords_mesh[1:end] = plotter.physical_coords
         else
             plotter.physical_coords_mesh[1:end] = plotter.physical_coords .+ ($(CP[:deformation_scale]) .* $(u_matrix))
         end
@@ -172,11 +172,11 @@ function Makie.plot!(WF::Wireframe{<:Tuple{<:MakiePlotter{dim}}}) where dim
     # u_matrix = @lift($(WF[:deformation_field])===:default ? zeros(0,3) : transfer_solution(plotter; field_idx=Ferrite.find_field(plotter.dh,$(WF[:deformation_field])), process=identity))
     # coords = @lift($(WF[:deformation_field])===:default ? plotter.physical_coords : plotter.physical_coords .+ ($(WF[:scale]) .* $(u_matrix)))
     #original representation
-    nodal_u_matrix = @lift begin 
+    nodal_u_matrix = @lift begin
         if $(WF[:deformation_field])===:default
             Point3f[Point3f(0,0,0)]
         else
-            convert(Vector{Point{Ferrite.getdim(plotter.dh.grid),Float32}},Makie.to_vertices(dof_to_node(plotter.dh, $(WF[1][].u); field=Ferrite.find_field(plotter.dh,$(WF[:deformation_field])))))
+            convert(Vector{Point{Ferrite.getdim(plotter.dh.grid),Float32}},Makie.to_vertices(dof_to_node(plotter.dh, $(WF[1][].u); field_name=$(WF[:deformation_field]))))
         end
     end
     gridnodes = @lift begin
@@ -209,16 +209,16 @@ function Makie.plot!(WF::Wireframe{<:Tuple{<:MakiePlotter{dim}}}) where dim
             end
         end
     end
-    u_matrix = @lift begin 
+    u_matrix = @lift begin
         if $(WF[:deformation_field])===:default
             Point3f[Point3f(0,0,0)]
         else
-            Makie.to_vertices(transfer_solution(plotter,$(plotter.u); field_idx=Ferrite.find_field(plotter.dh,$(WF[:deformation_field])), process=identity))
+            convert(Vector{Point{Ferrite.getdim(plotter.dh.grid),Float32}},Makie.to_vertices(transfer_solution(plotter,$(plotter.u); field_name=$(WF[:deformation_field]), process=identity)))
         end
     end
     coords = @lift begin
         if $(WF[:deformation_field])===:default
-            plotter.physical_coords_mesh[1:end] = plotter.physical_coords            
+            plotter.physical_coords_mesh[1:end] = plotter.physical_coords
         else
             plotter.physical_coords_mesh[1:end] = plotter.physical_coords .+ ($(WF[:deformation_scale]) .* $(u_matrix))
         end
@@ -257,7 +257,11 @@ function Makie.plot!(WF::Wireframe{<:Tuple{<:Ferrite.AbstractGrid{dim}}}) where 
     celllabels = @lift $(WF[:celllabels]) ? ["$i" for i in 1:Ferrite.getncells(grid)] : [""]
     cellpositions = @lift $(WF[:celllabels]) ? [midpoint(cell,coords) for cell in Ferrite.getcells(grid)] : (dim < 3 ? [Point2f((0,0))] : [Point3f((0,0,0))])
     #cellsetsplot
-    dh = Ferrite.DofHandler(grid)
+    if isconcretetype(grid.cells)
+        dh = Ferrite.DofHandler(grid)
+    else
+        dh = Ferrite.MixedDofHandler(grid)
+    end
     cellsets = grid.cellsets
     cellset_to_value = Dict{String,Int}()
     for (cellsetidx,(cellsetname,cellset)) in enumerate(cellsets)
@@ -306,8 +310,7 @@ end
 
 function Makie.plot!(SF::Surface{<:Tuple{<:MakiePlotter{2}}})
     plotter = SF[1][]
-    field = @lift($(SF[:field])===:default ? 1 : Ferrite.find_field(plotter.dh,$(SF[:field])))
-    solution = @lift(reshape(transfer_solution(plotter, $(plotter.u); field_idx=$(field), process=$(SF[:process])), num_vertices(plotter)))
+    solution = @lift(reshape(transfer_solution(plotter, $(plotter.u); field_name=$(SF[:field]), process=$(SF[:process])), num_vertices(plotter)))
     coords = @lift begin
         Point3f[Point3f(coord[1], coord[2], $(solution)[idx]) for (idx, coord) in enumerate(plotter.physical_coords)]
     end
@@ -344,9 +347,8 @@ end
 
 function Makie.plot!(AR::Arrows{<:Tuple{<:MakiePlotter{dim}}}) where dim
     plotter = AR[1][]
-    field = @lift($(AR[:field])===:default ? 1 : Ferrite.find_field(plotter.dh,$(AR[:field])))
-    @assert Ferrite.getfielddim(plotter.dh,field[]) > 1
-    solution = @lift(transfer_solution(plotter, $(plotter.u); field_idx=$(field), process=identity))
+    @assert Ferrite.getfielddim(plotter.dh,AR[:field][]) > 1
+    solution = @lift(transfer_solution(plotter, $(plotter.u); field_name=$(AR[:field]), process=identity))
     if dim  == 2
         ns = @lift([Vec2f(i) for i in eachrow($(solution))])
         lengths = @lift($(AR[:color])===:default ? $(AR[:process]).($(ns)) : ones(length($(ns)))*$(AR[:color]))
@@ -433,7 +435,7 @@ function Makie.plot!(Ele::Elementinfo{<:Tuple{<:Ferrite.Interpolation{dim,refsha
         position ./= idx
         position = dim == 2 ? Point2f(position) : Point3f(position)
         Makie.text!(Ele,"$id", position=position, textsize=Ele[:textsize], offset=Ele[:facelabeloffset],color=Ele[:facelabelcolor],visible=Ele[:facelabels],font=Ele[:font])
-    end 
+    end
     if dim == 3
         for (id,edge) in enumerate(edgenodes)
             position = Point3f((elenodes[edge[1],:] + elenodes[refshape==Ferrite.RefCube ? edge[2] : edge[end],:])*0.5)
@@ -441,7 +443,7 @@ function Makie.plot!(Ele::Elementinfo{<:Tuple{<:Ferrite.Interpolation{dim,refsha
             # Boundingbox can't switch currently from pixelspace to "coordinate" space in recipes
             #bb = Makie.boundingbox(t)
             #Makie.wireframe!(Ele,bb,space=:pixel)
-        end 
+        end
     end
     #plot the nodes
     Makie.scatter!(Ele,elenodes,markersize=Ele[:markersize], color=Ele[:color], visible=Ele[:plotnodes])

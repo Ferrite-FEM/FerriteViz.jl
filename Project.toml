@@ -5,14 +5,16 @@ version = "0.2.0"
 
 [deps]
 Ferrite = "c061ca5d-56c9-439f-9c0e-210fe06d3992"
+GLMakie = "e9467ef8-e4e7-5192-8a1a-b1aee30e663a"
 GeometryBasics = "5c1252a2-5f33-56bf-86c9-59e7332b4326"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 Makie = "ee78f7c6-11fb-53f2-987a-cfe4a2b5a57a"
+MakieCore = "20f20a25-4f0e-4fdf-b5d1-57303727442b"
 ShaderAbstractions = "65257c39-d410-5151-9873-9b3e5be5013e"
 Tensors = "48a634ad-e948-5137-8d70-aa71f2a747f4"
 
 [compat]
-Ferrite = "0.3"
+Ferrite = "0.3.13"
 Makie = "0.17,0.18,0.19"
 Tensors = "1"
 julia = "1"

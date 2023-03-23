@@ -12,6 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Modified
  - Removed unnecessary extra dispatches for three-dimensional case ([#56][github-56]).
  - function barrier for `transfer_solution` such that its closer to type groundedness ([#68][github-68]).
+ - `MakiePlotter` holds now `ShaderAbstractions.Buffer`s ([#69][github-69])
+    - triangles are now stored in `Buffer`s with Observables
+    - triangle coords are now `Buffers`s with Observables
+- replace overcomplicated ternary operators by `begin end` expressions ([#69][github-69])
+- remove unused functions ([#69][github-69])
 ### Fixed
  - Renamed `Crincle` to `Crinkle` ([#56][github-56]).
 
@@ -46,6 +51,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [github-65]: https://github.com/Ferrite-FEM/FerriteViz.jl/pull/65
 [github-63]: https://github.com/Ferrite-FEM/FerriteViz.jl/pull/63
 [github-68]: https://github.com/Ferrite-FEM/FerriteViz.jl/pull/68
+[github-69]: https://github.com/Ferrite-FEM/FerriteViz.jl/pull/69
 
 [Unreleased]: https://github.com/Ferrite-FEM/FerriteViz.jl/compare/v0.2.0...HEAD
 [0.2.0]: https://github.com/Ferrite-FEM/FerriteViz.jl/compare/v0.2.0...v0.1.4

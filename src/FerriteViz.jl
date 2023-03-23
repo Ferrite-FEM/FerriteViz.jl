@@ -3,6 +3,8 @@ module FerriteViz
 using Makie
 using Tensors
 import Ferrite
+import GeometryBasics
+import ShaderAbstractions
 import LinearAlgebra
 
 abstract type AbstractPlotter end

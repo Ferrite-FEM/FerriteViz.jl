@@ -13,16 +13,6 @@ function field_offset(dh::Ferrite.DofHandler, field_idx::Int)
     return offset
 end
 
-function facedofs(cell, local_face_idx::Int, field_idx::Int)
-    celldofs_ = Ferrite.celldofs(cell)
-    offset_ = field_offset(cell.dh, field_idx)
-    fip = Ferrite.getfieldinterpolation(cell.dh, field_idx)
-    faces_ = Ferrite.faces(fip)
-    isempty(faces_) && return () # no face dofs :)
-    indices = faces_[local_face_idx] .+ offset_
-    celldofs_[[indices...]]
-end
-
 Ferrite.vertices(cell::Ferrite.Cell{3,3,1}) = cell.nodes
 
 Ferrite.default_interpolation(::Type{Ferrite.Cell{3,3,1}}) = Ferrite.Lagrange{2,Ferrite.RefTetrahedron,1}()
@@ -34,16 +24,19 @@ linear_face_cell(cell::Ferrite.Cell{3,N,6}, local_face_idx::Int) where N = Ferri
 # Obtain the face interpolation on regular geometries.
 getfaceip(ip::Ferrite.Interpolation{dim, shape, order}, local_face_idx::Int) where {dim, shape <: Union{Ferrite.RefTetrahedron, Ferrite.RefCube}, order} = Ferrite.getlowerdim(ip)
 
-struct MakiePlotter{dim,DH<:Ferrite.AbstractDofHandler,T,TOP<:Union{Nothing,Ferrite.AbstractTopology}} <: AbstractPlotter
+struct MakiePlotter{dim,DH<:Ferrite.AbstractDofHandler,T1,TOP<:Union{Nothing,Ferrite.AbstractTopology},T2,M,TRI} <: AbstractPlotter
     dh::DH
-    u::Makie.Observable{Vector{T}} # original solution on the original mesh (i.e. dh.mesh)
+    u::Makie.Observable{Vector{T1}} # original solution on the original mesh (i.e. dh.mesh)
     topology::TOP
     visible::Vector{Bool} #TODO change from per cell to per triangle
-    gridnodes::Matrix{T} # coordinates of grid nodes in matrix form
-    physical_coords::Matrix{T} # coordinates in physical space of a vertex
-    triangles::Matrix{Int} # each row carries a triple with the indices into the coords matrix defining the triangle
+    gridnodes::Vector{GeometryBasics.Point{dim,T2}} # coordinates of grid nodes in matrix form
+    physical_coords::Vector{GeometryBasics.Point{dim,T2}} #original coordinates in physical space of a vertex
+    physical_coords_mesh::ShaderAbstractions.Buffer{GeometryBasics.Point{dim,T2},Vector{GeometryBasics.Point{dim,T2}}} # coordinates in physical space of a vertex
+    all_triangles::Vector{TRI}
+    vis_triangles::ShaderAbstractions.Buffer{TRI,Vector{TRI}}
     triangle_cell_map::Vector{Int}
-    reference_coords::Matrix{T} # coordinates on the associated reference cell for the corresponding triangle vertex
+    reference_coords::Matrix{T1} # coordinates on the associated reference cell for the corresponding triangle vertex
+    mesh::M
 end
 
 """
@@ -76,9 +69,9 @@ function MakiePlotter(dh::Ferrite.AbstractDofHandler, u::Vector, topology::TOP) 
     # Preallocate the matrices carrying the triangulation information
     triangles = Matrix{Int}(undef, num_triangles, 3)
     triangle_cell_map = Vector{Int}(undef, num_triangles)
-    physical_coords = Matrix{Float64}(undef, num_triangles*3, dim)
-    gridnodes = [node[i] for node in Ferrite.getcoordinates.(Ferrite.getnodes(dh.grid)), i in 1:dim]
-    reference_coords = Matrix{Float64}(undef, num_triangles*3, dim) # NOTE this should have the dimension of the actual reference element
+    physical_coords = Vector{GeometryBasics.Point{dim,Float32}}(undef, num_triangles*3)
+    gridnodes = [GeometryBasics.Point{dim,Float32}(node.data) for node in Ferrite.getcoordinates.(Ferrite.getnodes(dh.grid))]
+    reference_coords = Matrix{Float64}(undef, num_triangles*3,dim)
 
     # Decompose does the heavy lifting for us
     coord_offset = 1
@@ -88,13 +81,17 @@ function MakiePlotter(dh::Ferrite.AbstractDofHandler, u::Vector, topology::TOP) 
         (coord_offset, triangle_offset) = decompose!(coord_offset, physical_coords, reference_coords, triangle_offset, triangles, dh.grid, cell)
         triangle_cell_map[triangle_offset_begin:(triangle_offset-1)] .= cell_id
     end
-    return MakiePlotter{dim,typeof(dh),eltype(u),typeof(topology)}(dh,Observable(u),topology,visible,gridnodes,physical_coords,triangles,triangle_cell_map,reference_coords);
+    all_triangles = Makie.to_triangles(triangles)
+    vis_triangles = copy(all_triangles)
+    n_visible = sum(visible[triangle_cell_map])
+    n_notvisible = length(all_triangles) - n_visible
+    vis_triangles[ .! visible[triangle_cell_map]] .= (GeometryBasics.GLTriangleFace(1,1,1) for i in 1:n_notvisible)
+    vis_triangles = ShaderAbstractions.Buffer(Makie.Observable(vis_triangles))
+    physical_coords_m = ShaderAbstractions.Buffer(Makie.Observable(copy(physical_coords)))
+    mesh = GeometryBasics.Mesh(physical_coords_m,vis_triangles)
+    return MakiePlotter{dim,typeof(dh),eltype(u),typeof(topology),Float32,typeof(mesh),eltype(vis_triangles)}(dh,Observable(u),topology,visible,gridnodes,physical_coords,physical_coords_m,all_triangles,vis_triangles,triangle_cell_map,reference_coords,mesh)
 end
 MakiePlotter(dh,u) = MakiePlotter(dh,u,Ferrite.getdim(dh.grid) > 2 ? Ferrite.ExclusiveTopology(dh.grid.cells) : nothing)
-
-# triangle_to_cell -> visible -> triangle access
-visible(plotter::MakiePlotter{3}) = @views plotter.triangles[plotter.visible[plotter.triangle_cell_map],:]
-visible(plotter::MakiePlotter{2}) = plotter.triangles
 
 """
 Clip plane described by the normal and its distance to the coordinate origin.
@@ -140,6 +137,9 @@ function crinkle_clip!(plotter::MakiePlotter{3,DH,T}, decision_fun::DF) where {D
             plotter.visible[cell_id] = false
         end
     end
+    plotter.vis_triangles[plotter.visible[plotter.triangle_cell_map]] = plotter.all_triangles[plotter.visible[plotter.triangle_cell_map]]
+    plotter.vis_triangles[ .! plotter.visible[plotter.triangle_cell_map]] = [GeometryBasics.GLTriangleFace(1,1,1) for i in 1:sum(.! plotter.visible[plotter.triangle_cell_map])]
+    nothing
 end
 
 """
@@ -149,7 +149,21 @@ Non-mutating version of `crinkle_clip!`.
 Note that chained calls to `crinkle_clip` won't work.
 """
 function crinkle_clip(plotter::MakiePlotter{3,DH,T}, decision_fun) where {DH,T}
-    plotter_clipped = MakiePlotter{3,DH,T,typeof(plotter.topology)}(plotter.dh,plotter.u,plotter.topology,copy(plotter.visible),plotter.gridnodes,plotter.physical_coords,plotter.triangles,plotter.triangle_cell_map,plotter.reference_coords);
+    physical_coords_m = ShaderAbstractions.Buffer(Makie.Observable(copy(plotter.physical_coords_mesh)))
+    vis_triangles =  ShaderAbstractions.Buffer(Makie.Observable(copy(plotter.vis_triangles)))
+    plotter_clipped = MakiePlotter{3,DH,T,typeof(plotter.topology),Float32,typeof(plotter.mesh),eltype(plotter.vis_triangles)}(
+         plotter.dh,
+         plotter.u,
+         plotter.topology,
+         plotter.visible,
+         plotter.gridnodes,
+         plotter.physical_coords,
+         physical_coords_m,
+         plotter.all_triangles,
+         vis_triangles,
+         plotter.triangle_cell_map,
+         plotter.reference_coords,
+         GeometryBasics.Mesh(physical_coords_m,vis_triangles))
     crinkle_clip!(plotter_clipped,decision_fun)
     return plotter_clipped
 end
@@ -158,17 +172,6 @@ end
 Total number of vertices
 """
 num_vertices(p::MakiePlotter) = size(p.physical_coords,1)
-
-#Visualization is just fancy triangle plotting, every element needs to be translatable to a triangle *sadnoises*
-to_triangle(cell::Ferrite.AbstractCell{2,N,3}) where N = [Ferrite.vertices(cell)[1:3]]
-to_triangle(cell::Ferrite.AbstractCell{3,N,4}) where N = [Ferrite.vertices(cell)[[1,2,3]], Ferrite.vertices(cell)[[1,2,4]], Ferrite.vertices(cell)[[2,3,4]], Ferrite.vertices(cell)[[1,4,3]]]
-to_triangle(cell::Ferrite.AbstractCell{2,N,4}) where N = [Ferrite.vertices(cell)[[1,2,3]], Ferrite.vertices(cell)[[3,4,1]]]
-to_triangle(cell::Ferrite.AbstractCell{3,N,6}) where N = [Ferrite.vertices(cell)[[1,2,3]], Ferrite.vertices(cell)[[3,4,1]],
-                                                          Ferrite.vertices(cell)[[1,5,6]], Ferrite.vertices(cell)[[6,2,1]],
-                                                          Ferrite.vertices(cell)[[2,6,7]], Ferrite.vertices(cell)[[7,3,2]],
-                                                          Ferrite.vertices(cell)[[3,7,8]], Ferrite.vertices(cell)[[8,4,3]],
-                                                          Ferrite.vertices(cell)[[1,4,8]], Ferrite.vertices(cell)[[8,5,1]],
-                                                          Ferrite.vertices(cell)[[5,8,7]], Ferrite.vertices(cell)[[7,6,5]]]
 
 """
 TODO this looks faulty...think harder.
@@ -194,9 +197,9 @@ Decompose a triangle into a coordinates and a triangle index list to disconnect 
 """
 function decompose!(coord_offset, coord_matrix, ref_coord_matrix, triangle_offset, triangle_matrix, grid, cell::Union{Ferrite.AbstractCell{2,N,3}, Ferrite.AbstractCell{3,3,1}}) where {N}
     for (i,v) in enumerate(vertices(grid, cell))
-        coord_matrix[coord_offset, :] = Ferrite.getcoordinates(v)
-        ref_coord_matrix[coord_offset, 1:2] = Ferrite.reference_coordinates(Ferrite.default_interpolation(typeof(cell)))[i]
-        triangle_matrix[triangle_offset, i] = coord_offset
+        coord_matrix[coord_offset] = GeometryBasics.Point(Ferrite.getcoordinates(v)...)
+        ref_coord_matrix[coord_offset,1:2] = Ferrite.reference_coordinates(Ferrite.default_interpolation(typeof(cell)))[i]
+        triangle_matrix[triangle_offset,i] = coord_offset
         coord_offset+=1
     end
     triangle_offset+=1
@@ -220,15 +223,14 @@ and creates the decomposition
 1-------2
 where A=(1,2,5),B=(2,3,5),C=(3,4,5),D=(4,1,5) are the generated triangles in this order.
 """
-function decompose!(coord_offset, coord_matrix, ref_coord_matrix, triangle_offset, triangle_matrix, grid, cell::Union{Ferrite.AbstractCell{2,N,4}, Ferrite.AbstractCell{3,4,1}}) where {N}
+function decompose!(coord_offset, coord_matrix::Vector{Point{space_dim,T}}, ref_coord_matrix, triangle_offset, triangle_matrix, grid, cell::Union{Ferrite.AbstractCell{2,N,4}, Ferrite.AbstractCell{3,4,1}}) where {N,space_dim,T}
     # A bit more complicated. The default diagonal decomposition into 2 triangles is missing a solution mode.
     # To resolve this we make a more expensive decomposition in 4 triangles which correctly displays the solution mode (in linear problems).
     coord_offset_initial = coord_offset
     vts = vertices(grid, cell)
-    space_dim = size(coord_matrix,2)
 
     # Compute coordinate of vertex 5
-    center = [ntuple(x->0.0, space_dim)...]
+    center = zeros(space_dim)
     for v in vts
         center += Ferrite.getcoordinates(v)
     end
@@ -245,18 +247,18 @@ function decompose!(coord_offset, coord_matrix, ref_coord_matrix, triangle_offse
         v2 = vts[i2]
 
         # current vertex
-        coord_matrix[coord_offset, :] = Ferrite.getcoordinates(v1)
+        coord_matrix[coord_offset] = GeometryBasics.Point(Ferrite.getcoordinates(v1)...)
         ref_coord_matrix[coord_offset, 1:2] = Ferrite.reference_coordinates(Ferrite.default_interpolation(typeof(cell)))[i]
         coord_offset+=1
 
         # next vertex in chain
-        coord_matrix[coord_offset, :] = Ferrite.getcoordinates(v2)
+        coord_matrix[coord_offset] = GeometryBasics.Point(Ferrite.getcoordinates(v2)...)
         ref_coord_matrix[coord_offset, 1:2] = Ferrite.reference_coordinates(Ferrite.default_interpolation(typeof(cell)))[i2]
         coord_offset+=1
 
         # center vertex (5)
-        coord_matrix[coord_offset, :] = center
-        ref_coord_matrix[coord_offset, 1:2] = [ntuple(x->0.0, 2)...]
+        coord_matrix[coord_offset] = GeometryBasics.Point(center...)
+        ref_coord_matrix[coord_offset, 1:2] .= ntuple(x->0.0, 2)
         coord_offset+=1
 
         # collect indices
@@ -292,10 +294,10 @@ x₃(x) = x[3]
 l2(x) = LinearAlgebra.norm(x,2)
 l1(x) = LinearAlgebra.norm(x,1)
 
-midpoint(cell::Ferrite.AbstractCell{2,N,3}, points) where N = Point2f((1/3) * (points[cell.nodes[1],:] + points[cell.nodes[2],:] + points[cell.nodes[3],:]))
-midpoint(cell::Ferrite.AbstractCell{2,N,4}, points) where N = Point2f(0.5 * (points[cell.nodes[1],:] + points[cell.nodes[3],:]))
-midpoint(cell::Ferrite.AbstractCell{3,N,4}, points) where N = Point3f((1/4) * (points[cell.nodes[1],:] + points[cell.nodes[2],:] + points[cell.nodes[3],:] + points[cell.nodes[4],:]))
-midpoint(cell::Ferrite.AbstractCell{3,N,6}, points) where N = Point3f(0.5 * (points[cell.nodes[1],:] + points[cell.nodes[7],:]))
+midpoint(cell::Ferrite.AbstractCell{2,N,3}, points) where N = Point2f((1/3) * (points[cell.nodes[1]] + points[cell.nodes[2]] + points[cell.nodes[3]]))
+midpoint(cell::Ferrite.AbstractCell{2,N,4}, points) where N = Point2f(0.5 * (points[cell.nodes[1]] + points[cell.nodes[3]]))
+midpoint(cell::Ferrite.AbstractCell{3,N,4}, points) where N = Point3f((1/4) * (points[cell.nodes[1]] + points[cell.nodes[2]] + points[cell.nodes[3]] + points[cell.nodes[4]]))
+midpoint(cell::Ferrite.AbstractCell{3,N,6}, points) where N = Point3f(0.5 * (points[cell.nodes[1]] + points[cell.nodes[7]]))
 
 """
     postprocess(node_values::Vector{T}) -> T
@@ -355,7 +357,7 @@ function _transfer_solution(ip_geo,ip_field,val_buffer,val,field_name,field_dim,
     data = fill(0.0, num_vertices(plotter),_processreturn)
     _local_coords = Ferrite.getcoordinates(grid,1)
     _local_celldofs = Ferrite.celldofs(dh,1)
-    _celldofs_field = reshape(_local_celldofs[local_dof_range], (field_dim, n_basefuncs))
+    _celldofs_field = reshape(@view(_local_celldofs[local_dof_range]), (field_dim, n_basefuncs))
     _local_ref_coords = Tensors.Vec{dim}(ref_coords[1,:])
 
     for (isvisible,(cell_idx,cell_geo)) in zip(plotter.visible,enumerate(Ferrite.getcells(dh.grid)))
@@ -378,7 +380,7 @@ function _transfer_solution(ip_geo,ip_field,val_buffer,val,field_name,field_dim,
             _local_ref_coords = Tensors.Vec{dim}(@view(ref_coords[current_vertex_index,:]))
             Ferrite.reinit!(pv, _local_coords, _local_ref_coords)
             for d in 1:field_dim
-                val_buffer[d] = Ferrite.function_value(pv, 1, @view(u[_celldofs_field[d,:]]))
+                val_buffer[d] = Ferrite.function_value(pv, 1, @views(u[_celldofs_field[d,:]]))
             end
             val = process(val_buffer)
             for d in 1:_processreturn

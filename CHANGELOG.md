@@ -13,9 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  - Removed unnecessary extra dispatches for three-dimensional case ([#56][github-56]).
  - function barrier for `transfer_solution` such that its closer to type groundedness ([#68][github-68]).
  - `MakiePlotter` holds now `ShaderAbstractions.Buffer`s ([#69][github-69])
-    - triangles are now `Buffer`s with Observables
+    - triangles are now stored in `Buffer`s with Observables
     - triangle coords are now `Buffers`s with Observables
-- remove overcomplicated ternary operators by `begin end` expressions ([#69][github-69])
+- replace overcomplicated ternary operators by `begin end` expressions ([#69][github-69])
 - remove unused functions ([#69][github-69])
 ### Fixed
  - Renamed `Crincle` to `Crinkle` ([#56][github-56]).

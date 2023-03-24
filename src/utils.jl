@@ -20,9 +20,7 @@ Ferrite.default_interpolation(::Type{Ferrite.Cell{3,3,1}}) = Ferrite.Lagrange{2,
 # Note: This extracts the face spanned by the vertices, not the actual face!
 linear_face_cell(cell::Ferrite.Cell{3,N,4}, local_face_idx::Int) where N =  Ferrite.Cell{3,3,1}(Ferrite.faces(cell)[local_face_idx])
 linear_face_cell(cell::Ferrite.Cell{3,N,6}, local_face_idx::Int) where N = Ferrite.Quadrilateral3D(Ferrite.faces(cell)[local_face_idx])
-
-# Obtain the face interpolation on regular geometries.
-getfaceip(ip::Ferrite.Interpolation{dim, shape, order}, local_face_idx::Int) where {dim, shape <: Union{Ferrite.RefTetrahedron, Ferrite.RefCube}, order} = Ferrite.getlowerdim(ip)
+linear_face_cell(cell::Ferrite.Cell{3,N,5}, local_face_idx::Int) where N = local_face_idx in 2:4 ? Ferrite.Quadrilateral3D(Ferrite.faces(cell)[local_face_idx]) : Ferrite.Cell{3,3,1}(Ferrite.faces(cell)[local_face_idx])
 
 struct MakiePlotter{dim,DH<:Ferrite.AbstractDofHandler,T1,TOP<:Union{Nothing,Ferrite.AbstractTopology},T2,M,TRI} <: AbstractPlotter
     dh::DH
@@ -182,6 +180,7 @@ ntriangles(cell::Ferrite.AbstractCell{3,3,1}) = 1 # Tris in 3D
 ntriangles(cell::Ferrite.AbstractCell{dim,N,4}) where {dim,N} = 4 # Quads in 2D and 3D
 ntriangles(cell::Ferrite.AbstractCell{3,N,1}) where N = 4 # Tets as a special case of a Quad, obviously :)
 ntriangles(cell::Ferrite.AbstractCell{3,N,6}) where N = 6*4 # Hex
+ntriangles(cell::Ferrite.AbstractCell{3,N,5}) where {N} = 1+4+4+4+1
 
 """
 Get the vertices represented as a list of coordinates of a cell.

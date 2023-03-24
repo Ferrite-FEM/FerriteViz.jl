@@ -14,6 +14,7 @@ Tensors = "48a634ad-e948-5137-8d70-aa71f2a747f4"
 [compat]
 Ferrite = "0.3"
 Makie = "0.17,0.18,0.19"
+ShaderAbstractions = "0.3"
 Tensors = "1"
 julia = "1"
 

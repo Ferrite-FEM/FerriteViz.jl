@@ -272,7 +272,7 @@ end
 Decompose volumetric objects via their faces.
 """
 function decompose!(coord_offset, coord_matrix, ref_coord_matrix, triangle_offset, triangle_matrix, grid, cell::Ferrite.AbstractCell{3,N,M}) where {N,M}
-    # Just 6 quadrilaterals :)
+    # Default decomposition just decomposes each face individually
     for face_index ∈ 1:M
         face_coord_offset = coord_offset
         (coord_offset, triangle_offset) = decompose!(coord_offset, coord_matrix, ref_coord_matrix, triangle_offset, triangle_matrix, grid, linear_face_cell(cell, face_index))
@@ -441,8 +441,7 @@ Compute the piecewise discontinuous gradient field for `field_name`. Returns the
 """
 function interpolate_gradient_field(dh::Ferrite.DofHandler{spatial_dim}, u::AbstractVector, field_name::Symbol) where {spatial_dim}
     # Get some helpers
-    field_idx = Ferrite.find_field(dh, field_name)
-    ip = Ferrite.getfieldinterpolation(dh, field_idx)
+    ip = Ferrite.getfieldinterpolation(dh, field_name)
 
     # Create dof handler for gradient field
     dh_gradient = Ferrite.DofHandler(getgrid(dh))
@@ -499,7 +498,7 @@ end
 # maps the dof vector in nodal order, only needed for wireframe nodal deformation (since we display the original nodes)
 function dof_to_node(dh::Ferrite.AbstractDofHandler, u::Vector{T}; field::Int=1) where T
     fieldnames = Ferrite.getfieldnames(dh)
-    field_dim = Ferrite.getfielddim(dh, field)
+    field_dim = Ferrite.getfielddim(dh, fieldnames[field])
     data = fill(NaN, Ferrite.getnnodes(dh.grid), field_dim)
     offset = Ferrite.field_offset(dh, fieldnames[field])
 
@@ -525,6 +524,19 @@ function transfer_quadrature_face_to_cell(point::AbstractVector, cell::Ferrite.A
     face == 2 && return [ y,  0,  1-x-y]
     face == 3 && return [ x,  y,  1-x-y]
     face == 4 && return [ 0,  1-x-y,  y]
+end
+
+"""
+Mapping from 2D quadrilateral/triangle to 3D face of a wedge.
+"""
+function transfer_quadrature_face_to_cell(point::AbstractVector, cell::Ferrite.AbstractCell{3,N,5}, face::Int) where {N}
+    # Note that for quadrilaterals the domain is [-1, 1]² but for triangles it is [0, 1]²
+    x,y = point
+    face == 1 && return [    1-x-y,         y,       0]
+    face == 2 && return [  (1+x)/2,         0, (1+y)/2]
+    face == 3 && return [        0, 1-(1+x)/2, (1+y)/2]
+    face == 4 && return [1-(1+x)/2,   (1+x)/2, (1+y)/2]
+    face == 5 && return [        y,     1-x-y,       1]
 end
 
 """

@@ -42,7 +42,7 @@ end
 function Makie.plot!(SP::SolutionPlot{<:Tuple{<:MakiePlotter}})
     plotter = SP[1][]
     solution = @lift begin
-        reshape(transfer_solution(plotter,$(plotter.u); field_name=Ferrite.getfieldnames(plotter.dh)[1], process=$(SP[:process])), num_vertices(plotter))
+        reshape(transfer_solution(plotter,$(plotter.u); field_name=$(SP[:field]), process=$(SP[:process])), num_vertices(plotter))
     end
     u_matrix = @lift begin
         if $(SP[:deformation_field])===:default

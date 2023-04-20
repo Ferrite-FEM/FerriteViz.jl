@@ -13,13 +13,41 @@ function field_offset(dh::Ferrite.DofHandler, field_idx::Int)
     return offset
 end
 
-Ferrite.vertices(cell::Ferrite.Cell{3,3,1}) = cell.nodes
+# https://github.com/Ferrite-FEM/Ferrite.jl/pull/679
+if isdefined(Ferrite, :RefLine)
+    const VizTriangle      = Ferrite.Triangle
+    const VizQuadrilateral = Ferrite.Quadrilateral
 
-Ferrite.default_interpolation(::Type{Ferrite.Cell{3,3,1}}) = Ferrite.Lagrange{2,Ferrite.RefTetrahedron,1}()
+    const TriangleBasedCells = Ferrite.AbstractCell{2, Ferrite.RefTriangle}
+    const QuadrilateralBasedCells = Ferrite.AbstractCell{2, Ferrite.RefQuadrilateral}
+    const TetrahedronBasedCells = Ferrite.AbstractCell{3, Ferrite.RefTetrahedron}
+    const HexahedronBasedCells  = Ferrite.AbstractCell{3, Ferrite.RefHexahedron}
+
+    refshape(cell::Ferrite.AbstractCell{<:Any,refshape}) where refshape = refshape
+
+    const QuadraticHexahedron = Ferrite.QuadraticHexahedron
+else
+    const VizTriangle = Ferrite.Cell{3,3,1}
+    const VizQuadrilateral = Ferrite.Quadrilateral3D
+
+    const TriangleBasedCells = Union{Ferrite.AbstractCell{2,3,3}, Ferrite.AbstractCell{3,3,1}}
+    const QuadrilateralBasedCells = Ferrite.AbstractCell{<:Any, <:Any, 4}
+    const TetrahedronBasedCells = Ferrite.Cell{3, <:Any, 4}
+    const HexahedronBasedCells  = Ferrite.Cell{3, <:Any, 6}
+
+    Ferrite.vertices(cell::VizTriangle) = cell.nodes
+    # Ferrite.default_interpolation(::Type{VizTriangle}) = Ferrite.Lagrange{2, Ferrite.RefTetrahedron,1}()
+    Ferrite.default_interpolation(::VizTriangle) = Ferrite.Lagrange{2,Ferrite.RefTetrahedron,1}()
+
+    refshape(cell::Ferrite.AbstractCell) = typeof(Ferrite.default_interpolation(typeof(cell))).parameters[2]
+
+    const QuadraticHexahedron = Ferrite.Cell{3,27,6}
+end
+
 
 # Note: This extracts the face spanned by the vertices, not the actual face!
-linear_face_cell(cell::Ferrite.Cell{3,N,4}, local_face_idx::Int) where N =  Ferrite.Cell{3,3,1}(Ferrite.faces(cell)[local_face_idx])
-linear_face_cell(cell::Ferrite.Cell{3,N,6}, local_face_idx::Int) where N = Ferrite.Quadrilateral3D(Ferrite.faces(cell)[local_face_idx])
+linear_face_cell(cell::TetrahedronBasedCells, local_face_idx::Int) = VizTriangle(Ferrite.faces(cell)[local_face_idx])
+linear_face_cell(cell::HexahedronBasedCells, local_face_idx::Int)  = VizQuadrilateral(Ferrite.faces(cell)[local_face_idx])
 
 # Obtain the face interpolation on regular geometries.
 getfaceip(ip::Ferrite.Interpolation{dim, shape, order}, local_face_idx::Int) where {dim, shape <: Union{Ferrite.RefTetrahedron, Ferrite.RefCube}, order} = Ferrite.getlowerdim(ip)
@@ -177,25 +205,24 @@ num_vertices(p::MakiePlotter) = size(p.physical_coords,1)
 TODO this looks faulty...think harder.
 """
 # Helper to count triangles e.g. for preallocations.
-ntriangles(cell::Ferrite.AbstractCell{2,3,3}) = 1 # Tris in 2D
-ntriangles(cell::Ferrite.AbstractCell{3,3,1}) = 1 # Tris in 3D
-ntriangles(cell::Ferrite.AbstractCell{dim,N,4}) where {dim,N} = 4 # Quads in 2D and 3D
-ntriangles(cell::Ferrite.AbstractCell{3,N,1}) where N = 4 # Tets as a special case of a Quad, obviously :)
-ntriangles(cell::Ferrite.AbstractCell{3,N,6}) where N = 6*4 # Hex
+ntriangles(cell::TriangleBasedCells)      = 1 # Tris in 2D and 3D
+ntriangles(cell::QuadrilateralBasedCells) = 4 # Quads in 2D and 3D
+# ntriangles(cell::Ferrite.AbstractCell{3,N,1}) where N = 4 # Tets as a special case of a Quad, obviously :)
+ntriangles(cell::HexahedronBasedCells)    = 6*4 # Hex
 
 """
 Get the vertices represented as a list of coordinates of a cell.
 
 @TODO refactor into Ferrite core.
 """
-function vertices(grid::Ferrite.AbstractGrid, cell::Ferrite.AbstractCell{dim,N,M}) where {dim,N,M}
+function vertices(grid::Ferrite.AbstractGrid, cell::Ferrite.AbstractCell)
     Ferrite.getnodes(grid)[[Ferrite.vertices(cell)...]]
 end
 
 """
 Decompose a triangle into a coordinates and a triangle index list to disconnect it properly. Guarantees to preserve orderings and orientations.
 """
-function decompose!(coord_offset, coord_matrix, ref_coord_matrix, triangle_offset, triangle_matrix, grid, cell::Union{Ferrite.AbstractCell{2,N,3}, Ferrite.AbstractCell{3,3,1}}) where {N}
+function decompose!(coord_offset, coord_matrix, ref_coord_matrix, triangle_offset, triangle_matrix, grid, cell::TriangleBasedCells)
     for (i,v) in enumerate(vertices(grid, cell))
         coord_matrix[coord_offset] = GeometryBasics.Point(Ferrite.getcoordinates(v)...)
         ref_coord_matrix[coord_offset,1:2] = Ferrite.reference_coordinates(Ferrite.default_interpolation(typeof(cell)))[i]
@@ -223,7 +250,7 @@ and creates the decomposition
 1-------2
 where A=(1,2,5),B=(2,3,5),C=(3,4,5),D=(4,1,5) are the generated triangles in this order.
 """
-function decompose!(coord_offset, coord_matrix::Vector{Point{space_dim,T}}, ref_coord_matrix, triangle_offset, triangle_matrix, grid, cell::Union{Ferrite.AbstractCell{2,N,4}, Ferrite.AbstractCell{3,4,1}}) where {N,space_dim,T}
+function decompose!(coord_offset, coord_matrix::Vector{Point{space_dim,T}}, ref_coord_matrix, triangle_offset, triangle_matrix, grid, cell::QuadrilateralBasedCells) where {space_dim,T}
     # A bit more complicated. The default diagonal decomposition into 2 triangles is missing a solution mode.
     # To resolve this we make a more expensive decomposition in 4 triangles which correctly displays the solution mode (in linear problems).
     coord_offset_initial = coord_offset
@@ -272,9 +299,9 @@ end
 """
 Decompose volumetric objects via their faces.
 """
-function decompose!(coord_offset, coord_matrix, ref_coord_matrix, triangle_offset, triangle_matrix, grid, cell::Ferrite.AbstractCell{3,N,M}) where {N,M}
+function decompose!(coord_offset, coord_matrix, ref_coord_matrix, triangle_offset, triangle_matrix, grid, cell::Ferrite.AbstractCell{3})
     # Just 6 quadrilaterals :)
-    for face_index ∈ 1:M
+    for face_index ∈ 1:Ferrite.nfaces(cell)
         face_coord_offset = coord_offset
         (coord_offset, triangle_offset) = decompose!(coord_offset, coord_matrix, ref_coord_matrix, triangle_offset, triangle_matrix, grid, linear_face_cell(cell, face_index))
         for ci ∈ face_coord_offset:(coord_offset-1)
@@ -286,7 +313,6 @@ function decompose!(coord_offset, coord_matrix, ref_coord_matrix, triangle_offse
 end
 
 
-refshape(cell::Ferrite.AbstractCell) = typeof(Ferrite.default_interpolation(typeof(cell))).parameters[2]
 
 x₁(x) = x[1]
 x₂(x) = x[2]
@@ -294,10 +320,10 @@ x₃(x) = x[3]
 l2(x) = LinearAlgebra.norm(x,2)
 l1(x) = LinearAlgebra.norm(x,1)
 
-midpoint(cell::Ferrite.AbstractCell{2,N,3}, points) where N = Point2f((1/3) * (points[cell.nodes[1]] + points[cell.nodes[2]] + points[cell.nodes[3]]))
-midpoint(cell::Ferrite.AbstractCell{2,N,4}, points) where N = Point2f(0.5 * (points[cell.nodes[1]] + points[cell.nodes[3]]))
-midpoint(cell::Ferrite.AbstractCell{3,N,4}, points) where N = Point3f((1/4) * (points[cell.nodes[1]] + points[cell.nodes[2]] + points[cell.nodes[3]] + points[cell.nodes[4]]))
-midpoint(cell::Ferrite.AbstractCell{3,N,6}, points) where N = Point3f(0.5 * (points[cell.nodes[1]] + points[cell.nodes[7]]))
+midpoint(cell::TriangleBasedCells, points)      = Point2f((1/3) * (points[cell.nodes[1]] + points[cell.nodes[2]] + points[cell.nodes[3]]))
+midpoint(cell::QuadrilateralBasedCells, points) = Point2f(0.5 * (points[cell.nodes[1]] + points[cell.nodes[3]]))
+midpoint(cell::TetrahedronBasedCells, points)   = Point3f((1/4) * (points[cell.nodes[1]] + points[cell.nodes[2]] + points[cell.nodes[3]] + points[cell.nodes[4]]))
+midpoint(cell::HexahedronBasedCells, points)    = Point3f(0.5 * (points[cell.nodes[1]] + points[cell.nodes[7]]))
 
 """
     postprocess(node_values::Vector{T}) -> T
@@ -520,7 +546,7 @@ end
 """
 Mapping from 2D triangle to 3D face of a tetrahedon.
 """
-function transfer_quadrature_face_to_cell(point::AbstractVector, cell::Ferrite.AbstractCell{3,N,4}, face::Int) where {N}
+function transfer_quadrature_face_to_cell(point::AbstractVector, cell::TetrahedronBasedCells, face::Int)
     x,y = point
     face == 1 && return [ 1-x-y,  y,  0]
     face == 2 && return [ y,  0,  1-x-y]
@@ -531,7 +557,7 @@ end
 """
 Mapping from 2D quadrilateral to 3D face of a hexahedron.
 """
-function transfer_quadrature_face_to_cell(point::AbstractVector, cell::Ferrite.AbstractCell{3,N,6}, face::Int) where {N}
+function transfer_quadrature_face_to_cell(point::AbstractVector, cell::HexahedronBasedCells, face::Int)
     x,y = point
     face == 1 && return [ y,  x, -1]
     face == 2 && return [ x, -1,  y]

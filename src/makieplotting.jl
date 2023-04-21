@@ -29,7 +29,7 @@ keyword arguments are:
     Attributes(
     scale_plot=false,
     shading=false,
-    field=:u,
+    field=:default,
     deformation_field=:default,
     process=postprocess,
     colormap=:cividis,
@@ -42,7 +42,12 @@ end
 function Makie.plot!(SP::SolutionPlot{<:Tuple{<:MakiePlotter}})
     plotter = SP[1][]
     solution = @lift begin
-        reshape(transfer_solution(plotter,$(plotter.u); field_name=$(SP[:field]), process=$(SP[:process])), num_vertices(plotter))
+        if $(SP[:field]) == :default
+            field_name = Ferrite.getfieldnames(plotter.dh)[1]
+            reshape(transfer_solution(plotter,$(plotter.u); field_name=field_name, process=$(SP[:process])), num_vertices(plotter))
+        else
+            reshape(transfer_solution(plotter,$(plotter.u); field_name=$(SP[:field]), process=$(SP[:process])), num_vertices(plotter))
+        end
     end
     u_matrix = @lift begin
         if $(SP[:deformation_field])===:default

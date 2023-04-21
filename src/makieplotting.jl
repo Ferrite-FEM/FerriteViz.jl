@@ -162,6 +162,7 @@ Plots the finite element mesh, optionally labels it and transforms it if a suita
     celllabels=false,
     celllabelcolor=:darkred,
     cellsets=false,
+    depth_shift=-0.0001f0
     )
 end
 
@@ -235,10 +236,10 @@ function Makie.plot!(WF::Wireframe{<:Tuple{<:MakiePlotter{dim}}}) where dim
     #set up celllabels
     celllabels = @lift $(WF[:celllabels]) ? ["$i" for i in 1:Ferrite.getncells(plotter.dh.grid)] : [""]
     cellpositions = @lift $(WF[:celllabels]) ? [midpoint(cell,$gridnodes) for cell in Ferrite.getcells(plotter.dh.grid)] : (dim < 3 ? [Point2f((0,0))] : [Point3f((0,0,0))])
-    Makie.text!(WF,nodepositions, text=nodelabels, fontsize=WF[:textsize], offset=WF[:offset],color=WF[:nodelabelcolor])
+    Makie.text!(WF,nodepositions, text=nodelabels, textsize=WF[:textsize], offset=WF[:offset],color=WF[:nodelabelcolor])
     Makie.text!(WF,celllabels, position=cellpositions, textsize=WF[:textsize], color=WF[:celllabelcolor], align=(:center,:center))
     #plot edges (3D) /faces (2D) of the mesh
-    Makie.linesegments!(WF,lines,color=WF[:color], linewidth=WF[:strokewidth], visible=WF[:visible])
+    Makie.linesegments!(WF,lines,color=WF[:color], linewidth=WF[:strokewidth], visible=WF[:visible], depth_shift=WF[:depth_shift])
 end
 
 

@@ -16,7 +16,7 @@ end
 Solutionplot produces the classical contour plot onto the finite element mesh. Most important
 keyword arguments are:
 
-- `field::Symbol=:u` representing the field which gets plotted, defaults to the first field in the `dh`.
+- `field::Symbol=:default` representing the field which gets plotted, defaults to the first field in the `dh`.
 - `deformation_field::Symbol=:default` field that transforms the mesh by the given deformation, defaults to no deformation
 - `process::Function=postprocess` function to construct nodal scalar values from a vector valued problem
 - `colormap::Symbol=:cividis`
@@ -302,7 +302,7 @@ values are transformed to a scalar based on `process` which defaults to the magn
 """
 @recipe(Surface) do scene
     Attributes(
-    field = :u,
+    field = :default,
     process = postprocess,
     scale_plot = false,
     shading = false,
@@ -312,7 +312,14 @@ end
 
 function Makie.plot!(SF::Surface{<:Tuple{<:MakiePlotter{2}}})
     plotter = SF[1][]
-    solution = @lift(reshape(transfer_solution(plotter, $(plotter.u); field_name=$(SF[:field]), process=$(SF[:process])), num_vertices(plotter)))
+    solution = @lift begin
+        if $(SF[:field]) == :default
+            field_name = Ferrite.getfieldnames(plotter.dh)[1]
+            reshape(transfer_solution(plotter,$(plotter.u); field_name=field_name, process=$(SF[:process])), num_vertices(plotter))
+        else
+            reshape(transfer_solution(plotter,$(plotter.u); field_name=$(SF[:field]), process=$(SF[:process])), num_vertices(plotter))
+        end
+    end
     coords = @lift begin
         Point3f[Point3f(coord[1], coord[2], $(solution)[idx]) for (idx, coord) in enumerate(plotter.physical_coords)]
     end
@@ -339,7 +346,7 @@ the arrows are unicolored. Otherwise the color corresponds to the magnitude, or 
     Attributes(
     arrowsize = Makie.Automatic(),
     normalize = true, #TODO: broken
-    field = :u,
+    field = :default,
     color = :default,
     colormap = :cividis,
     process=postprocess,
@@ -349,8 +356,16 @@ end
 
 function Makie.plot!(AR::Arrows{<:Tuple{<:MakiePlotter{dim}}}) where dim
     plotter = AR[1][]
-    @assert Ferrite.getfielddim(plotter.dh,AR[:field][]) > 1
-    solution = @lift(transfer_solution(plotter, $(plotter.u); field_name=$(AR[:field]), process=identity))
+    solution = @lift begin
+        if $(AR[:field]) === :default
+            field_name = Ferrite.getfieldnames(plotter.dh)[1]
+            @assert Ferrite.getfielddim(plotter.dh,field_name) > 1
+            transfer_solution(plotter,$(plotter.u); field_name=field_name, process=identity)
+        else
+            @assert Ferrite.getfielddim(plotter.dh,$(AR[:field])) > 1
+            transfer_solution(plotter,$(plotter.u); field_name=$(AR[:field]), process=identity)
+        end
+    end
     if dim  == 2
         ns = @lift([Vec2f(i) for i in eachrow($(solution))])
         lengths = @lift($(AR[:color])===:default ? $(AR[:process]).($(ns)) : ones(length($(ns)))*$(AR[:color]))

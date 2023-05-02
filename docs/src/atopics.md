@@ -2,7 +2,7 @@
 
 ```@example 1
 import JSServe # hide
-JSServe.Page(exportable=true, offline=true) # hide
+JSServe.Page() # hide
 ```
 
 ## Gradient field visualization

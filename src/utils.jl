@@ -177,8 +177,8 @@ num_vertices(p::MakiePlotter) = size(p.physical_coords,1)
 TODO this looks faulty...think harder.
 """
 # Helper to count triangles e.g. for preallocations.
-ntriangles(cell::Ferrite.AbstractCell{2,3,3}) = 1 # Tris in 2D
-ntriangles(cell::Ferrite.AbstractCell{3,3,1}) = 1 # Tris in 3D
+ntriangles(cell::Ferrite.AbstractCell{2,N,3}) where {N} = 1 # Tris in 2D
+ntriangles(cell::Ferrite.AbstractCell{3,N,1}) where {N} = 1 # Tris in 3D
 ntriangles(cell::Ferrite.AbstractCell{dim,N,4}) where {dim,N} = 4 # Quads in 2D and 3D
 ntriangles(cell::Ferrite.AbstractCell{3,N,1}) where N = 4 # Tets as a special case of a Quad, obviously :)
 ntriangles(cell::Ferrite.AbstractCell{3,N,6}) where N = 6*4 # Hex

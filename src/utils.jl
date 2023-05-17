@@ -436,11 +436,13 @@ This is a helper to access the correct value in Tensors.jl entities, because the
 @inline _tensorsjl_gradient_accessor(m::Tensors.Tensor{2,dim}, field_dim_idx::Int, spatial_dim_idx::Int) where {dim} = m[field_dim_idx, spatial_dim_idx]
 
 """
-    interpolate_gradient_field(dh::DofHandler, u::AbstractVector, field_name::Symbol)
+    interpolate_gradient_field(dh::DofHandler, u::AbstractVector, field_name::Symbol; copy_fields::Vector{Symbol})
 
 Compute the piecewise discontinuous gradient field for `field_name`. Returns the flux dof handler and the corresponding flux dof values.
+If the additional keyword argument `copy_fields` is provided with a non empty `Vector{Symbol}` the corresponding fields of `dh` will be
+copied into the returned flux dof handler and flux dof value vector.
 """
-function interpolate_gradient_field(dh::Ferrite.DofHandler{spatial_dim}, u::AbstractVector, field_name::Symbol; copy_fields=Symbol[]) where {spatial_dim}
+function interpolate_gradient_field(dh::Ferrite.DofHandler{spatial_dim}, u::AbstractVector, field_name::Symbol; copy_fields::Vector{Symbol}=Symbol[]) where {spatial_dim}
     # Get some helpers
     field_idx = Ferrite.find_field(dh, field_name)
     ip = Ferrite.getfieldinterpolation(dh, field_idx)

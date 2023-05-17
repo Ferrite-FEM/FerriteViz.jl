@@ -439,7 +439,7 @@ This is a helper to access the correct value in Tensors.jl entities, because the
     interpolate_gradient_field(dh::DofHandler, u::AbstractVector, field_name::Symbol; copy_fields::Vector{Symbol})
 
 Compute the piecewise discontinuous gradient field for `field_name`. Returns the flux dof handler and the corresponding flux dof values.
-If the additional keyword argument `copy_fields` is provided with a non empty `Vector{Symbol}` the corresponding fields of `dh` will be
+If the additional keyword argument `copy_fields` is provided with a non empty `Vector{Symbol}`, the corresponding fields of `dh` will be
 copied into the returned flux dof handler and flux dof value vector.
 """
 function interpolate_gradient_field(dh::Ferrite.DofHandler{spatial_dim}, u::AbstractVector, field_name::Symbol; copy_fields::Vector{Symbol}=Symbol[]) where {spatial_dim}

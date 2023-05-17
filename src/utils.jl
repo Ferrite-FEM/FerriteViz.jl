@@ -440,7 +440,7 @@ This is a helper to access the correct value in Tensors.jl entities, because the
 
 Compute the piecewise discontinuous gradient field for `field_name`. Returns the flux dof handler and the corresponding flux dof values.
 """
-function interpolate_gradient_field(dh::Ferrite.DofHandler{spatial_dim}, u::AbstractVector, field_name::Symbol) where {spatial_dim}
+function interpolate_gradient_field(dh::Ferrite.DofHandler{spatial_dim}, u::AbstractVector, field_name::Symbol; copy_fields=Symbol[]) where {spatial_dim}
     # Get some helpers
     field_idx = Ferrite.find_field(dh, field_name)
     ip = Ferrite.getfieldinterpolation(dh, field_idx)
@@ -450,6 +450,12 @@ function interpolate_gradient_field(dh::Ferrite.DofHandler{spatial_dim}, u::Abst
     ip_gradient = get_gradient_interpolation(ip)
     field_dim = Ferrite.getfielddim(dh,field_name)
     push!(dh_gradient, :gradient, field_dim*spatial_dim, ip_gradient) # field dim × spatial dim components
+    for fieldname in copy_fields
+        _field_idx = Ferrite.find_field(dh, fieldname)
+        _ip = Ferrite.getfieldinterpolation(dh, _field_idx)
+        _field_dim = Ferrite.getfielddim(dh,fieldname)
+        push!(dh_gradient, fieldname, _field_dim, _ip)
+    end
     Ferrite.close!(dh_gradient)
 
     num_base_funs = Ferrite.getnbasefunctions(ip_gradient)
@@ -467,7 +473,7 @@ function interpolate_gradient_field(dh::Ferrite.DofHandler{spatial_dim}, u::Abst
     # Allocate storage for the fluxes to store
     u_gradient = zeros(Ferrite.ndofs(dh_gradient))
     # In general uᵉ_gradient is an order 3 tensor [field_dim, spatial_dim, num_base_funs]
-    uᵉ_gradient = zeros(length(cell_dofs_gradient))
+    uᵉ_gradient = zeros(length(cell_dofs_gradient[Ferrite.dof_range(dh_gradient, :gradient)]))
     uᵉ_gradient_view = reshape(uᵉ_gradient, (spatial_dim, field_dim, num_base_funs))
     uᵉ = zeros(field_dim*Ferrite.getnbasefunctions(ip))
 
@@ -492,7 +498,12 @@ function interpolate_gradient_field(dh::Ferrite.DofHandler{spatial_dim}, u::Abst
 
         # We finally write back the result to the global dof vector of the gradient field
         Ferrite.celldofs!(cell_dofs_gradient, dh_gradient, cell_num)
-        u_gradient[cell_dofs_gradient] .+= uᵉ_gradient
+        u_gradient[cell_dofs_gradient[Ferrite.dof_range(dh_gradient, :gradient)]] .+= uᵉ_gradient
+
+        # copy all requested fields
+        for fieldname in copy_fields
+            u_gradient[cell_dofs_gradient[Ferrite.dof_range(dh_gradient, fieldname)]] .= u[cell_dofs[Ferrite.dof_range(dh, fieldname)]]
+        end
     end
     return dh_gradient, u_gradient
 end

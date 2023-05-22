@@ -228,7 +228,8 @@ function Makie.plot!(WF::Wireframe{<:Tuple{<:MakiePlotter{dim}}}) where dim
     cellset_u =  reshape(transfer_scalar_celldata(plotter, cellset_u; process=identity), num_vertices(plotter))
     Makie.mesh!(WF, plotter.mesh, color=cellset_u, shading=false, scale_plot=false, colormap=:darktest, visible=WF[:cellsets])
     #plot the nodes
-    Makie.scatter!(WF,gridnodes,markersize=WF[:markersize], color=WF[:color], visible=WF[:plotnodes])
+    shouldplot = @lift ($(WF[:visible]) && $(WF[:plotnodes]))
+    Makie.scatter!(WF,gridnodes,markersize=WF[:markersize], color=WF[:color], visible=shouldplot)
     #set up nodelabels
     nodelabels = @lift $(WF[:nodelabels]) ? ["$i" for i in 1:size($gridnodes,1)] : [""]
     nodepositions = @lift $(WF[:nodelabels]) ? $gridnodes : (dim < 3 ? Point2f[Point2f((0,0))] : Point3f[Point3f((0,0,0))])
@@ -252,7 +253,8 @@ function Makie.plot!(WF::Wireframe{<:Tuple{<:Ferrite.AbstractGrid{dim}}}) where 
         append!(lines, [coords[e] for boundary in boundaryentities for e in boundary])
     end
     nodes = @lift($(WF[:plotnodes]) ? coords : Point3f[Point3f(0,0,0)])
-    Makie.scatter!(WF,nodes,markersize=WF[:markersize], color=WF[:color])
+    shouldplot = @lift ($(WF[:visible]) && $(WF[:plotnodes]))
+    Makie.scatter!(WF,nodes,markersize=WF[:markersize], color=WF[:color], visible=shouldplot)
     nodelabels = @lift $(WF[:nodelabels]) ? ["$i" for i in 1:size(coords,1)] : [""]
     nodepositions = @lift $(WF[:nodelabels]) ? coords : (dim < 3 ? Point2f[Point2f((0,0))] : Point3f[Point3f((0,0,0))])
     celllabels = @lift $(WF[:celllabels]) ? ["$i" for i in 1:Ferrite.getncells(grid)] : [""]
@@ -278,7 +280,7 @@ function Makie.plot!(WF::Wireframe{<:Tuple{<:Ferrite.AbstractGrid{dim}}}) where 
     Makie.mesh!(WF, plotter.mesh, color=cellset_u, shading=false, scale_plot=false, colormap=:darktest, visible=WF[:cellsets])
     Makie.text!(WF,nodelabels, position=nodepositions, textsize=WF[:textsize], offset=WF[:offset],color=WF[:nodelabelcolor])
     Makie.text!(WF,celllabels, position=cellpositions, textsize=WF[:textsize], color=WF[:celllabelcolor], align=(:center,:center))
-    Makie.linesegments!(WF,lines,color=WF[:color], strokewidth=WF[:strokewidth])
+    Makie.linesegments!(WF,lines,color=WF[:color], strokewidth=WF[:strokewidth], visible=WF[:visible])
 end
 
 """

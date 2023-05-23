@@ -16,7 +16,7 @@ and solution vector because we need to pass those objects to `MakiePlotter`.
 
 ```@example 1
 import JSServe # hide
-JSServe.Page() # hide
+JSServe.Page(;exportable=true, offline=true) # hide
 ```
 
 You can start by plotting your mesh

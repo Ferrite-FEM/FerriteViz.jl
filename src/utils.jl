@@ -175,7 +175,7 @@ num_vertices(p::MakiePlotter) = size(p.physical_coords,1)
 TODO this looks faulty...think harder.
 """
 # Helper to count triangles e.g. for preallocations.
-ntriangles(cell::Ferrite.AbstractCell{2,3,3}) = 1 # Tris in 2D
+ntriangles(cell::Ferrite.AbstractCell{2,N,3}) where {N} = 1 # Tris in 2D
 ntriangles(cell::Ferrite.AbstractCell{3,3,1}) = 1 # Tris in 3D
 ntriangles(cell::Ferrite.AbstractCell{dim,N,4}) where {dim,N} = 4 # Quads in 2D and 3D
 ntriangles(cell::Ferrite.AbstractCell{3,N,1}) where N = 4 # Tets as a special case of a Quad, obviously :)
@@ -312,64 +312,81 @@ function postprocess(node_values)
     end
 end
 
+function getfieldhandlers(dh::Ferrite.DofHandler,field_name)
+    field_idx = Ferrite.find_field(dh,field_name)
+    ip_field = Ferrite.getfieldinterpolation(dh,field_idx)
+    field_dim_ = Ferrite.getfielddim(dh,field_idx)
+    return [Ferrite.FieldHandler([Ferrite.Field(field_name,ip_field,field_dim_)],Set(1:Ferrite.getncells(dh.grid)))]
+end
+
+function getfieldhandlers(dh::Ferrite.MixedDofHandler,field_name)
+    fhs = Ferrite.FieldHandler[]
+    for fh in dh.fieldhandlers
+        for field in fh.fields
+            if field.name == field_name
+                push!(fhs,fh)
+                break
+            end
+        end
+    end
+    return fhs
+end
+
 """
     transfer_solution(plotter::MakiePlotter{dim,DH,T}, u::Vector; field_idx::Int=1, process::Function=FerriteViz.postprocess) where {dim,DH<:Ferrite.AbstractDofHandler,T}
 Transfer the solution of a plotter to the tessellated mesh in `dim`.
 
 @TODO Refactor. This is peak inefficiency.
 """
-function transfer_solution(plotter::MakiePlotter{dim,DH,T}, u::Vector; field_idx::Int=1, process::FUN=FerriteViz.postprocess) where {dim,DH<:Ferrite.AbstractDofHandler,T,FUN}
+function transfer_solution(plotter::MakiePlotter{dim,DH,T}, u::Vector; field_name=:u, process::FUN=FerriteViz.postprocess) where {dim,DH<:Ferrite.AbstractDofHandler,T,FUN}
     # select objects from plotter
     dh = plotter.dh
     grid = dh.grid
 
     # field related variables
-    field_name = Ferrite.getfieldnames(dh)[field_idx]
-    field_dim = Ferrite.getfielddim(dh, field_idx)
-
-    # interpolation extraction
-    ip_field = dh.field_interpolations[field_idx]
-    cell_geo_ref = Ferrite.getcells(grid, 1)
-    ip_geo = Ferrite.default_interpolation(typeof(cell_geo_ref))
+    field_dim = Ferrite.getfielddim(dh, field_name)
     val_buffer = zeros(T,field_dim)
     val = process(val_buffer)
-
-    return _transfer_solution(ip_geo,ip_field,val_buffer,val,field_name,field_dim,plotter,u,process) #function barrier for ip_field and thus pointvalues
+    _processreturn = length(process(val_buffer))
+    data = fill(NaN, num_vertices(plotter),_processreturn)
+    for fh in getfieldhandlers(dh,field_name)
+        ip_field = Ferrite.getfieldinterpolation(fh,field_name)
+        cellset_ = collect(fh.cellset)
+        cell_geo_ref = Ferrite.getcells(grid, cellset_[1])
+        ip_geo = Ferrite.default_interpolation(typeof(cell_geo_ref))
+        pv = Ferrite.PointScalarValues(ip_field, ip_geo)
+        _transfer_solution!(data,pv,fh,ip_geo,ip_field,cellset_,val_buffer,val,field_name,field_dim,plotter,u,process) #function barrier for ip_field and thus pointvalues
+    end
+    return data
 end
 
-function _transfer_solution(ip_geo,ip_field,val_buffer,val,field_name,field_dim,plotter::MakiePlotter{dim,DH,T}, u::Vector, process::FUN) where {dim,DH<:Ferrite.AbstractDofHandler,T,FUN}
+function _transfer_solution!(data,pv,fh,ip_geo,ip_field,cellset_,val_buffer,val,field_name,field_dim,plotter::MakiePlotter{dim,DH,T}, u::Vector, process::FUN) where {dim,DH<:Ferrite.AbstractDofHandler,T,FUN}
     n_vertices_per_tri = 3 # we have 3 vertices per triangle...
     dh = plotter.dh
     ref_coords = plotter.reference_coords
     grid = dh.grid
     # actual data
-    local_dof_range = Ferrite.dof_range(dh, field_name)
-
-    pv = Ferrite.PointScalarValues(ip_field, ip_geo)
+    local_dof_range = Ferrite.dof_range(fh, field_name)
+    _processreturn = length(process(val_buffer))
 
     current_vertex_index = 1
 
-    Ferrite.reinit!(pv, Ferrite.getcoordinates(grid,1), Tensors.Vec{dim}(ref_coords[current_vertex_index,:]))
-    n_basefuncs = Ferrite.getnbasefunctions(pv)
-    _processreturn = length(process(val_buffer))
+    cell_geo_ref = Ferrite.getcells(grid, cellset_[1])
 
-    data = fill(0.0, num_vertices(plotter),_processreturn)
-    _local_coords = Ferrite.getcoordinates(grid,1)
-    _local_celldofs = Ferrite.celldofs(dh,1)
+    Ferrite.reinit!(pv, Ferrite.getcoordinates(grid,cellset_[1]), Tensors.Vec{dim}(ref_coords[current_vertex_index,:]))
+    n_basefuncs = Ferrite.getnbasefunctions(pv)
+
+    _local_coords = Ferrite.getcoordinates(grid,cellset_[1])
+    _local_celldofs = Ferrite.celldofs(dh,cellset_[1])
     _celldofs_field = reshape(@view(_local_celldofs[local_dof_range]), (field_dim, n_basefuncs))
     _local_ref_coords = Tensors.Vec{dim}(ref_coords[1,:])
 
     for (isvisible,(cell_idx,cell_geo)) in zip(plotter.visible,enumerate(Ferrite.getcells(dh.grid)))
         # This should make the loop work for mixed grids
-        if !isvisible
+        if !isvisible || cell_idx ∉ cellset_
             current_vertex_index += ntriangles(cell_geo)*n_vertices_per_tri
             continue
         end
-        #if typeof(cell_geo_ref) != typeof(cell_geo)
-        #    ip_geo = Ferrite.default_interpolation(typeof(cell_geo))
-        #    pv = getpointvalues(Val(field_dim),ip_field,ip_geo)
-        #    cell_geo_ref = cell_geo
-        #end
         Ferrite.getcoordinates!(_local_coords,grid,cell_idx)
         Ferrite.celldofs!(_local_celldofs,dh,cell_idx)
         _celldofs_field = reshape(@view(_local_celldofs[local_dof_range]), (field_dim, n_basefuncs))
@@ -388,7 +405,6 @@ function _transfer_solution(ip_geo,ip_field,val_buffer,val,field_name,field_dim,
             current_vertex_index += 1
         end
     end
-    return data
 end
 
 function transfer_scalar_celldata(plotter::MakiePlotter{dim,DH,T}, u::Vector; process::FUN=FerriteViz.postprocess) where {dim,DH<:Ferrite.AbstractDofHandler,T,FUN<:Function}
@@ -435,11 +451,13 @@ This is a helper to access the correct value in Tensors.jl entities, because the
 @inline _tensorsjl_gradient_accessor(m::Tensors.Tensor{2,dim}, field_dim_idx::Int, spatial_dim_idx::Int) where {dim} = m[field_dim_idx, spatial_dim_idx]
 
 """
-    interpolate_gradient_field(dh::DofHandler, u::AbstractVector, field_name::Symbol)
+    interpolate_gradient_field(dh::DofHandler, u::AbstractVector, field_name::Symbol; copy_fields::Vector{Symbol})
 
 Compute the piecewise discontinuous gradient field for `field_name`. Returns the flux dof handler and the corresponding flux dof values.
+If the additional keyword argument `copy_fields` is provided with a non empty `Vector{Symbol}`, the corresponding fields of `dh` will be
+copied into the returned flux dof handler and flux dof value vector.
 """
-function interpolate_gradient_field(dh::Ferrite.DofHandler{spatial_dim}, u::AbstractVector, field_name::Symbol) where {spatial_dim}
+function interpolate_gradient_field(dh::Ferrite.DofHandler{spatial_dim}, u::AbstractVector, field_name::Symbol; copy_fields::Vector{Symbol}=Symbol[]) where {spatial_dim}
     # Get some helpers
     ip = Ferrite.getfieldinterpolation(dh, field_name)
 
@@ -448,6 +466,12 @@ function interpolate_gradient_field(dh::Ferrite.DofHandler{spatial_dim}, u::Abst
     ip_gradient = get_gradient_interpolation(ip)
     field_dim = Ferrite.getfielddim(dh,field_name)
     push!(dh_gradient, :gradient, field_dim*spatial_dim, ip_gradient) # field dim × spatial dim components
+    for fieldname in copy_fields
+        _field_idx = Ferrite.find_field(dh, fieldname)
+        _ip = Ferrite.getfieldinterpolation(dh, _field_idx)
+        _field_dim = Ferrite.getfielddim(dh,fieldname)
+        push!(dh_gradient, fieldname, _field_dim, _ip)
+    end
     Ferrite.close!(dh_gradient)
 
     num_base_funs = Ferrite.getnbasefunctions(ip_gradient)
@@ -465,7 +489,7 @@ function interpolate_gradient_field(dh::Ferrite.DofHandler{spatial_dim}, u::Abst
     # Allocate storage for the fluxes to store
     u_gradient = zeros(Ferrite.ndofs(dh_gradient))
     # In general uᵉ_gradient is an order 3 tensor [field_dim, spatial_dim, num_base_funs]
-    uᵉ_gradient = zeros(length(cell_dofs_gradient))
+    uᵉ_gradient = zeros(length(cell_dofs_gradient[Ferrite.dof_range(dh_gradient, :gradient)]))
     uᵉ_gradient_view = reshape(uᵉ_gradient, (spatial_dim, field_dim, num_base_funs))
     uᵉ = zeros(field_dim*Ferrite.getnbasefunctions(ip))
 
@@ -490,29 +514,35 @@ function interpolate_gradient_field(dh::Ferrite.DofHandler{spatial_dim}, u::Abst
 
         # We finally write back the result to the global dof vector of the gradient field
         Ferrite.celldofs!(cell_dofs_gradient, dh_gradient, cell_num)
-        u_gradient[cell_dofs_gradient] .+= uᵉ_gradient
+        u_gradient[cell_dofs_gradient[Ferrite.dof_range(dh_gradient, :gradient)]] .+= uᵉ_gradient
+
+        # copy all requested fields
+        for fieldname in copy_fields
+            u_gradient[cell_dofs_gradient[Ferrite.dof_range(dh_gradient, fieldname)]] .= u[cell_dofs[Ferrite.dof_range(dh, fieldname)]]
+        end
     end
     return dh_gradient, u_gradient
 end
 
 # maps the dof vector in nodal order, only needed for wireframe nodal deformation (since we display the original nodes)
-function dof_to_node(dh::Ferrite.AbstractDofHandler, u::Vector{T}; field::Int=1) where T
-    fieldnames = Ferrite.getfieldnames(dh)
-    field_dim = Ferrite.getfielddim(dh, fieldnames[field])
+function dof_to_node(dh::Ferrite.AbstractDofHandler, u::Vector{T}; field_name=:u) where T
+    field_dim = Ferrite.getfielddim(dh, field_name)
     data = fill(NaN, Ferrite.getnnodes(dh.grid), field_dim)
-    offset = Ferrite.field_offset(dh, fieldnames[field])
+    fhs = getfieldhandlers(dh,field_name)
 
-    for cell in Ferrite.CellIterator(dh)
-        _celldofs = Ferrite.celldofs(cell)
-        counter = 1
-        for node in cell.nodes
-            for d in 1:field_dim
-                data[node, d] = u[_celldofs[counter + offset]]
-                counter += 1
+    for fh in fhs
+        dof_range_ = Ferrite.dof_range(fh, field_name)
+        for cell in Ferrite.CellIterator(dh,fh.cellset)
+            _celldofs = Ferrite.celldofs(cell)
+            local_celldofs_field = reshape(@view(_celldofs[dof_range_]), (field_dim,length(cell.nodes)))
+            for (local_nodeid,node) in enumerate(cell.nodes)
+                for d in 1:field_dim
+                    data[node, d] = u[local_celldofs_field[d,local_nodeid]]
+                end
             end
         end
     end
-    return data::Matrix{T}
+    return data
 end
 
 """

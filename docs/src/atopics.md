@@ -2,7 +2,7 @@
 
 ```@example 1
 import JSServe # hide
-JSServe.Page(exportable=true, offline=true) # hide
+JSServe.Page() # hide
 ```
 
 ## Gradient field visualization
@@ -32,15 +32,15 @@ cmap = :jet
 f = WGLMakie.Figure()
 axs = [WGLMakie.Axis(f[1, 1], title="Strain norm (linear)"),WGLMakie.Axis(f[1, 2], title="Stress norm (linear)"),WGLMakie.Axis(f[1, 3], title="Pressure (deformed, linear)"),
        WGLMakie.Axis(f[3, 1], title="Strain norm (quadratic)"),WGLMakie.Axis(f[3, 2], title="Stress norm (quadratic)"),WGLMakie.Axis(f[3, 3], title="Pressure (deformed, quadratic)")]
-p1 = FerriteViz.solutionplot!(axs[1], plotter_linear, process=∇u->norm(ε(∇u)), colormap=cmap)
-p2 = FerriteViz.solutionplot!(axs[2], plotter_linear, process=∇u->norm(σ(∇u)), colormap=cmap)
+p1 = FerriteViz.solutionplot!(axs[1], plotter_linear, process=∇u->norm(ε(∇u)), colormap=cmap, field=:gradient)
+p2 = FerriteViz.solutionplot!(axs[2], plotter_linear, process=∇u->norm(σ(∇u)), colormap=cmap, field=:gradient)
 p3 = FerriteViz.solutionplot!(axs[3], dh_linear, u_linear, field=:p, deformation_field=:u, colormap=cmap)
 f[2,1] = WGLMakie.Colorbar(f[1,1], p1, vertical=false)
 f[2,2] = WGLMakie.Colorbar(f[1,2], p2, vertical=false)
 f[2,3] = WGLMakie.Colorbar(f[1,3], p3, vertical=false)
 
-p4 = FerriteViz.solutionplot!(axs[4], plotter_quadratic, process=∇u->norm(ε(∇u)), colormap=cmap)
-p5 = FerriteViz.solutionplot!(axs[5], plotter_quadratic, process=∇u->norm(σ(∇u)), colormap=cmap)
+p4 = FerriteViz.solutionplot!(axs[4], plotter_quadratic, process=∇u->norm(ε(∇u)), colormap=cmap, field=:gradient)
+p5 = FerriteViz.solutionplot!(axs[5], plotter_quadratic, process=∇u->norm(σ(∇u)), colormap=cmap, field=:gradient)
 p6 = FerriteViz.solutionplot!(axs[6], dh_quadratic, u_quadratic, field=:p, deformation_field=:u, colormap=cmap)
 f[4,1] = WGLMakie.Colorbar(f[3,1], p1, vertical=false)
 f[4,2] = WGLMakie.Colorbar(f[3,2], p2, vertical=false)
@@ -76,7 +76,7 @@ FerriteViz.surface!(axs[2], plotter_for)
 f
 ```
 Note that this method produces small artifacts due to the flattening of the nonlinearities of the high order ansatz.
-However, it is still sufficient to investigate important features of the solution. 
+However, it is still sufficient to investigate important features of the solution.
 In future we will also provide an adaptive tessellation algorithm to resolve the high-order fields with full detail.
 
 ## Live plotting
@@ -112,7 +112,7 @@ function solve(liveplotting=false)
         display(fig)
         ####################################################################
     end
-    
+
     Δu = zeros(n_dofs)  # displacement correction
     r = zeros(n_dofs)   # residual
     K = create_sparsity_pattern(dh); # tangent stiffness matrix
@@ -142,11 +142,11 @@ function solve(liveplotting=false)
             Δu = Symmetric(K) \ r
             u -= Δu
         end
-        
+
         if liveplotting
-            ####### Step 4 updating the current solution vector in plotter ####### 
+            ####### Step 4 updating the current solution vector in plotter #######
             FerriteViz.update!(plotter,u)
-            ###################################################################### 
+            ######################################################################
             sleep(0.1)
         end
 

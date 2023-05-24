@@ -12,7 +12,7 @@ ShaderAbstractions = "65257c39-d410-5151-9873-9b3e5be5013e"
 Tensors = "48a634ad-e948-5137-8d70-aa71f2a747f4"
 
 [compat]
-Ferrite = "0.3"
+Ferrite = "0.3.13"
 GeometryBasics = "0.4"
 Makie = "0.17,0.18,0.19"
 ShaderAbstractions = "0.3"

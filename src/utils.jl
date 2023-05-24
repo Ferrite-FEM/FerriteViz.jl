@@ -314,10 +314,11 @@ function postprocess(node_values)
 end
 
 function getfieldhandlers(dh::Ferrite.DofHandler,field_name)
-    field_idx = Ferrite.find_field(dh,field_name)
-    ip_field = Ferrite.getfieldinterpolation(dh,field_idx)
-    field_dim_ = Ferrite.getfielddim(dh,field_idx)
-    return [Ferrite.FieldHandler([Ferrite.Field(field_name,ip_field,field_dim_)],Set(1:Ferrite.getncells(dh.grid)))]
+    names = Ferrite.getfieldnames(dh)
+    field_idx = Ferrite.find_field.((dh,),names)
+    ip_field = Ferrite.getfieldinterpolation.((dh,),field_idx)
+    field_dim_ = Ferrite.getfielddim.((dh,),field_idx)
+    return [Ferrite.FieldHandler([Ferrite.Field(fname,fip,fdim) for (fname,fip,fdim) in zip(names,ip_field,field_dim_)],Set(1:Ferrite.getncells(dh.grid)))]
 end
 
 function getfieldhandlers(dh::Ferrite.MixedDofHandler,field_name)

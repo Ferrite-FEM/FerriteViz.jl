@@ -2,7 +2,7 @@
 
 ```@example 1
 import JSServe # hide
-JSServe.Page(;exportable=true, offline=true) # hide
+JSServe.Page() # hide
 ```
 
 ## Gradient field visualization
@@ -76,7 +76,7 @@ FerriteViz.surface!(axs[2], plotter_for)
 f
 ```
 Note that this method produces small artifacts due to the flattening of the nonlinearities of the high order ansatz.
-However, it is still sufficient to investigate important features of the solution. 
+However, it is still sufficient to investigate important features of the solution.
 In future we will also provide an adaptive tessellation algorithm to resolve the high-order fields with full detail.
 
 ## Live plotting
@@ -112,7 +112,7 @@ function solve(liveplotting=false)
         display(fig)
         ####################################################################
     end
-    
+
     Δu = zeros(n_dofs)  # displacement correction
     r = zeros(n_dofs)   # residual
     K = create_sparsity_pattern(dh); # tangent stiffness matrix
@@ -142,11 +142,11 @@ function solve(liveplotting=false)
             Δu = Symmetric(K) \ r
             u -= Δu
         end
-        
+
         if liveplotting
-            ####### Step 4 updating the current solution vector in plotter ####### 
+            ####### Step 4 updating the current solution vector in plotter #######
             FerriteViz.update!(plotter,u)
-            ###################################################################### 
+            ######################################################################
             sleep(0.1)
         end
 

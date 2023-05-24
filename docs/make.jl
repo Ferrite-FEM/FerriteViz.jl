@@ -4,6 +4,7 @@ using Documenter, FerriteViz, WGLMakie
 makedocs(sitename="FerriteViz",
          modules=[FerriteViz],
          authors="Maximilian Köhler",
+         format=Documenter.HTML(prettyurls=false),
          pages=["Home"=> "index.md",
                 "Tutorial" => "tutorial.md",
                 "Advanced Topics" => "atopics.md",

@@ -355,6 +355,7 @@ function transfer_solution(plotter::MakiePlotter{dim,DH,T}, u::Vector; field_nam
         ip_field = Ferrite.getfieldinterpolation(fh,field_name)
         cellset_ = collect(fh.cellset)
         cell_geo_ref = Ferrite.getcells(grid, cellset_[1])
+        ntriangles(cell_geo_ref) == 0 && continue
         ip_geo = Ferrite.default_interpolation(typeof(cell_geo_ref))
         pv = Ferrite.PointScalarValues(ip_field, ip_geo)
         _transfer_solution!(data,pv,fh,ip_geo,ip_field,cellset_,val_buffer,val,field_name,field_dim,plotter,u,process) #function barrier for ip_field and thus pointvalues

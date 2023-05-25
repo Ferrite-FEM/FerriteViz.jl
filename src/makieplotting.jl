@@ -66,7 +66,17 @@ function Makie.plot!(SP::SolutionPlot{<:Tuple{<:MakiePlotter}})
     end
     mins = @lift(minimum(x->isnan(x) ?  1e10 : x, $solution))
     maxs = @lift(maximum(x->isnan(x) ? -1e10 : x, $solution))
-    SP[:colorrange] = @lift(isapprox($mins,$maxs) ? ($mins,1.01($maxs)) : ($mins,$maxs))
+    SP[:colorrange] = @lift begin
+        if isapprox($mins,$maxs)
+            if isapprox($mins,zero($mins)) && isapprox($maxs,zero($maxs))
+                (1e-18,2e-18)
+            else
+                ($mins,1.01($maxs))
+            end
+        else
+            ($mins,$maxs)
+        end
+    end
     return Makie.mesh!(SP, plotter.mesh, color=solution, shading=SP[:shading], scale_plot=SP[:scale_plot], colormap=SP[:colormap],colorrange=SP[:colorrange] , transparent=SP[:transparent])
 end
 
@@ -491,7 +501,7 @@ function ferriteviewer(plotter::MakiePlotter{dim}) where dim
     fig = Figure()
     dim > 2 ? (ax = LScene(fig[1,1])) : (ax = Axis(fig[1,1]))
     #toggles and their labels for switching plot types on/off
-    toggles = [Toggle(fig, active=active) for active in [true,true,false]]
+    toggles = [Toggle(fig, active=active) for active in [true,false,false]]
     labels = [Label(fig,label) for label in ["mesh", "deformation", "labels"]]
     #setup the deformation_field as Observable
     deformation_field = Makie.Observable(Ferrite.getfieldnames(plotter.dh)[1])

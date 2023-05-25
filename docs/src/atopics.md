@@ -94,7 +94,7 @@ A summary of the needed steps for live plotting:
 3. `display(fig)` in order to force the plot/viewer to pop up, even if its called inside a function body
 4. `FerriteViz.update!(plotter,u_new)` where `u_new` corresponds to your new solution of the time step
 
-As an illustrative example, let's consider a slightly modified [plasticity example of Ferrite.jl](https://github.com/koehlerson/FerriteViz.jl/blob/master/docs/src/ferrite-examples/plasticity.jl).
+As an illustrative example, let's consider a slightly modified [plasticity example of Ferrite.jl](https://github.com/Ferrite-FEM/FerriteViz.jl/blob/master/docs/src/ferrite-examples/plasticity-live.jl).
 For the full source code, please refer to the link. In the following code we only highlight the necessary changes.
 
 ```julia

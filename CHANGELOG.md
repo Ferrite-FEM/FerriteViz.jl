@@ -6,9 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+## [0.2.1] - 2023-05-24
 ### Added
  - Basic culling where all faces of all boundary elements are rendered ([#56][github-56]).
  - Citation file ([#65](github-65))
+ - Support for MixedDofHandler ([#70][github-70])
 ### Modified
  - Removed unnecessary extra dispatches for three-dimensional case ([#56][github-56]).
  - function barrier for `transfer_solution` such that its closer to type groundedness ([#68][github-68]).
@@ -17,8 +20,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - triangle coords are now `Buffers`s with Observables
 - replace overcomplicated ternary operators by `begin end` expressions ([#69][github-69])
 - remove unused functions ([#69][github-69])
+- default linear rendering of high order triangles ([#83][github-83])
+- keyword argument `copy_fields` added to `interpolate_gradient_field` ([#83][github-83])
 ### Fixed
  - Renamed `Crincle` to `Crinkle` ([#56][github-56]).
+ - wireframe plot could not selectively disable the plotting of the nodes ([#83][github-83])
+ - let CI error if example block errors ([#71][github-71])
+ - removed bug in `transfer_solution` from ([#70][github-70]) in ([#89][github-89])
+ - fix JSServe documentation issue ([#85][github-85])
 
 ## [0.2.0] - 2023-03-06
 ### Added
@@ -52,6 +61,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [github-63]: https://github.com/Ferrite-FEM/FerriteViz.jl/pull/63
 [github-68]: https://github.com/Ferrite-FEM/FerriteViz.jl/pull/68
 [github-69]: https://github.com/Ferrite-FEM/FerriteViz.jl/pull/69
+[github-70]: https://github.com/Ferrite-FEM/FerriteViz.jl/pull/70
+[github-71]: https://github.com/Ferrite-FEM/FerriteViz.jl/pull/71
+[github-83]: https://github.com/Ferrite-FEM/FerriteViz.jl/pull/83
+[github-85]: https://github.com/Ferrite-FEM/FerriteViz.jl/pull/85
+[github-89]: https://github.com/Ferrite-FEM/FerriteViz.jl/pull/89
 
-[Unreleased]: https://github.com/Ferrite-FEM/FerriteViz.jl/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/Ferrite-FEM/FerriteViz.jl/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/Ferrite-FEM/FerriteViz.jl/compare/v0.2.1...v0.2.0
 [0.2.0]: https://github.com/Ferrite-FEM/FerriteViz.jl/compare/v0.2.0...v0.1.4

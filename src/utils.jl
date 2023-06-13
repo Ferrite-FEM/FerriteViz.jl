@@ -403,7 +403,6 @@ function _transfer_solution!(data,pv,fh,ip_geo,ip_field,cellset_,val_buffer,val,
 
         # Loop over the triangles of the cell and interpolate at the vertices
         # TODO remove redundant function value calls
-        @show triangles_on_cell(plotter, cell_idx)
         for triangle_index in triangles_on_cell(plotter, cell_idx)
             for current_vertex_index in plotter.all_triangles[triangle_index]
                 _local_ref_coords = Tensors.Vec{dim}(@view(ref_coords[current_vertex_index,:]))
@@ -630,7 +629,7 @@ function uniform_refinement(plotter::MakiePlotter{dim,DH,T1,TOP,T2,M,TRI}) where
         # TODO use geometric interpolation here!
         # Compute vertex position in physical space at midpoint
         current_physical_coordinates = @view plotter.physical_coords[current_triangle]
-        @show current_physical_coordinates
+
         midpoint_physical_coordinate_12  = (current_physical_coordinates[1]+current_physical_coordinates[2])/2.0
         midpoint_physical_coordinate_23  = (current_physical_coordinates[2]+current_physical_coordinates[3])/2.0
         midpoint_physical_coordinate_31  = (current_physical_coordinates[3]+current_physical_coordinates[1])/2.0

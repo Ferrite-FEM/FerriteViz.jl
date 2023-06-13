@@ -77,6 +77,26 @@ f
 ```
 Note that this method produces small artifacts due to the flattening of the nonlinearities of the high order ansatz.
 However, it is still sufficient to investigate important features of the solution.
+If users have enough RAM, then we also provide a uniform tessellation algorithm
+```@example 1
+include("ferrite-examples/heat-equation.jl"); #defines manufactured_heat_problem
+
+f = WGLMakie.Figure()
+axs = [WGLMakie.Axis3(f[1, 1], title="Coarse"), WGLMakie.Axis3(f[1, 2], title="Fine")]
+
+dh, u = manufactured_heat_problem(Hexahedron, Lagrange{3,RefCube,2}(), 2);
+plotter = FerriteViz.MakiePlotter(dh,u);
+clip_plane = FerriteViz.ClipPlane(Ferrite.Vec((0.0,0.5,0.5)), 0.1);
+clipped_plotter = FerriteViz.crinkle_clip(plotter, clip_plane);
+
+FerriteViz.solutionplot!(axs[1], clipped_plotter)
+
+fine_clipped_plotter = FerriteViz.uniform_refinement(clipped_plotter, 4);
+FerriteViz.solutionplot!(axs[2], fine_clipped_plotter)
+
+f
+```
+
 In future we will also provide an adaptive tessellation algorithm to resolve the high-order fields with full detail.
 
 ## Live plotting

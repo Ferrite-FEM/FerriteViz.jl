@@ -168,6 +168,7 @@ function crinkle_clip(plotter::MakiePlotter{3,DH,T}, decision_fun) where {DH,T}
          plotter.all_triangles,
          vis_triangles,
          plotter.triangle_cell_map,
+         plotter.cell_triangle_offsets,
          plotter.reference_coords,
          GeometryBasics.Mesh(physical_coords_m,vis_triangles))
     crinkle_clip!(plotter_clipped,decision_fun)

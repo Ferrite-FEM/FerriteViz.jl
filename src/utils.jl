@@ -161,7 +161,7 @@ function crinkle_clip(plotter::MakiePlotter{3,DH,T}, decision_fun) where {DH,T}
          plotter.dh,
          plotter.u,
          plotter.topology,
-         plotter.visible,
+         copy(plotter.visible),
          plotter.gridnodes,
          plotter.physical_coords,
          physical_coords_m,

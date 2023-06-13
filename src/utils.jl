@@ -682,7 +682,9 @@ end
     uniform_refinement(plotter::MakiePlotter)
 
 Generates 3 triangles for each triangle by adding a center vertex and connecting them (orientation preserving).
-    
+
+!!! note HIGH RAM USAGE!
+
 !!! note This function currently does not increase the resolution of the geometrical points in space, only the solution quality!
 
 !!! note TODO investigate whether it is possible to eliminate the coordinate duplication without trashing the caches

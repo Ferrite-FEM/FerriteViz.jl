@@ -51,22 +51,6 @@ function initialize_figure(ip::Interpolation{ref_shape,N,unused}) where {ref_sha
     return fig,ax
 end
 
-#=function show_basis_function(ip::Union{Lagrange{RefQuadrilateral,N},Serendipity{RefQuadrilateral,N}}) where {N}
-    x,y,ref_z = get_domain(ip,20)
-    #grid = generate_grid(Quadrilateral,(1,1))
-
-    fig,ax = initialize_figure(ip)
-
-    for i in 1:getnbasefunctions(ip)
-        local z = [Ferrite.value(ip,i,Ferrite.Vec{2,Float64}((_x,_y))) for _x in x, _y in y]
-        vertices, clist = get_triangulation(x,y,z)
-        mesh!(ax[i],vertices,clist; shading=false, fxaa=true, transparency=false, color=[vertices[i,3] for i in 1:size(vertices)[1]], colormap=:viridis)
-        #FerriteViz.wireframe!(grid,markersize=10,strokewidth=2)
-    end
-    current_figure()
-end=#
-
-#function show_basis_function(ip::Union{Lagrange{RefTriangle,N,unused},BubbleEnrichedLagrange{RefTriangle,N,unused}}) where {N,unused}
 function show_basis_function(ip::Interpolation{ref_shape,N}) where {ref_shape<:Union{RefTriangle,RefQuadrilateral},N}
     x,y,ref_z = get_domain(ip,20)
 

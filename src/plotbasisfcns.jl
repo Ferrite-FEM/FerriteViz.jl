@@ -50,7 +50,7 @@ function show_basis_function(ip::Union{Lagrange{RefTriangle,N,unused},BubbleEnri
         for i in 1:length(x), j in 1:length(y)
             i>j ? z[j,i]=NaN : nothing
         end
-        vertices, clist = get_triangulation_triangle(x,y,z)
+        vertices, clist = get_triangulation(x,y,z)
         #surface!(ax[i],x,y,z)
         mesh!(ax[i],vertices,clist; shading=false, fxaa=true, transparency=false, color=[vertices[i,3] for i in 1:size(vertices)[1]], colormap=:viridis)
     end
@@ -75,22 +75,22 @@ function show_basis_function(ip::Lagrange{RefLine,N}) where {N}
     current_figure()
 end
 
-function get_triangulation_triangle(x,y,z::Matrix)
+function get_triangulation(x,y,z::Matrix)
+any(isnan.(z[end,:])) ? error("case is not implemented") : nothing
     sz = size(z)
     nvertices_percol = (.!isnan.(z)')*ones(Int,sz[2])
     nvertices = sum(nvertices_percol)
-
 # ===============================
 # ===== compute vertice list =====
 # ================================
 #   vertice numbering according to numbering:
-#   ┌                   ┐
-#   │ 1 NaN NaN NaN NaN │
-#   │ 2  6  NaN NaN NaN │
-#   │ 3  7  10  NaN NaN │
-#   │ 4  8  11  13  NaN │
-#   │ 5  9  12  14  15  │
-#   └                    
+#   ┌                   ┐      ┌                   ┐                ┌                   ┐
+#   │ 1 NaN NaN NaN NaN │      │ 1 NaN NaN NaN NaN │  not allowed:  │ 1 NaN NaN NaN NaN │
+#   │ 2  6  NaN NaN NaN │      │ 2  6  NaN 13  17  │ -connectivity  │ 2  6  NaN 13  16  │
+#   │ 3  7  10  NaN NaN │  or  │ 3  7  10  14  18  │  list is not   │ 3  7  10  14  17  │
+#   │ 4  8  11  13  NaN │      │ 4  8  11  15  19  │  implemented   │ 4  8  11  15  18  │
+#   │ 5  9  12  14  15  │      │ 5  9  12  16  20  │  for this      │ 5  9  12  NaN NaN │
+#   └                          └                                    └                    
     vertices = zeros(nvertices,3)
     cnt = 1
     for col in 1:sz[2], row in 1:sz[1]
@@ -111,34 +111,30 @@ function get_triangulation_triangle(x,y,z::Matrix)
             elseif vertincol==nvertices_percol[i+1]+1 # if next col is smaller subtract 1
                 ntriangles+=-1
             else
-                !vertincol==nvertices_percol[i+1] ? error("triangulation not possible") : nothing
+                !(vertincol==nvertices_percol[i+1]) ? error("triangulation not possible") : nothing
             end
         end
     end
     clist = zeros(Int,ntriangles,3)
 
     cnt = 1
-    verticespercol = collect(sz[1]:-1:1)
-    newcol = true
-    col = 1
-    lastidpercol = [sum(verticespercol[1:i]) for i in 1:length(verticespercol)]
-println(verticespercol-nvertices_percol)
-    for vert in 1:(size(vertices)[1]-1)
-        if !(vert==lastidpercol[col])
-            offset = verticespercol[col]
-            clist[cnt,:] = [vert, vert+1, vert+offset]
+    lastvertidpercol = [sum(nvertices_percol[1:c]) for c in 1:sz[2]]
+    for vert in 1:lastvertidpercol[end-1]
+        newcol = vert in vcat(1,lastvertidpercol[1:end-1].+1) # vertex first id in a column??
+        col = findfirst(i->vert<=i,lastvertidpercol)
+        vert==sum(nvertices_percol[1:col]) && continue # skip last vertex per column
+        # fill clist
+        offset = nvertices_percol[col]==nvertices_percol[col+1]-1 ? nvertices_percol[col]+1 : nvertices_percol[col] #set ofset according to next collumn size
+        clist[cnt,:] = [vert, vert+1, vert+offset]
+        cnt+=1
+        if ((nvertices_percol[col]==nvertices_percol[col+1]+1)&&(!newcol)) || ((nvertices_percol[col]==nvertices_percol[col+1]-1)&&(newcol)) # if next column is shorter && not first vertex of collumn or if next column is longer and first vertex in collumn
+            clist[cnt,:] = [vert, vert+offset-1, vert+offset]
             cnt+=1
-            if !newcol
-                clist[cnt,:] = [vert, vert+offset-1, vert+offset]
-                cnt+=1
-            else
-                newcol = false
-            end
-        else
-            col+=1
-            newcol = true
+        end
+        if (nvertices_percol[col]==nvertices_percol[col+1]) || (nvertices_percol[col]==nvertices_percol[col+1]-1) # if next row is longer or shorter
+            clist[cnt,:] = [vert+1, vert+offset+1, vert+offset]
+            cnt+=1
         end
     end
-
     return vertices, clist
 end

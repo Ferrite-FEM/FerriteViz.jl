@@ -226,11 +226,7 @@ function Makie.plot!(WF::Wireframe{<:Tuple{<:MakiePlotter{dim}}}) where dim
         if $(WF[:deformation_field])===:default
             pointtype[zero(pointtype)]
         else
-<<<<<<< HEAD
-            Makie.to_ndim.(pointtype, Makie.to_vertices(transfer_solution(plotter,$(plotter.u); field_idx=Ferrite.find_field(plotter.dh,$(WF[:deformation_field])), process=identity)), 0f0)
-=======
             Makie.to_ndim.(pointtype, Makie.to_vertices(transfer_solution(plotter,$(plotter.u); field_name=$(WF[:deformation_field]), process=identity)), 0f0)
->>>>>>> c5b812eb31786525dd5d2ef3779f39fd9550492a
         end
     end
     coords = @lift begin

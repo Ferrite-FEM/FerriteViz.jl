@@ -1,36 +1,39 @@
 using Ferrite, GLMakie
 
-function show_basis_function(ip::Union{Lagrange{RefQuadrilateral,N},Serendipity{RefQuadrilateral,N}}) where {N}
-    x = range(-1,1,length=50)
-    y = range(-1,1,length=50)
-    #grid = generate_grid(Quadrilateral,(1,1))
+function get_domain(ip::Interpolation{ref_shape,order}, meshsize::Int) where {ref_shape<:Union{RefQuadrilateral,RefTriangle},order}
+    rcs = Ferrite.reference_coordinates(ip)
+    lwr = min(vcat(collect.(rcs)...)...)
+    upr = max(vcat(collect.(rcs)...)...)
+    y = range(upr,lwr,length=meshsize)
+    x = range(lwr,upr,length=meshsize)
+    ref_z = get_ref_z(ip,meshsize)
+    return x,y,ref_z
+end
 
-    fig = Figure()
+get_ref_z(ip::Interpolation{ref_shape,order},meshsize::Int) where {ref_shape,order} = zeros(meshsize,meshsize)
+function get_ref_z(ip::Interpolation{ref_shape,order},meshsize::Int) where {ref_shape<:RefTriangle,order}
+    z = zeros(meshsize,meshsize)
+    for ix in 1:size(z,2), iy in 1:size(z,1)
+        (ix>iy) ? z[iy,ix]=NaN : nothing
+    end
+    return z
+end
 
-    # initialize axes
+function initialize_figure(ip::Interpolation{ref_shape,N}) where {ref_shape<:RefQuadrilateral,N}
     rcs = Ferrite.reference_coordinates(ip)
     _refpos = rcs.*(N*0.5) # get and scale reference coordinates to unit intervals. Also mirror y coordinate
     shift = max(vcat(_refpos...)...)
     _refpos .+= [Tensors.Vec((shift+1,shift+1))]
     lngth = max(vcat(_refpos...)...)
     refpos = [Int.(rp) for rp in [[lngth-_rp[2]+1,_rp[1]] for _rp in _refpos]]
+
+    fig = Figure()
     ax = [Axis3(fig[pos...];title="node = "*string(round.(rcs[i];digits=2))) for (i,pos) in enumerate(refpos)]
-    for i in 1:getnbasefunctions(ip)
-        local z = [Ferrite.value(ip,i,Ferrite.Vec{2,Float64}((_x,_y))) for _x in x, _y in y]
-        surface!(ax[i],x,y,z)
-        #FerriteViz.wireframe!(grid,markersize=10,strokewidth=2)
-    end
-    current_figure()
+    return fig, ax
 end
 
-function show_basis_function(ip::Union{Lagrange{RefTriangle,N,unused},BubbleEnrichedLagrange{RefTriangle,N,unused}}) where {N,unused}
+function initialize_figure(ip::Interpolation{ref_shape,N,unused}) where {ref_shape<:RefTriangle,N,unused}
     rcs = Ferrite.reference_coordinates(ip)
-    lwr = min(vcat(collect.(rcs)...)...)
-    upr = max(vcat(collect.(rcs)...)...)
-    y = range(upr,lwr,length=20)
-    x = range(lwr,upr,length=20)
-
-    # initialize axes
     if typeof(ip)==Lagrange{RefTriangle,N,unused}
         __refpos = [coord.*[1, 1] for coord in rcs.*(N)] # get and scale reference coordinates to unit intervals. Also mirror y coordinate
         shift = min(vcat(__refpos...)...)
@@ -45,13 +48,37 @@ function show_basis_function(ip::Union{Lagrange{RefTriangle,N,unused},BubbleEnri
     end    
     fig = Figure()
     ax = [Axis3(fig[pos...];title="node = "*string(round.(rcs[i];digits=2))) for (i,pos) in enumerate(refpos)]
+    return fig,ax
+end
+
+#=function show_basis_function(ip::Union{Lagrange{RefQuadrilateral,N},Serendipity{RefQuadrilateral,N}}) where {N}
+    x,y,ref_z = get_domain(ip,20)
+    #grid = generate_grid(Quadrilateral,(1,1))
+
+    fig,ax = initialize_figure(ip)
+
     for i in 1:getnbasefunctions(ip)
-        local z = [Ferrite.value(ip,i,Ferrite.Vec{2,Float64}((_x,_y))) for _y in y, _x in x]
-        for i in 1:length(x), j in 1:length(y)
-            i>j ? z[j,i]=NaN : nothing
+        local z = [Ferrite.value(ip,i,Ferrite.Vec{2,Float64}((_x,_y))) for _x in x, _y in y]
+        vertices, clist = get_triangulation(x,y,z)
+        mesh!(ax[i],vertices,clist; shading=false, fxaa=true, transparency=false, color=[vertices[i,3] for i in 1:size(vertices)[1]], colormap=:viridis)
+        #FerriteViz.wireframe!(grid,markersize=10,strokewidth=2)
+    end
+    current_figure()
+end=#
+
+#function show_basis_function(ip::Union{Lagrange{RefTriangle,N,unused},BubbleEnrichedLagrange{RefTriangle,N,unused}}) where {N,unused}
+function show_basis_function(ip::Interpolation{ref_shape,N}) where {ref_shape<:Union{RefTriangle,RefQuadrilateral},N}
+    x,y,ref_z = get_domain(ip,20)
+
+    # initialize axes
+    fig,ax = initialize_figure(ip)
+
+    for i in 1:getnbasefunctions(ip)
+        local z = copy(ref_z)
+        for (iy,_y) in enumerate(y), (ix,_x) in enumerate(x)
+            !isnan(z[iy,ix]) && (z[iy,ix]=Ferrite.value(ip,i,Ferrite.Vec{2,Float64}((_x,_y))))
         end
         vertices, clist = get_triangulation(x,y,z)
-        #surface!(ax[i],x,y,z)
         mesh!(ax[i],vertices,clist; shading=false, fxaa=true, transparency=false, color=[vertices[i,3] for i in 1:size(vertices)[1]], colormap=:viridis)
     end
     current_figure()

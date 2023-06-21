@@ -77,7 +77,7 @@ f
 ```
 Note that this method produces small artifacts due to the flattening of the nonlinearities of the high order ansatz.
 However, it is still sufficient to investigate important features of the solution.
-If users have enough RAM, then we also provide a uniform tessellation algorithm
+If users want to have higher resolution than the crude estimate given by the first order refinenement (as well as enough RAM), then we also provide a uniform tessellation algorithm which can be used instead
 ```@example 1
 include("ferrite-examples/heat-equation.jl"); #defines manufactured_heat_problem
 

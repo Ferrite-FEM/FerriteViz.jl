@@ -16,40 +16,38 @@ function get_ref_z(ip::Interpolation{ref_shape,order},meshsize::Int) where {ref_
     for ix in 1:size(z,2), iy in 1:size(z,1)
         (ix>iy) ? z[iy,ix]=NaN : nothing
     end
+    println(typeof(ip))
+    if typeof(ip)==CrouzeixRaviart{RefTriangle,1,Nothing}
+        z = collect(z')
+        println("i dont work")
+    end
+    display(z)
     return z
 end
 
-function initialize_figure(ip::Interpolation{ref_shape,N}) where {ref_shape<:RefQuadrilateral,N}
+function initialize_figure(ip::Interpolation{ref_shape,N}) where {ref_shape<:Union{RefQuadrilateral,RefTriangle},N}
     rcs = Ferrite.reference_coordinates(ip)
-    _refpos = rcs.*(N*0.5) # get and scale reference coordinates to unit intervals. Also mirror y coordinate
-    shift = max(vcat(_refpos...)...)
-    _refpos .+= [Tensors.Vec((shift+1,shift+1))]
-    lngth = max(vcat(_refpos...)...)
-    refpos = [Int.(rp) for rp in [[lngth-_rp[2]+1,_rp[1]] for _rp in _refpos]]
+    min_val = Int(min(vcat(rcs...)...))
+    rcs = [[c[1]-min_val,c[2]-min_val] for c in rcs]
+    scale = round(inv(min(filter(!iszero,vcat(rcs...))...));digits=15)
+    max_id = Int(round(max(vcat(rcs...)...)*scale))
+    refpos = [Int.([max_id-coord[2]+1, coord[1]+1]) for coord in rcs.*scale]
 
     fig = Figure()
     ax = [Axis3(fig[pos...];title="node = "*string(round.(rcs[i];digits=2))) for (i,pos) in enumerate(refpos)]
     return fig, ax
 end
 
-function initialize_figure(ip::Interpolation{ref_shape,N,unused}) where {ref_shape<:RefTriangle,N,unused}
-    rcs = Ferrite.reference_coordinates(ip)
-    if typeof(ip)==Lagrange{RefTriangle,N,unused}
-        __refpos = [coord.*[1, 1] for coord in rcs.*(N)] # get and scale reference coordinates to unit intervals. Also mirror y coordinate
-        shift = min(vcat(__refpos...)...)
-        __refpos .+= [Tensors.Vec((shift+1,shift+1))]
-        _refpos = [Int.(reverse(rp)) for rp in __refpos]
-        lngth = max(vcat(_refpos...)...)
-        refpos = [[lngth-rp[1] ,rp[2]] for rp in _refpos]
-    elseif typeof(ip)==BubbleEnrichedLagrange{RefTriangle,1,unused}
-        refpos = [[3,3],[1,1],[3,1],[2,2]]
-    else
-        throw(ArgumentError("method not implemented for type $(typeof(ip))"))
-    end    
-    fig = Figure()
-    ax = [Axis3(fig[pos...];title="node = "*string(round.(rcs[i];digits=2))) for (i,pos) in enumerate(refpos)]
-    return fig,ax
-end
+#function initialize_figure(ip::Interpolation{ref_shape,N,unused}) where {ref_shape<:RefTriangle,N,unused}
+#    rcs = Ferrite.reference_coordinates(ip)
+#    scale = abs(inv(min(filter(!iszero,vcat(rcs...))...)))
+#    max_id = Int(max(vcat(rcs...)...)*scale)
+#    refpos = [Int.([max_id-coord[2]+1, coord[1]+1]) for coord in rcs.*scale]
+#  
+#    fig = Figure()
+#    ax = [Axis3(fig[pos...];title="node = "*string(round.(rcs[i];digits=2))) for (i,pos) in enumerate(refpos)]
+#    return fig,ax
+#end
 
 function show_basis_function(ip::Interpolation{ref_shape,N}) where {ref_shape<:Union{RefTriangle,RefQuadrilateral},N}
     x,y,ref_z = get_domain(ip,20)

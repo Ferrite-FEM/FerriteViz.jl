@@ -16,7 +16,6 @@ function get_ref_z(ip::Interpolation{ref_shape,order},meshsize::Int) where {ref_
     for ix in 1:size(z,2), iy in 1:size(z,1)
         (ix>iy) ? z[iy,ix]=NaN : nothing
     end
-    println(typeof(ip))
     if typeof(ip)==CrouzeixRaviart{RefTriangle,1,Nothing}
         z = collect(z')
     end
@@ -32,12 +31,12 @@ function initialize_figure(ip::Interpolation{ref_shape,N}) where {ref_shape<:Uni
     refpos = [Int.([max_id-coord[2]+1, coord[1]+1]) for coord in rcs.*scale]
 
     fig = Figure()
-    ax = [Axis3(fig[pos...];title="node = "*string(round.(rcs[i];digits=2))) for (i,pos) in enumerate(refpos)]
+    ax = [Axis3(fig[pos...];xlabel=L"ξ_x", ylabel=L"ξ_y", zlabel=L"N(ξ)" ,title="id: $(i), node = "*string(round.(rcs[i];digits=2))) for (i,pos) in enumerate(refpos)]
     return fig, ax
 end
 
 function show_basis_function(ip::Interpolation{ref_shape,N}) where {ref_shape<:Union{RefTriangle,RefQuadrilateral},N}
-    x,y,ref_z = get_domain(ip,4)
+    x,y,ref_z = get_domain(ip,20)
 
     # initialize axes
     fig,ax = initialize_figure(ip)
@@ -47,7 +46,7 @@ function show_basis_function(ip::Interpolation{ref_shape,N}) where {ref_shape<:U
         for (iy,_y) in enumerate(y), (ix,_x) in enumerate(x)
             !isnan(z[iy,ix]) && (z[iy,ix]=Ferrite.value(ip,i,Ferrite.Vec{2,Float64}((_x,_y))))
         end
-        vertices, clist = get_triangulation(x,y,z)
+        vertices, clist = get_triangulation(ip,x,y,z)
         mesh!(ax[i],vertices,clist; shading=false, fxaa=true, transparency=false, color=[vertices[i,3] for i in 1:size(vertices)[1]], colormap=:viridis)
     end
     current_figure()
@@ -74,7 +73,7 @@ end
 function get_triangulation(ip::Interpolation{ref_shape,N},x,_y,_z::Matrix) where {ref_shape,N}
 # for CrouzeixRaviart the element does not occupy the origin. The triangulation method is not defined for this type of element. Workaround--> mirror y axis
     y = typeof(ip)==CrouzeixRaviart{RefTriangle,1,Nothing} ? reverse(_y) : _y
-    z = typeof(ip)==CrouzeixRaviart{RefTriangle,1,Nothing} ? _z[end:-1:1,:] : z
+    z = typeof(ip)==CrouzeixRaviart{RefTriangle,1,Nothing} ? _z[end:-1:1,:] : _z
 # ================================
 # ===== compute vertice list =====
 # ================================

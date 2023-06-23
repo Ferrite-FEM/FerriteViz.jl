@@ -566,7 +566,8 @@ function ferriteviewer(plotter::MakiePlotter, data::Vector{Vector{T}}) where T
     display(fig)
 end
 
-function get_domain(ip::Interpolation{ref_shape,order}, meshsize::Int) where {ref_shape<:Union{RefQuadrilateral,RefTriangle},order}
+#function get_domain(ip::Ferrite.Interpolation{ref_shape,order}, meshsize::Int) where {ref_shape<:Union{RefQuadrilateral,RefTriangle},order}
+function get_domain(ip::Ferrite.Interpolation{2,ref_shape,order}, meshsize::Int) where {ref_shape<:Union{Ferrite.RefCube,Ferrite.RefTetrahedron},order}
     rcs = Ferrite.reference_coordinates(ip)
     lwr = min(vcat(collect.(rcs)...)...)
     upr = max(vcat(collect.(rcs)...)...)
@@ -576,19 +577,22 @@ function get_domain(ip::Interpolation{ref_shape,order}, meshsize::Int) where {re
     return x,y,ref_z
 end
 
-get_ref_z(ip::Interpolation{ref_shape,order},meshsize::Int) where {ref_shape,order} = zeros(meshsize,meshsize)
-function get_ref_z(ip::Interpolation{ref_shape,order},meshsize::Int) where {ref_shape<:RefTriangle,order}
+#get_ref_z(ip::Ferrite.Interpolation{ref_shape,order},meshsize::Int) where {ref_shape,order} = zeros(meshsize,meshsize)
+get_ref_z(ip::Ferrite.Interpolation{2,ref_shape,order},meshsize::Int) where {ref_shape,order} = zeros(meshsize,meshsize)
+#function get_ref_z(ip::Ferrite.Interpolation{ref_shape,order},meshsize::Int) where {ref_shape<:RefTriangle,order}
+function get_ref_z(ip::Ferrite.Interpolation{2,ref_shape,order},meshsize::Int) where {ref_shape<:Ferrite.RefTetrahedron,order}
     z = zeros(meshsize,meshsize)
     for ix in 1:size(z,2), iy in 1:size(z,1)
         (ix>iy) ? z[iy,ix]=NaN : nothing
     end
-    if typeof(ip)==CrouzeixRaviart{RefTriangle,1,Nothing}
-        z = collect(z')
-    end
+    #if typeof(ip)==CrouzeixRaviart{RefTriangle,1,Nothing}
+    #    z = collect(z')
+    #end
     return z
 end
 
-function initialize_figure(ip::Interpolation{ref_shape,N}) where {ref_shape<:Union{RefQuadrilateral,RefTriangle},N}
+#function initialize_figure(ip::Ferrite.Interpolation{ref_shape,N}) where {ref_shape<:Union{RefQuadrilateral,RefTriangle},N}
+function initialize_figure(ip::Ferrite.Interpolation{2,ref_shape,N}) where {ref_shape<:Union{Ferrite.RefCube,Ferrite.RefTetrahedron},N}
     rcs = Ferrite.reference_coordinates(ip)
     min_val = Int(min(vcat(rcs...)...))
     rcs = [[c[1]-min_val,c[2]-min_val] for c in rcs]
@@ -606,13 +610,14 @@ end
 
 Plots all basis functions of `ip`. Only implemented for 1D and 2D instances of `ip`.
 """
-function show_basis_function(ip::Interpolation{ref_shape,N}) where {ref_shape<:Union{RefTriangle,RefQuadrilateral},N}
+#function show_basis_function(ip::Ferrite.Interpolation{ref_shape,N}) where {ref_shape<:Union{RefTriangle,RefQuadrilateral},N}
+function show_basis_function(ip::Ferrite.Interpolation{2,ref_shape,N}) where {ref_shape<:Union{Ferrite.RefTetrahedron,Ferrite.RefCube},N}
     x,y,ref_z = get_domain(ip,20)
 
     # initialize axes
     fig,ax = initialize_figure(ip)
 
-    for i in 1:getnbasefunctions(ip)
+    for i in 1:Ferrite.getnbasefunctions(ip)
         local z = copy(ref_z)
         for (iy,_y) in enumerate(y), (ix,_x) in enumerate(x)
             !isnan(z[iy,ix]) && (z[iy,ix]=Ferrite.value(ip,i,Ferrite.Vec{2,Float64}((_x,_y))))
@@ -623,7 +628,8 @@ function show_basis_function(ip::Interpolation{ref_shape,N}) where {ref_shape<:U
     current_figure()
 end
 
-function show_basis_function(ip::Lagrange{RefLine,N}) where {N}
+#function show_basis_function(ip::Ferrite.Lagrange{RefLine,N}) where {N}
+function show_basis_function(ip::Ferrite.Lagrange{1,refshape,N}) where {refshape,N}
     rcs = Ferrite.reference_coordinates(ip)
     x = range(-1,1,length=100)
 
@@ -635,18 +641,19 @@ function show_basis_function(ip::Lagrange{RefLine,N}) where {N}
     refpos = [Int.([coord[1]+1]) for coord in rcs.*scale]
 
     fig = Figure()
-    ax = [Axis(fig[1,i];xlabel=L"ξ", ylabel=L"N(ξ)" ,title="id: $(i), node = "*string(round.(rcs[i];digits=2))) for i in 1:getnbasefunctions(ip)]
-    for i in 1:getnbasefunctions(ip)
+    ax = [Axis(fig[1,i];xlabel=L"ξ", ylabel=L"N(ξ)" ,title="id: $(i), node = "*string(round.(rcs[i];digits=2))) for i in 1:Ferrite.getnbasefunctions(ip)]
+    for i in 1:Ferrite.getnbasefunctions(ip)
         local z = [Ferrite.value(ip,i,Ferrite.Vec{1,Float64}((_x,))) for _x in x]
         lines!(ax[refpos[i]...],x,z)
     end
     current_figure()
 end
 
-function get_triangulation(ip::Interpolation{ref_shape,N},x,_y,_z::Matrix) where {ref_shape,N}
+#function get_triangulation(ip::Ferrite.Interpolation{ref_shape,N},x,_y,_z::Matrix) where {ref_shape,N}
+function get_triangulation(ip::Ferrite.Interpolation{2,ref_shape,N},x,y,z::Matrix) where {ref_shape,N}
 # for CrouzeixRaviart the element does not occupy the origin. The triangulation method is not defined for this type of element. Workaround--> mirror y axis
-    y = typeof(ip)==CrouzeixRaviart{RefTriangle,1,Nothing} ? reverse(_y) : _y
-    z = typeof(ip)==CrouzeixRaviart{RefTriangle,1,Nothing} ? _z[end:-1:1,:] : _z
+#    y = typeof(ip)==CrouzeixRaviart{RefTriangle,1,Nothing} ? reverse(_y) : _y
+#    z = typeof(ip)==CrouzeixRaviart{RefTriangle,1,Nothing} ? _z[end:-1:1,:] : _z
 # ================================
 # ===== compute vertice list =====
 # ================================

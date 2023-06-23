@@ -53,16 +53,18 @@ function show_basis_function(ip::Interpolation{ref_shape,N}) where {ref_shape<:U
 end
 
 function show_basis_function(ip::Lagrange{RefLine,N}) where {N}
+    rcs = Ferrite.reference_coordinates(ip)
     x = range(-1,1,length=100)
-    fig = Figure()
 
     # initialize axes
-    _refpos = [coord.*[1] for coord in Ferrite.reference_coordinates(ip).*(N*0.5)] # get and scale reference coordinates to unit intervals. Also mirror y coordinate
-    shift = max(vcat(_refpos...)...)
-    _refpos .+= [Tensors.Vec((shift+1))]
-    refpos = [Int.(rp) for rp in _refpos]
-    @show refpos
-    ax = [Axis(fig[1,i]) for i in 1:getnbasefunctions(ip)]
+    min_val = Int(min(vcat(rcs...)...))
+    rcs = [[c[1]-min_val] for c in rcs]
+    scale = round(inv(min(filter(!iszero,vcat(rcs...))...));digits=15)
+    max_id = Int(round(max(vcat(rcs...)...)*scale))
+    refpos = [Int.([coord[1]+1]) for coord in rcs.*scale]
+    
+    fig = Figure()
+    ax = [Axis(fig[1,i];xlabel=L"ξ", ylabel=L"N(ξ)" ,title="id: $(i), node = "*string(round.(rcs[i];digits=2))) for i in 1:getnbasefunctions(ip)]
     for i in 1:getnbasefunctions(ip)
         local z = [Ferrite.value(ip,i,Ferrite.Vec{1,Float64}((_x,))) for _x in x]
         lines!(ax[refpos[i]...],x,z)

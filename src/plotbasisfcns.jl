@@ -62,7 +62,7 @@ function show_basis_function(ip::Lagrange{RefLine,N}) where {N}
     scale = round(inv(min(filter(!iszero,vcat(rcs...))...));digits=15)
     max_id = Int(round(max(vcat(rcs...)...)*scale))
     refpos = [Int.([coord[1]+1]) for coord in rcs.*scale]
-    
+
     fig = Figure()
     ax = [Axis(fig[1,i];xlabel=L"ξ", ylabel=L"N(ξ)" ,title="id: $(i), node = "*string(round.(rcs[i];digits=2))) for i in 1:getnbasefunctions(ip)]
     for i in 1:getnbasefunctions(ip)

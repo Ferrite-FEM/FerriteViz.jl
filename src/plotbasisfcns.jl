@@ -19,9 +19,7 @@ function get_ref_z(ip::Interpolation{ref_shape,order},meshsize::Int) where {ref_
     println(typeof(ip))
     if typeof(ip)==CrouzeixRaviart{RefTriangle,1,Nothing}
         z = collect(z')
-        println("i dont work")
     end
-    display(z)
     return z
 end
 
@@ -38,19 +36,8 @@ function initialize_figure(ip::Interpolation{ref_shape,N}) where {ref_shape<:Uni
     return fig, ax
 end
 
-#function initialize_figure(ip::Interpolation{ref_shape,N,unused}) where {ref_shape<:RefTriangle,N,unused}
-#    rcs = Ferrite.reference_coordinates(ip)
-#    scale = abs(inv(min(filter(!iszero,vcat(rcs...))...)))
-#    max_id = Int(max(vcat(rcs...)...)*scale)
-#    refpos = [Int.([max_id-coord[2]+1, coord[1]+1]) for coord in rcs.*scale]
-#  
-#    fig = Figure()
-#    ax = [Axis3(fig[pos...];title="node = "*string(round.(rcs[i];digits=2))) for (i,pos) in enumerate(refpos)]
-#    return fig,ax
-#end
-
 function show_basis_function(ip::Interpolation{ref_shape,N}) where {ref_shape<:Union{RefTriangle,RefQuadrilateral},N}
-    x,y,ref_z = get_domain(ip,20)
+    x,y,ref_z = get_domain(ip,4)
 
     # initialize axes
     fig,ax = initialize_figure(ip)
@@ -84,31 +71,25 @@ function show_basis_function(ip::Lagrange{RefLine,N}) where {N}
     current_figure()
 end
 
-function get_triangulation(x,y,z::Matrix)
-any(isnan.(z[end,:])) ? error("case is not implemented") : nothing
+function get_triangulation(ip::Interpolation{ref_shape,N},x,_y,_z::Matrix) where {ref_shape,N}
+# for CrouzeixRaviart the element does not occupy the origin. The triangulation method is not defined for this type of element. Workaround--> mirror y axis
+    y = typeof(ip)==CrouzeixRaviart{RefTriangle,1,Nothing} ? reverse(_y) : _y
+    z = typeof(ip)==CrouzeixRaviart{RefTriangle,1,Nothing} ? _z[end:-1:1,:] : z
+# ================================
+# ===== compute vertice list =====
+# ================================
     sz = size(z)
     nvertices_percol = (.!isnan.(z)')*ones(Int,sz[2])
     nvertices = sum(nvertices_percol)
-# ===============================
-# ===== compute vertice list =====
-# ================================
-#   vertice numbering according to numbering:
-#   ┌                   ┐      ┌                   ┐                ┌                   ┐
-#   │ 1 NaN NaN NaN NaN │      │ 1 NaN NaN NaN NaN │  not allowed:  │ 1 NaN NaN NaN NaN │
-#   │ 2  6  NaN NaN NaN │      │ 2  6  NaN 13  17  │ -connectivity  │ 2  6  NaN 13  16  │
-#   │ 3  7  10  NaN NaN │  or  │ 3  7  10  14  18  │  list is not   │ 3  7  10  14  17  │
-#   │ 4  8  11  13  NaN │      │ 4  8  11  15  19  │  implemented   │ 4  8  11  15  18  │
-#   │ 5  9  12  14  15  │      │ 5  9  12  16  20  │  for this      │ 5  9  12  NaN NaN │
-#   └                          └                                    └                    
-    vertices = zeros(nvertices,3)
-    cnt = 1
-    for col in 1:sz[2], row in 1:sz[1]
-        if !isnan(z[row,col]) 
-            vertices[cnt,:] = [x[col], y[row], z[row,col]]
-            cnt += 1
-        end
-    end
-# =====================================    
+    vertices = zeros(nvertices,3)                           #   vertice numbering according to numbering:
+    cnt = 1                                                 #   ┌                   ┐      ┌                   ┐                ┌                   ┐
+    for col in 1:sz[2], row in 1:sz[1]                      #   │ 1 NaN NaN NaN NaN │      │ 1 NaN NaN NaN NaN │  not allowed:  │ 1 NaN NaN NaN NaN │
+        if !isnan(z[row,col])                               #   │ 2  6  NaN NaN NaN │      │ 2  6  NaN 13  17  │ -connectivity  │ 2  6  NaN 13  16  │
+            vertices[cnt,:] = [x[col], y[row], z[row,col]]  #   │ 3  7  10  NaN NaN │  or  │ 3  7  10  14  18  │  list is not   │ 3  7  10  14  17  │
+            cnt += 1                                        #   │ 4  8  11  13  NaN │      │ 4  8  11  15  19  │  implemented   │ 4  8  11  15  18  │
+        end                                                 #   │ 5  9  12  14  15  │      │ 5  9  12  16  20  │  for this      │ 5  9  12  NaN NaN │
+    end                                                     #   └                          └                                    └                    
+# =====================================
 # ===== compute connectivity list =====
 # =====================================
     ntriangles = 0 # number of triangles necessary
@@ -131,7 +112,13 @@ any(isnan.(z[end,:])) ? error("case is not implemented") : nothing
     for vert in 1:lastvertidpercol[end-1]
         newcol = vert in vcat(1,lastvertidpercol[1:end-1].+1) # vertex first id in a column??
         col = findfirst(i->vert<=i,lastvertidpercol)
-        vert==sum(nvertices_percol[1:col]) && continue # skip last vertex per column
+        if vert==sum(nvertices_percol[1:col]) # if vert is last vert in collumn...
+            if nvertices_percol[col] == 1 # ... check if its the only vertex of the collumn...
+                clist[cnt,:] = [vert, vert+1, vert+2] # ...add triangle if necessary...
+                cnt+=1                
+            end
+            continue # ... skip last vertex per column
+        end
         # fill clist
         offset = nvertices_percol[col]==nvertices_percol[col+1]-1 ? nvertices_percol[col]+1 : nvertices_percol[col] #set ofset according to next collumn size
         clist[cnt,:] = [vert, vert+1, vert+offset]
@@ -145,5 +132,7 @@ any(isnan.(z[end,:])) ? error("case is not implemented") : nothing
             cnt+=1
         end
     end
+(cnt-1)!=ntriangles && error("triangulations failed. too few triangles added to connectivity list")
+
     return vertices, clist
 end

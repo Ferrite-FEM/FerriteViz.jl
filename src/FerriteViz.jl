@@ -7,6 +7,8 @@ import GeometryBasics
 import ShaderAbstractions
 import LinearAlgebra
 
+using EnumX
+
 abstract type AbstractPlotter end
 
 include("utils.jl")

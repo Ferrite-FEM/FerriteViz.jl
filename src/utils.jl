@@ -110,9 +110,15 @@ end
 """
 Binary decision function to clip a cell with a plane for the crinkle clip.
 """
-function (plane::ClipPlane)(grid, cellid)
-    cell = grid.cells[cellid]
-    coords = Ferrite.getcoordinates.(Ferrite.getnodes(grid)[[cell.nodes...]])
+function (plane::ClipPlane)(grid, cellid::Int)
+    return plane(grid, getcells(grid, cellid))
+end
+
+"""
+Binary decision function to clip a cell with a plane for the crinkle clip.
+"""
+function (plane::ClipPlane)(grid, cell)
+    coords = Ferrite.getcoordinates.(Ferrite.getnodes(grid)[collect(cell.nodes)])
     for coord ∈ coords
         if coord ⋅ plane.normal > plane.distance
             return false
@@ -120,6 +126,28 @@ function (plane::ClipPlane)(grid, cellid)
     end
     return true
 end
+
+@enumx CollisionType Inside Outside Intersection
+
+"""
+    check_collision(plane::ClipPlane, grid, cell)
+
+!!! note Currently this function is not accurrate for nonlinear geometries.
+"""
+function check_collision(plane::ClipPlane, grid, cell)::CollisionType.T
+    coords = Ferrite.getcoordinates.(Ferrite.getnodes(grid)[collect(cell.nodes)])
+    nodes_beyond_plane = 0
+    for coord ∈ coords
+        if coord ⋅ plane.normal > plane.distance 
+            nodes_beyond_plane += 1
+        end
+    end
+    nodes_beyond_plane == 0 && return CollisionType.Inside # All points are on the "visible" side of the plane
+    nodes_beyond_plane == length(coords) && CollisionType.Outside # All points are on the "invisible" side of the plane
+    return CollisionType.Intersection # Some points are on both sides, hence the plane must intersect the element
+end
+
+check_collision(plane::ClipPlane, grid, cellid::Int) = check_collision(plane, grid, getcells(grid, cellid))
 
 """
     crinkle_clip!(plotter::MakiePlotter{3}, decision_fun)
@@ -202,7 +230,7 @@ end
 """
 Decompose a triangle into a coordinates and a triangle index list to disconnect it properly. Guarantees to preserve orderings and orientations.
 """
-function decompose!(coord_offset, coord_matrix, ref_coord_matrix, triangle_offset, triangle_matrix, grid, cell::Union{Ferrite.AbstractCell{2,N,3}, Ferrite.AbstractCell{3,3,1}}) where {N}
+function decompose!(coord_offset::Int, coord_matrix, ref_coord_matrix, triangle_offset::Int, triangle_matrix, grid, cell::Union{Ferrite.AbstractCell{2,N,3}, Ferrite.AbstractCell{3,3,1}}) where {N}
     for (i,v) in enumerate(vertices(grid, cell))
         coord_matrix[coord_offset] = GeometryBasics.Point(Ferrite.getcoordinates(v)...)
         ref_coord_matrix[coord_offset,1:2] = Ferrite.reference_coordinates(Ferrite.default_interpolation(typeof(cell)))[i]
@@ -230,11 +258,12 @@ and creates the decomposition
 1-------2
 where A=(1,2,5),B=(2,3,5),C=(3,4,5),D=(4,1,5) are the generated triangles in this order.
 """
-function decompose!(coord_offset, coord_matrix::Vector{Point{space_dim,T}}, ref_coord_matrix, triangle_offset, triangle_matrix, grid, cell::Union{Ferrite.AbstractCell{2,N,4}, Ferrite.AbstractCell{3,4,1}}) where {N,space_dim,T}
+function decompose!(coord_offset::Int, coord_matrix::Vector{Point{space_dim,T}}, ref_coord_matrix, triangle_offset::Int, triangle_matrix, grid, cell::Union{Ferrite.AbstractCell{2,N,4}, Ferrite.AbstractCell{3,4,1}}) where {N,space_dim,T}
     # A bit more complicated. The default diagonal decomposition into 2 triangles is missing a solution mode.
     # To resolve this we make a more expensive decomposition in 4 triangles which correctly displays the solution mode (in linear problems).
     coord_offset_initial = coord_offset
     vts = vertices(grid, cell)
+    reference_coordinates = Ferrite.reference_coordinates(Ferrite.default_interpolation(typeof(cell)))
 
     # Compute coordinate of vertex 5
     center = zeros(space_dim)
@@ -255,12 +284,12 @@ function decompose!(coord_offset, coord_matrix::Vector{Point{space_dim,T}}, ref_
 
         # current vertex
         coord_matrix[coord_offset] = GeometryBasics.Point(Ferrite.getcoordinates(v1)...)
-        ref_coord_matrix[coord_offset, 1:2] = Ferrite.reference_coordinates(Ferrite.default_interpolation(typeof(cell)))[i]
+        ref_coord_matrix[coord_offset, 1:2] = reference_coordinates[i]
         coord_offset+=1
 
         # next vertex in chain
         coord_matrix[coord_offset] = GeometryBasics.Point(Ferrite.getcoordinates(v2)...)
-        ref_coord_matrix[coord_offset, 1:2] = Ferrite.reference_coordinates(Ferrite.default_interpolation(typeof(cell)))[i2]
+        ref_coord_matrix[coord_offset, 1:2] = reference_coordinates[i2]
         coord_offset+=1
 
         # center vertex (5)
@@ -279,7 +308,7 @@ end
 """
 Decompose volumetric objects via their faces.
 """
-function decompose!(coord_offset, coord_matrix, ref_coord_matrix, triangle_offset, triangle_matrix, grid, cell::Ferrite.AbstractCell{3,N,M}) where {N,M}
+function decompose!(coord_offset::Int, coord_matrix, ref_coord_matrix, triangle_offset::Int, triangle_matrix, grid, cell::Ferrite.AbstractCell{3,N,M}) where {N,M}
     # Just 6 quadrilaterals :)
     for face_index ∈ 1:M
         face_coord_offset = coord_offset
@@ -292,6 +321,70 @@ function decompose!(coord_offset, coord_matrix, ref_coord_matrix, triangle_offse
     (coord_offset, triangle_offset)
 end
 
+"""
+Decompose and clip volumetric elements.
+
+!!! note Currently this function is not accurrate for nonlinear geometries.
+"""
+function decompose!(coord_offset::Int, coord_matrix, ref_coord_matrix, triangle_offset::Int, triangle_matrix, grid, cell, clip_geo)
+    collision_result = check_collision(clip_geo, grid, cell)
+    # Simple case: Visible
+    collision_result == CollisionType.Inside && return decompose!(coord_offset, coord_matrix, ref_coord_matrix, triangle_offset, triangle_matrix, grid, cell)
+    # Simple case: Not visible
+    collision_result == CollisionType.Outside && return (coord_offset, triangle_offset)
+    # Hard case: Intersects with clipping geometry
+    return decompose_clipped!(coord_offset::Int, coord_matrix, ref_coord_matrix, triangle_offset::Int, triangle_matrix, grid, cell, clip_geo)
+end
+
+function decompose_clipped!(coord_offset::Int, coord_matrix, ref_coord_matrix, triangle_offset::Int, triangle_matrix, grid, cell::Ferrite.Tetrahedron, clip_plane::ClipPlane)
+    reference_coords = Ferrite.reference_coordinates(Ferrite.default_interpolation(Ferrite.Tetrahedron))
+    spatial_coords = Ferrite.getcoordinates.(Ferrite.getnodes(grid)[collect(cell.nodes)])
+
+    # Step 1: Identify which edges are hit by the clipping
+    edges_hit = SVector(false, false, false, false, false, false)
+    edge_scale = SVector(NaN, NaN, NaN, NaN, NaN, NaN)
+    for (eid, edge) ∈ enumerate(Ferrite.edges(cell))
+        # line-plane intersection
+        lp1 = coords[edge[1]]
+        lp2 = coords[edge[2]]
+        line = lp2-lp1
+        denominator = line ⋅ clip_plane.normal
+        abs(denominator) < 1e-8 && continue # plane and ray basically parallel
+        line_scaler = (clip_plane.distance - lp1 ⋅ clip_plane.normal)  / denominator
+        edges_hit[eid] = abs(line_scaler) <= 1.0
+        edge_scale[eid] = line_scaler
+    end
+
+    # Step 2: We have 2 topological cuts here, either the plane has 1 node at one of their sides or 2 or equivalently the plane cuts either 3 or 4 edges.
+    #   Case 1: One node at one of their sides translates to the facts that
+    #       A) the intersection geometry is a triangle
+    #       B) one face is not cut
+    #       C) the remaining cut faces quadrilaterals
+    if sum(edges_hit) == 3
+        # First triangle spanned by the intersection points
+        ref_coords_tri_1 = SVector(Vec{3}((NaN, NaN, NaN)), Vec{3}((NaN, NaN, NaN)), Vec{3}((NaN, NaN, NaN)))
+        next_point_idx = 1
+        for (eid, edge) ∈ enumerate(Ferrite.edges(cell))
+            !edges_hit[eid] && continue
+            ref_coords_tri_1[next_point_idx] = reference_coords[edge[1]] + edge_scale[eid]*reference_coords[edge[2]]
+            next_point_idx += 1
+            # TODO other stuff like triangle connectivity and spatial coordinates.
+        end
+        # Now we have two possibilities, either the separated node is on the visible side or the other one.
+        # In the first case we have 3 triangles ...
+        # if ???
+        # ... in the latter we have 3 quadrilaterals.
+        # else
+        # end
+    elseif sum(edges_hit) == 4
+        # The first two triangles are induced by the quadrilateral spanned by the intersection points
+        # ...
+        # Now, we have two possibilities, either two nodes are on the visible side or the other one.
+        # Both possibilities lead to 2 triangles and 2 quadrilaterals.
+    else
+        @error "Unknown case."
+    end
+end
 
 refshape(cell::Ferrite.AbstractCell) = typeof(Ferrite.default_interpolation(typeof(cell))).parameters[2]
 

@@ -35,9 +35,12 @@ struct MakiePlotter{dim,DH<:Ferrite.AbstractDofHandler,T1,TOP<:Union{Nothing,Fer
     all_triangles::Vector{TRI}
     vis_triangles::ShaderAbstractions.Buffer{TRI,Vector{TRI}}
     triangle_cell_map::Vector{Int}
+    cell_triangle_offsets::Vector{Int}
     reference_coords::Matrix{T1} # coordinates on the associated reference cell for the corresponding triangle vertex
     mesh::M
 end
+
+triangles_on_cell(plotter::MP, cell_idx::Int) where {MP <: MakiePlotter} = (plotter.cell_triangle_offsets[cell_idx]+1):plotter.cell_triangle_offsets[cell_idx+1]
 
 """
     MakiePlotter(dh::Ferrite.AbstractDofHandler, u::Vector)
@@ -62,8 +65,11 @@ function MakiePlotter(dh::Ferrite.AbstractDofHandler, u::Vector, topology::TOP) 
 
     # We do not take any assumptions on the mesh, so first we have to loopkup
     num_triangles = 0
-    for cell in cells
+    cell_triangle_offsets = Vector{Int}(undef, length(cells)+1)
+    cell_triangle_offsets[1] = 0
+    for (cell_idx, cell) in enumerate(cells)
         num_triangles += ntriangles(cell)
+        cell_triangle_offsets[cell_idx+1] = num_triangles
     end
 
     # Preallocate the matrices carrying the triangulation information
@@ -89,7 +95,7 @@ function MakiePlotter(dh::Ferrite.AbstractDofHandler, u::Vector, topology::TOP) 
     vis_triangles = ShaderAbstractions.Buffer(Makie.Observable(vis_triangles))
     physical_coords_m = ShaderAbstractions.Buffer(Makie.Observable(copy(physical_coords)))
     mesh = GeometryBasics.Mesh(physical_coords_m,vis_triangles)
-    return MakiePlotter{dim,typeof(dh),eltype(u),typeof(topology),Float32,typeof(mesh),eltype(vis_triangles)}(dh,Observable(u),topology,visible,gridnodes,physical_coords,physical_coords_m,all_triangles,vis_triangles,triangle_cell_map,reference_coords,mesh)
+    return MakiePlotter{dim,typeof(dh),eltype(u),typeof(topology),Float32,typeof(mesh),eltype(vis_triangles)}(dh,Observable(u),topology,visible,gridnodes,physical_coords,physical_coords_m,all_triangles,vis_triangles,triangle_cell_map,cell_triangle_offsets,reference_coords,mesh)
 end
 MakiePlotter(dh,u) = MakiePlotter(dh,u,Ferrite.getdim(dh.grid) > 2 ? Ferrite.ExclusiveTopology(dh.grid.cells) : nothing)
 
@@ -155,13 +161,14 @@ function crinkle_clip(plotter::MakiePlotter{3,DH,T}, decision_fun) where {DH,T}
          plotter.dh,
          plotter.u,
          plotter.topology,
-         plotter.visible,
+         copy(plotter.visible),
          plotter.gridnodes,
          plotter.physical_coords,
          physical_coords_m,
          plotter.all_triangles,
          vis_triangles,
          plotter.triangle_cell_map,
+         plotter.cell_triangle_offsets,
          plotter.reference_coords,
          GeometryBasics.Mesh(physical_coords_m,vis_triangles))
     crinkle_clip!(plotter_clipped,decision_fun)
@@ -370,13 +377,11 @@ function _transfer_solution!(data,pv,fh,ip_geo,ip_field,cellset_,val_buffer,val,
     grid = dh.grid
     # actual data
     local_dof_range = Ferrite.dof_range(fh, field_name)
-    _processreturn = length(process(val_buffer))
-
-    current_vertex_index = 1
+    _processreturndim = length(process(val_buffer))
 
     cell_geo_ref = Ferrite.getcells(grid, cellset_[1])
 
-    Ferrite.reinit!(pv, Ferrite.getcoordinates(grid,cellset_[1]), Tensors.Vec{dim}(ref_coords[current_vertex_index,:]))
+    Ferrite.reinit!(pv, Ferrite.getcoordinates(grid,cellset_[1]), Tensors.Vec{dim}(ref_coords[1,:]))
     n_basefuncs = Ferrite.getnbasefunctions(pv)
 
     _local_coords = Ferrite.getcoordinates(grid,cellset_[1])
@@ -384,28 +389,32 @@ function _transfer_solution!(data,pv,fh,ip_geo,ip_field,cellset_,val_buffer,val,
     _celldofs_field = reshape(@view(_local_celldofs[local_dof_range]), (field_dim, n_basefuncs))
     _local_ref_coords = Tensors.Vec{dim}(ref_coords[1,:])
 
+    # We just loop over all cells
     for (isvisible,(cell_idx,cell_geo)) in zip(plotter.visible,enumerate(Ferrite.getcells(dh.grid)))
-        # This should make the loop work for mixed grids
+        # Skip invisible cells and cells which are not in the current cellset
         if !isvisible || cell_idx ∉ cellset_
-            current_vertex_index += ntriangles(cell_geo)*n_vertices_per_tri
             continue
         end
+
+        # Buffer cell data relevant for the current field to transfer
         Ferrite.getcoordinates!(_local_coords,grid,cell_idx)
         Ferrite.celldofs!(_local_celldofs,dh,cell_idx)
         _celldofs_field = reshape(@view(_local_celldofs[local_dof_range]), (field_dim, n_basefuncs))
-        ncvertices = ntriangles(cell_geo)*n_vertices_per_tri
-        # TODO replace this with a triangle-to-cell map.
-        for i in 1:ncvertices
-            _local_ref_coords = Tensors.Vec{dim}(@view(ref_coords[current_vertex_index,:]))
-            Ferrite.reinit!(pv, _local_coords, _local_ref_coords)
-            for d in 1:field_dim
-                val_buffer[d] = Ferrite.function_value(pv, 1, @views(u[_celldofs_field[d,:]]))
+
+        # Loop over the triangles of the cell and interpolate at the vertices
+        # TODO remove redundant function value calls
+        for triangle_index in triangles_on_cell(plotter, cell_idx)
+            for current_vertex_index in plotter.all_triangles[triangle_index]
+                _local_ref_coords = Tensors.Vec{dim}(@view(ref_coords[current_vertex_index,:]))
+                Ferrite.reinit!(pv, _local_coords, _local_ref_coords)
+                for d in 1:field_dim
+                    val_buffer[d] = Ferrite.function_value(pv, 1, @views(u[_celldofs_field[d,:]]))
+                end
+                val = process(val_buffer)
+                for d in 1:_processreturndim
+                    data[current_vertex_index, d] = val[d]
+                end
             end
-            val = process(val_buffer)
-            for d in 1:_processreturn
-                data[current_vertex_index,d] = val[d]
-            end
-            current_vertex_index += 1
         end
     end
 end
@@ -571,4 +580,118 @@ function transfer_quadrature_face_to_cell(point::AbstractVector, cell::Ferrite.A
     face == 4 && return [-x,  1,  y]
     face == 5 && return [-1,  y,  x]
     face == 6 && return [ x,  y,  1]
+end
+
+"""
+    uniform_refinement(plotter::MakiePlotter)
+
+Generates 3 triangles for each triangle by adding a center vertex and connecting them (orientation preserving).
+    
+!!! note This function currently does not increase the resolution of the geometrical points in space, only the solution quality!
+
+!!! note TODO investigate whether it is possible to eliminate the coordinate duplication without trashing the caches
+"""
+function uniform_refinement(plotter::MakiePlotter{dim,DH,T1,TOP,T2,M,TRI}) where {dim,DH,T1,TOP,T2,M,TRI}
+    # Number of triangles in the unrefined mesh
+    total_triangles = length(plotter.all_triangles)
+    # TODO keep the old reference coordinates and just add one new per triangle for the new center vertex
+    # refined_reference_coords = Matrix{T1}(undef, size(plotter.reference_coords, 1) + total_triangles, dim)
+    refined_reference_coords = Matrix{T1}(undef, 4*3*total_triangles, dim) # 4 new triangles with 3 vertices each
+    refined_physical_coords = Vector{GeometryBasics.Point{dim,T2}}(undef, 4*3*total_triangles) # 4 new triangles with 3 vertices each
+    refined_triangle_cell_map = Vector{Int}(undef, 4*total_triangles)
+    refined_triangles = Matrix{Int}(undef, 4*total_triangles, 3)
+    for triangle_index ∈ 1:total_triangles
+        current_triangle = plotter.all_triangles[triangle_index]
+        # Compute midpoint of reference coordinates
+        current_ref_coordinates = @view plotter.reference_coords[current_triangle, :]
+        midpoint_ref_coordinate_12  = (current_ref_coordinates[1,:]+current_ref_coordinates[2,:])/2.0
+        midpoint_ref_coordinate_23  = (current_ref_coordinates[2,:]+current_ref_coordinates[3,:])/2.0
+        midpoint_ref_coordinate_31  = (current_ref_coordinates[3,:]+current_ref_coordinates[1,:])/2.0
+
+        # Setup reference coordinates
+        # Triangle 1
+        refined_reference_coords[4*3*(triangle_index-1)+1, :] = current_ref_coordinates[1, :]
+        refined_reference_coords[4*3*(triangle_index-1)+2, :] = midpoint_ref_coordinate_12
+        refined_reference_coords[4*3*(triangle_index-1)+3, :] = midpoint_ref_coordinate_31
+        # Triangle 2
+        refined_reference_coords[4*3*(triangle_index-1)+4, :] = current_ref_coordinates[2, :]
+        refined_reference_coords[4*3*(triangle_index-1)+5, :] = midpoint_ref_coordinate_23
+        refined_reference_coords[4*3*(triangle_index-1)+6, :] = midpoint_ref_coordinate_12
+        # Triangle 3
+        refined_reference_coords[4*3*(triangle_index-1)+7, :] = current_ref_coordinates[3, :]
+        refined_reference_coords[4*3*(triangle_index-1)+8, :] = midpoint_ref_coordinate_31
+        refined_reference_coords[4*3*(triangle_index-1)+9, :] = midpoint_ref_coordinate_23
+        # Triangle 4
+        refined_reference_coords[4*3*(triangle_index-1)+10, :] = midpoint_ref_coordinate_12
+        refined_reference_coords[4*3*(triangle_index-1)+11, :] = midpoint_ref_coordinate_23
+        refined_reference_coords[4*3*(triangle_index-1)+12, :] = midpoint_ref_coordinate_31
+
+        # TODO use geometric interpolation here!
+        # Compute vertex position in physical space at midpoint
+        current_physical_coordinates = @view plotter.physical_coords[current_triangle]
+
+        midpoint_physical_coordinate_12  = (current_physical_coordinates[1]+current_physical_coordinates[2])/2.0
+        midpoint_physical_coordinate_23  = (current_physical_coordinates[2]+current_physical_coordinates[3])/2.0
+        midpoint_physical_coordinate_31  = (current_physical_coordinates[3]+current_physical_coordinates[1])/2.0
+        # Setup physical coordinates
+        # Triangle 1
+        refined_physical_coords[4*3*(triangle_index-1)+1] = current_physical_coordinates[1]
+        refined_physical_coords[4*3*(triangle_index-1)+2] = midpoint_physical_coordinate_12
+        refined_physical_coords[4*3*(triangle_index-1)+3] = midpoint_physical_coordinate_31
+        # Triangle 2
+        refined_physical_coords[4*3*(triangle_index-1)+4] = current_physical_coordinates[2]
+        refined_physical_coords[4*3*(triangle_index-1)+5] = midpoint_physical_coordinate_23
+        refined_physical_coords[4*3*(triangle_index-1)+6] = midpoint_physical_coordinate_12
+        # Triangle 3
+        refined_physical_coords[4*3*(triangle_index-1)+7] = current_physical_coordinates[3]
+        refined_physical_coords[4*3*(triangle_index-1)+8] = midpoint_physical_coordinate_31
+        refined_physical_coords[4*3*(triangle_index-1)+9] = midpoint_physical_coordinate_23
+        # Triangle 4
+        refined_physical_coords[4*3*(triangle_index-1)+10] = midpoint_physical_coordinate_12
+        refined_physical_coords[4*3*(triangle_index-1)+11] = midpoint_physical_coordinate_23
+        refined_physical_coords[4*3*(triangle_index-1)+12] = midpoint_physical_coordinate_31
+
+        # Setup inverse mapping
+        refined_triangle_cell_map[(4*(triangle_index-1)+1):4*triangle_index] .= plotter.triangle_cell_map[triangle_index]
+
+        # Setup new triangles
+        refined_triangles[4*(triangle_index-1)+1, :] = [4*3*(triangle_index-1)+1, 4*3*(triangle_index-1)+2, 4*3*(triangle_index-1)+3]
+        refined_triangles[4*(triangle_index-1)+2, :] = [4*3*(triangle_index-1)+4, 4*3*(triangle_index-1)+5, 4*3*(triangle_index-1)+6]
+        refined_triangles[4*(triangle_index-1)+3, :] = [4*3*(triangle_index-1)+7, 4*3*(triangle_index-1)+8, 4*3*(triangle_index-1)+9]
+        refined_triangles[4*(triangle_index-1)+4, :] = [4*3*(triangle_index-1)+10, 4*3*(triangle_index-1)+11, 4*3*(triangle_index-1)+12]
+    end
+
+    refined_triangles = Makie.to_triangles(refined_triangles)
+    refined_vis_triangles = copy(refined_triangles)
+    n_visible = sum(plotter.visible[refined_triangle_cell_map])
+    n_notvisible = length(refined_triangles) - n_visible
+    refined_vis_triangles[ .! plotter.visible[refined_triangle_cell_map]] .= (GeometryBasics.GLTriangleFace(1,1,1) for i in 1:n_notvisible)
+    refined_vis_triangles = ShaderAbstractions.Buffer(Makie.Observable(refined_triangles))
+    refined_physical_coords_m = ShaderAbstractions.Buffer(Makie.Observable(copy(refined_physical_coords)))
+    refined_mesh = GeometryBasics.Mesh(refined_physical_coords_m, refined_vis_triangles)
+
+    return MakiePlotter{dim,DH,T1,TOP,T2,M,TRI}(
+        plotter.dh, plotter.u, plotter.topology, plotter.visible, plotter.gridnodes,
+        refined_physical_coords, refined_physical_coords_m, refined_triangles, refined_vis_triangles, refined_triangle_cell_map,
+        plotter.cell_triangle_offsets .* 4, refined_reference_coords, refined_mesh
+    )
+end
+
+
+"""
+    uniform_refinement(plotter::MakiePlotter)
+
+Generates 3 triangles for each triangle by adding a center vertex and connecting them (orientation preserving).
+
+!!! note HIGH RAM USAGE!
+
+!!! note This function currently does not increase the resolution of the geometrical points in space, only the solution quality!
+
+!!! note TODO investigate whether it is possible to eliminate the coordinate duplication without trashing the caches
+"""
+function uniform_refinement(plotter::MakiePlotter{dim,DH,T1,TOP,T2,M,TRI}, num_refinements::Int) where {dim,DH,T1,TOP,T2,M,TRI}
+    num_refinements == 0 && return plotter
+    new_plotter = uniform_refinement(plotter)
+    new_plotter = uniform_refinement(new_plotter, num_refinements-1)
+    return new_plotter
 end

@@ -60,6 +60,6 @@ Just join the discussion in the corresponding issues.
 
 Pulling the Ferrite.jl logo with a [cohesive zone material model](https://github.com/kimauth/FerriteCohesiveZones.jl).
 
-![https://github.com/termi-official/FerriteVizLogo.jl](https://github.com/Ferrite-FEM/FerriteViz.jl/blob/master/docs/src/assets/logo_animated.gif?raw=true)
+![](https://media2.giphy.com/media/v1.Y2lkPTc5MGI3NjExbHg2NXdkdnhqc2xxZ3BpZm96d3dqdjhqeHN0ODRvNmlic2hzM2RwNCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/Z8ziYf5Gju7s6FzEOA/giphy.gif)
 
 Credits to [Kim Auth](https://github.com/kimauth/)

@@ -19,6 +19,18 @@ Likely, only a small fraction of the interface will change over time.
 pkg> add FerriteViz
 ```
 
+## Usage
+
+Simply grab your solution vector and the corresponding dof handler to create a plotter: 
+
+```julia
+import FerriteViz, GLMakie
+dh, u   = solve_problem()
+plotter = MakiePlotter(dh, u)
+FerriteViz.solutionplot(plotter)
+```
+
+For a guide check out [the tutorial section](https://ferrite-fem.github.io/FerriteViz.jl/dev/tutorial.html) - or just enjoy the gallery below!
 
 ## Features
 
@@ -37,6 +49,17 @@ pkg> add FerriteViz
 
 - correct visualization of nonlinear geometry faces/edges
 - visualization of boundary conditions
-- subdomain entity plotting, e.g. cellsets, facesets, edgesets and so on
-- labels for face, edge, vertex and dof numbering (technically there is no face and edge numbering in Ferrite.jl)
-- plotting gradient, divergence or other fields that can be derived from the FE solution
+- subdomain entity plotting, e.g. facesets, edgesets and so on
+- ...
+
+For a detailed list of planned features take a look into the [issue tracker](https://github.com/Ferrite-FEM/FerriteViz.jl/issues?q=is%3Aopen+is%3Aissue+label%3Aenhancement).
+Helping hands are always welcome.
+Just join the discussion in the corresponding issues.
+
+## Gallery
+
+Pulling the Ferrite.jl logo with a [cohesive zone material model](https://github.com/kimauth/FerriteCohesiveZones.jl).
+
+![https://github.com/termi-official/FerriteVizLogo.jl](https://github.com/Ferrite-FEM/FerriteViz.jl/blob/master/docs/src/assets/logo_animated.gif?raw=true)
+
+Credits to [Kim Auth](https://github.com/kimauth/)

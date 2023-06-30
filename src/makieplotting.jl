@@ -566,15 +566,6 @@ function ferriteviewer(plotter::MakiePlotter, data::Vector{Vector{T}}) where T
     display(fig)
 end
 
-#function get_domain(ip::Ferrite.Interpolation{ref_shape,order}, meshsize::Int) where {ref_shape<:RefTriangle,order}
-function get_domain(ip::Ferrite.Interpolation{2,ref_shape,order}, meshsize::Int) where {ref_shape<:Ferrite.RefTetrahedron,order}
-    rcs = Ferrite.reference_coordinates(ip)
-    y = range(max(vcat(collect.(rcs)...)...),min(vcat(collect.(rcs)...)...),length=meshsize)
-    x = range(min(vcat(collect.(rcs)...)...),max(vcat(collect.(rcs)...)...),length=meshsize)
-    ref_z = [(ix>iy) ? NaN : 0 for iy in 1:meshsize, ix in 1:meshsize]
-    return x,y,ref_z
-end
-
 #function initialize_figure(ip::Ferrite.Interpolation{ref_shape,N}) where {ref_shape<:Union{RefQuadrilateral,RefTriangle},N}
 function initialize_figure(ip::Ferrite.Interpolation{2,ref_shape,N}) where {ref_shape<:Union{Ferrite.RefCube,Ferrite.RefTetrahedron},N}
     #(ip==CrouzeixRaviart{RefTriangle, 1}()) && error("To-Do: implement")

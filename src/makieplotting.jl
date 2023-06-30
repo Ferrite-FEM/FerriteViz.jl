@@ -612,6 +612,11 @@ Plots all basis functions of `ip`. Only implemented for 1D and 2D instances of `
 """
 #function show_basis_function(ip::Ferrite.Interpolation{ref_shape,N}) where {ref_shape<:Union{RefTriangle,RefQuadrilateral},N}
 function show_basis_function(ip::Ferrite.Interpolation{2,ref_shape,N}) where {ref_shape<:Union{Ferrite.RefTetrahedron,Ferrite.RefCube},N}
+    rcs = Ferrite.reference_coordinates(ip)
+    eltype = Ferrite.Cell{2,length(rcs),Ferrite.nfaces(ip)}
+    nodes = [Ferrite.Node(tuple(c...)) for c in rcs]
+    grid = Ferrite.Grid([eltype(tuple(1:length(rcs)...))],nodes)
+
     x,y,ref_z = get_domain(ip,20)
 
     # initialize axes
@@ -623,6 +628,7 @@ function show_basis_function(ip::Ferrite.Interpolation{2,ref_shape,N}) where {re
             !isnan(z[iy,ix]) && (z[iy,ix]=Ferrite.value(ip,i,Ferrite.Vec{2,Float64}((_x,_y))))
         end
         vertices, clist = get_triangulation(ip,x,y,z)
+        try wireframe!(ax[i],grid) catch err; @warn err end
         mesh!(ax[i],vertices,clist; shading=false, fxaa=true, transparency=false, color=[vertices[i,3] for i in 1:size(vertices)[1]], colormap=:viridis)
     end
     current_figure()

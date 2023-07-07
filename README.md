@@ -61,5 +61,6 @@ Just join the discussion in the corresponding issues.
 Pulling the Ferrite.jl logo with a [cohesive zone material model](https://github.com/kimauth/FerriteCohesiveZones.jl).
 
 ![](https://media2.giphy.com/media/v1.Y2lkPTc5MGI3NjExbHg2NXdkdnhqc2xxZ3BpZm96d3dqdjhqeHN0ODRvNmlic2hzM2RwNCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/Z8ziYf5Gju7s6FzEOA/giphy.gif)
+![](https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExeDdrazJ4YmVxeDAzaGNpM2sxdGx5MGFwZm8zenUzbmZweDEzZjZpdyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/tECNrtIbG8QX0LHY7b/giphy.gif)
 
 Credits to [Kim Auth](https://github.com/kimauth/)

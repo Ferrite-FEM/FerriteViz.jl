@@ -589,8 +589,10 @@ Plots all basis functions of `ip`. Only implemented for 1D and 2D instances of `
 #function show_basis_function(ip::Ferrite.Interpolation{ref_shape,N}) where {ref_shape<:RefTriangle,N}
 function show_basis_function(ip::Ferrite.Interpolation{2,ref_shape,N}; meshsize=20, plotnodes=true, strokewidth=1, markersize=10, fontsize=60, nodelabels=true, nodelabelcolor=:darkred, nodelabeloffset=(2.0,2.0), facelabels=false, facelabelcolor=:darkgreen, facelabeloffset=(-40,0), edgelabels=true, edgelabelcolor=:darkblue, edgelabeloffset=(-40,-40), font="Julia Mono") where {ref_shape<:Ferrite.RefTetrahedron,N}
     rcs = Ferrite.reference_coordinates(ip)
-    y = range(max(vcat(collect.(rcs)...)...),min(vcat(collect.(rcs)...)...),length=meshsize)
-    x = range(min(vcat(collect.(rcs)...)...),max(vcat(collect.(rcs)...)...),length=meshsize)
+    mn = isa(ip,Ferrite.CrouzeixRaviart) ? 0. : min(vcat(collect.(rcs)...)...)
+    mx = isa(ip,Ferrite.CrouzeixRaviart) ? 1. : mx = max(vcat(collect.(rcs)...)...)
+    y = range(mx,mn,length=meshsize)
+    x = range(mn,mx,length=meshsize)
 
     # initialize axes
     fig,ax = initialize_figure(ip)
@@ -598,7 +600,7 @@ function show_basis_function(ip::Ferrite.Interpolation{2,ref_shape,N}; meshsize=
     for i in 1:Ferrite.getnbasefunctions(ip)
         local z = [(ix>iy) ? NaN : Ferrite.value(ip,i,Ferrite.Vec{2,Float64}((_x,_y))) for (iy,_y) in enumerate(y), (ix,_x) in enumerate(x)]
         vertices, clist = get_triangulation(ip,x,y,z)
-        elementinfo!(ax[i],ip;plotnodes, strokewidth, markersize, fontsize, nodelabels, nodelabelcolor, nodelabeloffset, facelabels, facelabelcolor, facelabeloffset, edgelabels, edgelabelcolor, edgelabeloffset, font)
+        !isa(ip,Ferrite.CrouzeixRaviart) && elementinfo!(ax[i],ip;plotnodes, strokewidth, markersize, fontsize, nodelabels, nodelabelcolor, nodelabeloffset, facelabels, facelabelcolor, facelabeloffset, edgelabels, edgelabelcolor, edgelabeloffset, font)
         mesh!(ax[i],vertices,clist; shading=false, fxaa=true, transparency=false, color=[vertices[i,3] for i in 1:size(vertices)[1]], colormap=:viridis)
     end
     current_figure()

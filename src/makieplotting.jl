@@ -455,6 +455,8 @@ function Makie.plot!(Ele::Elementinfo{<:Tuple{<:Ferrite.Interpolation{dim,refsha
             idx = 4
         elseif refshape == Ferrite.RefTetrahedron && dim == 3
             idx = 3
+        elseif refshape == Ferrite.RefPrism && dim == 3
+            idx = length(face)
         else
             idx = 2
         end

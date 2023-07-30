@@ -20,9 +20,7 @@ Ferrite.default_interpolation(::Type{Ferrite.Cell{3,3,1}}) = Ferrite.Lagrange{2,
 # Note: This extracts the face spanned by the vertices, not the actual face!
 linear_face_cell(cell::Ferrite.Cell{3,N,4}, local_face_idx::Int) where N =  Ferrite.Cell{3,3,1}(Ferrite.faces(cell)[local_face_idx])
 linear_face_cell(cell::Ferrite.Cell{3,N,6}, local_face_idx::Int) where N = Ferrite.Quadrilateral3D(Ferrite.faces(cell)[local_face_idx])
-
-# Obtain the face interpolation on regular geometries.
-getfaceip(ip::Ferrite.Interpolation{dim, shape, order}, local_face_idx::Int) where {dim, shape <: Union{Ferrite.RefTetrahedron, Ferrite.RefCube}, order} = Ferrite.getlowerdim(ip)
+linear_face_cell(cell::Ferrite.Cell{3,N,5}, local_face_idx::Int) where N = local_face_idx in 2:4 ? Ferrite.Quadrilateral3D(Ferrite.faces(cell)[local_face_idx]) : Ferrite.Cell{3,3,1}(Ferrite.faces(cell)[local_face_idx])
 
 struct MakiePlotter{dim,DH<:Ferrite.AbstractDofHandler,T1,TOP<:Union{Nothing,Ferrite.AbstractTopology},T2,M,TRI} <: AbstractPlotter
     dh::DH
@@ -189,6 +187,7 @@ ntriangles(cell::Ferrite.AbstractCell{3,3,1}) = 1 # Tris in 3D
 ntriangles(cell::Ferrite.AbstractCell{dim,N,4}) where {dim,N} = 4 # Quads in 2D and 3D
 ntriangles(cell::Ferrite.AbstractCell{3,N,1}) where N = 4 # Tets as a special case of a Quad, obviously :)
 ntriangles(cell::Ferrite.AbstractCell{3,N,6}) where N = 6*4 # Hex
+ntriangles(cell::Ferrite.AbstractCell{3,N,5}) where {N} = 1+4+4+4+1
 
 """
 Get the vertices represented as a list of coordinates of a cell.
@@ -280,7 +279,7 @@ end
 Decompose volumetric objects via their faces.
 """
 function decompose!(coord_offset, coord_matrix, ref_coord_matrix, triangle_offset, triangle_matrix, grid, cell::Ferrite.AbstractCell{3,N,M}) where {N,M}
-    # Just 6 quadrilaterals :)
+    # Default decomposition just decomposes each face individually
     for face_index ∈ 1:M
         face_coord_offset = coord_offset
         (coord_offset, triangle_offset) = decompose!(coord_offset, coord_matrix, ref_coord_matrix, triangle_offset, triangle_matrix, grid, linear_face_cell(cell, face_index))
@@ -471,8 +470,7 @@ copied into the returned flux dof handler and flux dof value vector.
 """
 function interpolate_gradient_field(dh::Ferrite.DofHandler{spatial_dim}, u::AbstractVector, field_name::Symbol; copy_fields::Vector{Symbol}=Symbol[]) where {spatial_dim}
     # Get some helpers
-    field_idx = Ferrite.find_field(dh, field_name)
-    ip = Ferrite.getfieldinterpolation(dh, field_idx)
+    ip = Ferrite.getfieldinterpolation(dh, field_name)
 
     # Create dof handler for gradient field
     dh_gradient = Ferrite.DofHandler(getgrid(dh))
@@ -567,6 +565,19 @@ function transfer_quadrature_face_to_cell(point::AbstractVector, cell::Ferrite.A
     face == 2 && return [ y,  0,  1-x-y]
     face == 3 && return [ x,  y,  1-x-y]
     face == 4 && return [ 0,  1-x-y,  y]
+end
+
+"""
+Mapping from 2D quadrilateral/triangle to 3D face of a wedge.
+"""
+function transfer_quadrature_face_to_cell(point::AbstractVector, cell::Ferrite.AbstractCell{3,N,5}, face::Int) where {N}
+    # Note that for quadrilaterals the domain is [-1, 1]² but for triangles it is [0, 1]²
+    x,y = point
+    face == 1 && return [    1-x-y,         y,       0]
+    face == 2 && return [  (1+x)/2,         0, (1+y)/2]
+    face == 3 && return [        0, 1-(1+x)/2, (1+y)/2]
+    face == 4 && return [1-(1+x)/2,   (1+x)/2, (1+y)/2]
+    face == 5 && return [        y,     1-x-y,       1]
 end
 
 """

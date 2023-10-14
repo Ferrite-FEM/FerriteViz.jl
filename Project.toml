@@ -8,14 +8,15 @@ Ferrite = "c061ca5d-56c9-439f-9c0e-210fe06d3992"
 GeometryBasics = "5c1252a2-5f33-56bf-86c9-59e7332b4326"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 Makie = "ee78f7c6-11fb-53f2-987a-cfe4a2b5a57a"
+Reexport = "189a3867-3050-52da-a836-e630ba90ab69"
 ShaderAbstractions = "65257c39-d410-5151-9873-9b3e5be5013e"
+StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 Tensors = "48a634ad-e948-5137-8d70-aa71f2a747f4"
 
 [compat]
 Ferrite = "0.3.13"
 GeometryBasics = "0.4"
 Makie = "0.17,0.18,0.19"
-ShaderAbstractions = "0.3"
 Tensors = "1"
 julia = "1"
 

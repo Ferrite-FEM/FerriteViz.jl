@@ -15,26 +15,26 @@ end;
 
 function create_values(interpolation_u, interpolation_p)
     # quadrature rules
-    qr      = QuadratureRule{2,RefCube}(3)
-    face_qr = QuadratureRule{1,RefCube}(3)
+    qr      = QuadratureRule{RefQuadrilateral}(3)
+    face_qr = FaceQuadratureRule{RefQuadrilateral}(3)
 
     # geometric interpolation
-    interpolation_geom = Lagrange{2,RefCube,1}()
+    interpolation_geom = Lagrange{RefQuadrilateral,1}()
 
     # cell and facevalues for u
-    cellvalues_u = CellVectorValues(qr, interpolation_u, interpolation_geom)
-    facevalues_u = FaceVectorValues(face_qr, interpolation_u, interpolation_geom)
+    cellvalues_u = CellValues(qr, interpolation_u, interpolation_geom)
+    facevalues_u = FaceValues(face_qr, interpolation_u, interpolation_geom)
 
     # cellvalues for p
-    cellvalues_p = CellScalarValues(qr, interpolation_p, interpolation_geom)
+    cellvalues_p = CellValues(qr, interpolation_p, interpolation_geom)
 
     return cellvalues_u, cellvalues_p, facevalues_u
 end;
 
 function create_dofhandler(grid, ipu, ipp)
     dh = DofHandler(grid)
-    push!(dh, :u, 2, ipu) # displacement
-    push!(dh, :p, 1, ipp) # pressure
+    add!(dh, :u, ipu) # displacement
+    add!(dh, :p, ipp) # pressure
     close!(dh)
     return dh
 end;
@@ -53,9 +53,9 @@ struct LinearElasticity{T}
     K::T
 end
 
-function doassemble(cellvalues_u::CellVectorValues{dim}, cellvalues_p::CellScalarValues{dim},
-                    facevalues_u::FaceVectorValues{dim}, K::SparseMatrixCSC, grid::Grid,
-                    dh::DofHandler, mp::LinearElasticity) where {dim}
+function doassemble(cellvalues_u::CellValues, cellvalues_p::CellValues,
+                    facevalues_u::FaceValues, K::SparseMatrixCSC, grid::Grid{sdim},
+                    dh::DofHandler, mp::LinearElasticity) where {sdim}
 
     f = zeros(ndofs(dh))
     assembler = start_assemble(K, f)
@@ -68,7 +68,7 @@ function doassemble(cellvalues_u::CellVectorValues{dim}, cellvalues_p::CellScala
     # traction vector
     t = Tensors.Vec{2}((0.0, 1/16))
     # cache ɛdev outside the element routine to avoid some unnecessary allocations
-    ɛdev = [zero(SymmetricTensor{2, dim}) for i in 1:getnbasefunctions(cellvalues_u)]
+    ɛdev = [zero(SymmetricTensor{2, sdim}) for i in 1:getnbasefunctions(cellvalues_u)]
 
     for cell in CellIterator(dh)
         fill!(ke, 0)
@@ -157,10 +157,10 @@ function solve(interpolation_u, interpolation_p, mp)
     K = create_sparsity_pattern(dh);
     K, f = doassemble(cellvalues_u, cellvalues_p, facevalues_u, K, grid, dh, mp);
     apply!(K, f, dbc)
-    u = Symmetric(K) \ f;
+    u = K \ f;
 
     # export
-    filename = "cook_" * (isa(interpolation_u, Lagrange{2,RefCube,1}) ? "linear" : "quadratic") *
+    filename = "cook_" * (isa(interpolation_u, Lagrange{RefQuadrilateral,1}) ? "linear" : "quadratic") *
                          "_linear"
     vtk_grid(filename, dh) do vtkfile
         vtk_point_data(vtkfile, dh, u)
@@ -168,13 +168,13 @@ function solve(interpolation_u, interpolation_p, mp)
     return u,dh
 end
 
-linear    = Lagrange{2,RefCube,1}()
-quadratic = Lagrange{2,RefCube,2}()
+linear    = Lagrange{RefQuadrilateral,1}()
+quadratic = Lagrange{RefQuadrilateral,2}()
 
 ν = 0.4999999
 Emod = 1.
 Gmod = Emod / 2(1 + ν)
 Kmod = Emod * ν / ((1+ν) * (1-2ν))
 mp = LinearElasticity(Gmod, Kmod)
-u_linear,dh_linear = solve(linear, linear, mp);
-u_quadratic,dh_quadratic = solve(quadratic, linear, mp);
+u_linear,dh_linear = solve(linear^2, linear, mp);
+u_quadratic,dh_quadratic = solve(quadratic^2, linear, mp);

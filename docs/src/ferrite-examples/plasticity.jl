@@ -101,23 +101,22 @@ end
 
 function create_values(interpolation)
     # setup quadrature rules
-    qr      = QuadratureRule{3,RefTetrahedron}(2)
-    face_qr = QuadratureRule{2,RefTetrahedron}(3)
+    qr      = QuadratureRule{RefTetrahedron}(2)
+    face_qr = FaceQuadratureRule{RefTetrahedron}(3)
 
     # create geometric interpolation (use the same as for u)
-    interpolation_geom = Lagrange{3,RefTetrahedron,1}()
+    interpolation_geom = Lagrange{RefTetrahedron,1}()^3
 
     # cell and facevalues for u
-    cellvalues_u = CellVectorValues(qr, interpolation, interpolation_geom)
-    facevalues_u = FaceVectorValues(face_qr, interpolation, interpolation_geom)
+    cellvalues_u = CellValues(qr, interpolation, interpolation_geom)
+    facevalues_u = FaceValues(face_qr, interpolation, interpolation_geom)
 
     return cellvalues_u, facevalues_u
 end;
 
 function create_dofhandler(grid, interpolation)
     dh = DofHandler(grid)
-    dim = 3
-    push!(dh, :u, dim, interpolation) # add a displacement field with 3 components
+    push!(dh, :u, interpolation) # add a displacement field with 3 components
     close!(dh)
     return dh
 end
@@ -132,8 +131,8 @@ function create_bc(dh, grid)
     return dbcs
 end;
 
-function doassemble(cellvalues::CellVectorValues{dim},
-                    facevalues::FaceVectorValues{dim}, K::SparseMatrixCSC, grid::Grid,
+function doassemble(cellvalues::CellValues{dim},
+                    facevalues::FaceValues{dim}, K::SparseMatrixCSC, grid::Grid,
                     dh::DofHandler, material::J2Plasticity, u, states, t) where {dim}
     r = zeros(ndofs(dh))
     assembler = start_assemble(K, r)
@@ -219,15 +218,15 @@ function solve(liveplotting=false)
     # Create geometry, dofs and boundary conditions
     n = 2
     nels = (10n, n, 2n) # number of elements in each spatial direction
-    P1 = Vec((0.0, 0.0, 0.0))  # start point for geometry
-    P2 = Vec((L, w, h))        # end point for geometry
+    P1 = Tensors.Vec((0.0, 0.0, 0.0))  # start point for geometry
+    P2 = Tensors.Vec((L, w, h))        # end point for geometry
     grid = generate_grid(Tetrahedron, nels, P1, P2)
-    interpolation = Lagrange{3, RefTetrahedron, 1}() # Linear tet with 3 unknowns/node
+    interpolation = Lagrange{RefTetrahedron, 1}() # Linear tet with 3 unknowns/node
 
-    dh = create_dofhandler(grid, interpolation) # JuaFEM helper function
+    dh = create_dofhandler(grid, interpolation^3) # helper function
     dbcs = create_bc(dh, grid) # create Dirichlet boundary-conditions
 
-    cellvalues, facevalues = create_values(interpolation)
+    cellvalues, facevalues = create_values(interpolation^3)
 
     # Pre-allocate solution vectors, etc.
     n_dofs = ndofs(dh)  # total number of dofs
@@ -255,7 +254,7 @@ function solve(liveplotting=false)
 
     for timestep in 1:n_timesteps
         t = timestep # actual time (used for evaluating d-bndc)
-        traction = Vec((0.0, 0.0, traction_magnitude[timestep]))
+        traction = Tensors.Vec((0.0, 0.0, traction_magnitude[timestep]))
         newton_itr = -1
         update!(dbcs, t) # evaluates the D-bndc at time t
         apply!(u, dbcs)  # set the prescribed values in the solution vector

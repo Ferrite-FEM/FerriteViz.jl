@@ -272,11 +272,8 @@ function Makie.plot!(WF::Wireframe{<:Tuple{<:Ferrite.AbstractGrid{dim}}}) where 
     celllabels = @lift $(WF[:celllabels]) ? ["$i" for i in 1:Ferrite.getncells(grid)] : [""]
     cellpositions = @lift $(WF[:celllabels]) ? [midpoint(cell,coords) for cell in Ferrite.getcells(grid)] : (dim < 3 ? [Point2f((0,0))] : [Point3f((0,0,0))])
     #cellsetsplot
-    if isconcretetype(grid.cells)
-        dh = Ferrite.DofHandler(grid)
-    else
-        dh = Ferrite.MixedDofHandler(grid)
-    end
+
+    dh = Ferrite.DofHandler(grid)
     cellsets = grid.cellsets
     cellset_to_value = Dict{String,Int}()
     for (cellsetidx,(cellsetname,cellset)) in enumerate(cellsets)
@@ -367,26 +364,29 @@ the arrows are unicolored. Otherwise the color corresponds to the magnitude, or 
     )
 end
 
-function Makie.plot!(AR::Arrows{<:Tuple{<:MakiePlotter{dim}}}) where dim
+function Makie.plot!(AR::Arrows{<:Tuple{<:MakiePlotter{sdim}}}) where sdim
     plotter = AR[1][]
     solution = @lift begin
         if $(AR[:field]) === :default
             field_name = Ferrite.getfieldnames(plotter.dh)[1]
-            @assert Ferrite.getfielddim(plotter.dh,field_name) > 1
+            field_dim = Ferrite.getfielddim(plotter.dh, field_name)
+            @assert field_dim == sdim "Dimension of field $field_name is $field_dim does not match spatial dimension $sdim"
             transfer_solution(plotter,$(plotter.u); field_name=field_name, process=identity)
         else
-            @assert Ferrite.getfielddim(plotter.dh,$(AR[:field])) > 1
+            field_name = $(AR[:field])
+            field_dim = Ferrite.getfielddim(plotter.dh, field_name)
+            @assert field_dim == sdim "Dimension of field $field_name is $field_dim does not match spatial dimension $sdim"
             transfer_solution(plotter,$(plotter.u); field_name=$(AR[:field]), process=identity)
         end
     end
-    if dim  == 2
+    if sdim  == 2
         ns = @lift([Vec2f(i) for i in eachrow($(solution))])
         lengths = @lift($(AR[:color])===:default ? $(AR[:process]).($(ns)) : ones(length($(ns)))*$(AR[:color]))
-    elseif dim  == 3
+    elseif sdim  == 3
         ns = @lift([Vec3f(i) for i in eachrow($(solution))])
         lengths = @lift($(AR[:color])===:default ? $(AR[:process]).($(ns)) : ones(length($(ns)))*$(AR[:color]))
     else
-        error("Arrows plots are only available in dim ≥ 2")
+        error("Arrows plots are only available in dimension ≥ 2")
     end
     Makie.arrows!(AR, plotter.physical_coords, ns, arrowsize=AR[:arrowsize], colormap=AR[:colormap], color=lengths, lengthscale=AR[:lengthscale])
 end

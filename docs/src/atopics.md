@@ -63,12 +63,12 @@ include("ferrite-examples/heat-equation.jl"); #defines manufactured_heat_problem
 f = WGLMakie.Figure()
 axs = [WGLMakie.Axis3(f[1, 1], title="Coarse"), WGLMakie.Axis3(f[1, 2], title="Fine")]
 
-dh,u = manufactured_heat_problem(Triangle, Lagrange{2,RefTetrahedron,5}(), 1)
+dh,u = manufactured_heat_problem(Triangle, Lagrange{RefTriangle,5}(), 1)
 dh_for,u_for = FerriteViz.for_discretization(dh, u)
 plotter_for = FerriteViz.MakiePlotter(dh_for, u_for)
 FerriteViz.surface!(axs[1], plotter_for)
 
-dh,u = manufactured_heat_problem(Triangle, Lagrange{2,RefTetrahedron,5}(), 3)
+dh,u = manufactured_heat_problem(Triangle, Lagrange{RefTriangle,5}(), 3)
 dh_for,u_for = FerriteViz.for_discretization(dh, u)
 plotter_for = FerriteViz.MakiePlotter(dh_for, u_for)
 FerriteViz.surface!(axs[2], plotter_for)
@@ -84,7 +84,7 @@ include("ferrite-examples/heat-equation.jl"); #defines manufactured_heat_problem
 f = WGLMakie.Figure()
 axs = [WGLMakie.Axis3(f[1, 1], title="Coarse"), WGLMakie.Axis3(f[1, 2], title="Fine")]
 
-dh, u = manufactured_heat_problem(Hexahedron, Lagrange{3,RefCube,2}(), 2);
+dh, u = manufactured_heat_problem(Hexahedron, Lagrange{RefHexahedron,2}(), 2);
 plotter = FerriteViz.MakiePlotter(dh,u);
 clip_plane = FerriteViz.ClipPlane(Ferrite.Vec((0.0,0.5,0.5)), 0.1);
 clipped_plotter = FerriteViz.crinkle_clip(plotter, clip_plane);

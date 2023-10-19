@@ -10,10 +10,6 @@ getdim(::Type{<:Ferrite.AbstractRefShape{rdim}}) where rdim = rdim
 get_gradient_interpolation(::Lagrange{shape,order}) where {sdim,shape<:Ferrite.AbstractRefShape{sdim},order} = VectorizedInterpolation{shape,DiscontinuousLagrange{shape,order-1}()}
 get_gradient_interpolation_type(::Type{Lagrange{shape,order}}) where {sdim,shape<:Ferrite.AbstractRefShape{sdim},order} = DiscontinuousLagrange{shape,order-1}
 
-# this should be properly fixed (https://github.com/Ferrite-FEM/Ferrite.jl/issues/398)
-get_gradient_interpolation(::VectorizedInterpolation{vdim, shape, order, <:Lagrange{shape, order}}) where {sdim,vdim,shape<:Ferrite.AbstractRefShape{sdim},order} = DiscontinuousLagrange{shape, order-1}()^(sdim*vdim)
-get_gradient_interpolation_type(::Type{VectorizedInterpolation{vdim, shape, order, <:Lagrange{shape, order}}}) where {sdim,vdim,shape<:Ferrite.AbstractRefShape{sdim},order} = VectorizedInterpolation{sdim*vdim, shape, order-1, DiscontinuousLagrange{shape, order-1}}
-
 function Ferrite.shape_value(ipv::VectorizedInterpolation{4, shape}, ξ::Tensors.Vec{2, T}, I::Int) where {shape <: Ferrite.AbstractRefShape{2}, T}
     i0, c0 = divrem(I - 1, 4)
     i = i0 + 1
@@ -445,15 +441,6 @@ function transfer_scalar_celldata(plotter::MakiePlotter{dim,DH,T}, u::Vector; pr
     return data::Vector{T}
 end
 
-
-function ε(x::AbstractVector{T}) where {T}
-    ngrad = length(x)
-    dim = isqrt(ngrad)
-    ∇u = Tensor{2,dim,T,ngrad}(x)
-    return symmetric(∇u)
-end
-
-
 """
 This is a helper to access the correct value in Tensors.jl entities, because the gradient index is the outermost one.
 """
@@ -501,7 +488,6 @@ function interpolate_gradient_field(dh::DofHandler{spatial_dim}, u::AbstractVect
     # In general uᵉ_gradient is an order 3 tensor [field_dim, spatial_dim, nqp]
     uᵉ_gradient = zeros(length(cell_dofs_gradient[Ferrite.dof_range(dh_gradient, :gradient)]))
     uᵉshape = (spatial_dim, field_dim, getnquadpoints(qr_gradient))
-    @show uᵉshape
     uᵉ_gradient_view = reshape(uᵉ_gradient, uᵉshape)
     uᵉ = zeros(Ferrite.getnbasefunctions(ip))
 
@@ -694,3 +680,85 @@ function uniform_refinement(plotter::MakiePlotter{dim,DH,T1,TOP,T2,M,TRI}, num_r
     new_plotter = uniform_refinement(new_plotter, num_refinements-1)
     return new_plotter
 end
+
+# Foundation block for https://github.com/Ferrite-FEM/Ferrite.jl/issues/398 - Remove this below after the issue is resolved.
+##################################################
+# MatrixizedInterpolation{<:ScalarInterpolation} #
+##################################################
+abstract type MatrixInterpolation{vdim1, vdim2, refshape, order} <: Ferrite.Interpolation{refshape, order, Nothing} end
+
+struct MatrixizedInterpolation{vdim1, vdim2, refshape, order, SI <: ScalarInterpolation{refshape, order}} <: MatrixInterpolation{vdim1, vdim2, refshape,order}
+    ip::SI
+    function MatrixizedInterpolation{vdim1, vdim2}(ip::SI) where {vdim1, vdim2, refshape, order, SI <: Ferrite.ScalarInterpolation{refshape, order}}
+        return new{vdim1, vdim2, refshape, order, SI}(ip)
+    end
+end
+
+Ferrite.n_components(::MatrixizedInterpolation{vdim1, vdim2}) where {vdim1, vdim2} = vdim1*vdim2
+Ferrite.adjust_dofs_during_distribution(ip::MatrixizedInterpolation) = Ferrite.adjust_dofs_during_distribution(ip.ip)
+
+# Vectorize to reference dimension by default
+function MatrixizedInterpolation(ip::ScalarInterpolation{shape}) where {refdim, shape <: Ferrite.AbstractRefShape{refdim}}
+    return MatrixizedInterpolation{refdim,refdim}(ip)
+end
+
+Base.:(^)(ip::VectorizedInterpolation{vdim1}, vdim2::Int) where {vdim1} = MatrixizedInterpolation{vdim1, vdim2}(ip)
+function Base.literal_pow(::typeof(^), ip::VectorizedInterpolation{vdim1}, ::Val{vdim2}) where {vdim1,vdim2}
+    return MatrixizedInterpolation{vdim1, vdim2}(ip.ip)
+end
+
+function Base.show(io::IO, mime::MIME"text/plain", ip::MatrixizedInterpolation{vdim1, vdim2}) where {vdim1, vdim2}
+    show(io, mime, ip.ip)
+    print(io, "^", vdim1 , "×", vdim2)
+end
+
+# Helper to get number of copies for DoF distribution
+Ferrite.get_n_copies(::MatrixizedInterpolation{vdim1, vdim2}) where {vdim1, vdim2} = vdim1*vdim2
+
+function Ferrite.getnbasefunctions(ipv::MatrixizedInterpolation{vdim1, vdim2}) where {vdim1, vdim2}
+    return vdim1 * vdim2 * getnbasefunctions(ipv.ip)
+end
+function Ferrite.shape_value(ipv::MatrixizedInterpolation{vdim, vdim, shape}, ξ::Tensors.Vec{refdim, T}, I::Int) where {vdim, refdim, shape <: Ferrite.AbstractRefShape{refdim}, T}
+    # First flatten to vector
+    i0, c0 = divrem(I - 1, vdim^2)
+    i = i0 + 1
+    v = Ferrite.shape_value(ipv.ip, ξ, i)
+
+    # Then compute matrix index
+    ci0, cj0 = divrem(c0, vdim)
+    ci = ci0 + 1
+    cj = cj0 + 1
+    return Ferrite.Tensor{2, vdim, T}((k, l) -> k == ci && l == cj ? v : zero(v))
+end
+
+# vdim1 == vdim2 == refdim
+# function shape_gradient_and_value(ipv::MatrixizedInterpolation{dim, dim, shape}, ξ::Vec{dim}, I::Int) where {dim, shape <: AbstractRefShape{dim}}
+#     # TODO order 3 tensor
+#     return invoke(shape_gradient_and_value, Tuple{Interpolation, Vec, Int}, ipv, ξ, I)
+# end
+# vdim1 != vdim2 != refdim
+# function shape_gradient_and_value(ipv::MatrixizedInterpolation{vdim1, vdim2, shape}, ξ::V, I::Int) where {vdim1, vdim2, refdim, shape <: AbstractRefShape{refdim}, T, V <: Vec{refdim, T}}
+#     # Load with dual numbers and compute the value
+#     f = x -> shape_value(ipv, x, I)
+#     ξd = Tensors._load(ξ, Tensors.Tag(f, V))
+#     value_grad = f(ξd)
+#     # Extract the value and gradient
+#     val = Vec{vdim, T}(i -> Tensors.value(value_grad[i]))
+#     grad = zero(MMatrix{vdim, refdim, T})
+#     for (i, vi) in pairs(value_grad)
+#         p = Tensors.partials(vi)
+#         for (j, pj) in pairs(p)
+#             grad[i, j] = pj
+#         end
+#     end
+#     return SArray{Tuple{vdim1, vdim2, }(grad), val
+# end
+
+Ferrite.reference_coordinates(ip::MatrixizedInterpolation) = Ferrite.reference_coordinates(ip.ip)
+
+Ferrite.is_discontinuous(::Type{<:MatrixizedInterpolation{<:Any, <:Any, <:Any, <:Any, ip}}) where {ip} = Ferrite.is_discontinuous(ip)
+
+get_gradient_interpolation(::VectorizedInterpolation{vdim, shape, order, <:Lagrange{shape, order}}) where {sdim,vdim,shape<:Ferrite.AbstractRefShape{sdim},order} = MatrixizedInterpolation{vdim, sdim}(DiscontinuousLagrange{shape, order-1}())
+get_gradient_interpolation_type(::Type{VectorizedInterpolation{vdim, shape, order, <:Lagrange{shape, order}}}) where {sdim,vdim,shape<:Ferrite.AbstractRefShape{sdim},order} = MatrixizedInterpolation{vdim, sdim, shape, order-1, DiscontinuousLagrange{shape, order-1}}
+
+Ferrite.InterpolationInfo(ip::MatrixizedInterpolation) = Ferrite.InterpolationInfo(ip.ip, Ferrite.get_n_copies(ip))

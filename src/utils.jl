@@ -7,24 +7,8 @@ const TetrahedralCell = Ferrite.AbstractCell{<:Ferrite.RefTetrahedron}
 getdim(::Ferrite.AbstractRefShape{rdim}) where rdim = rdim
 getdim(::Type{<:Ferrite.AbstractRefShape{rdim}}) where rdim = rdim
 
-get_gradient_interpolation(::Lagrange{shape,order}) where {sdim,shape<:Ferrite.AbstractRefShape{sdim},order} = VectorizedInterpolation{shape,DiscontinuousLagrange{shape,order-1}()}
-get_gradient_interpolation_type(::Type{Lagrange{shape,order}}) where {sdim,shape<:Ferrite.AbstractRefShape{sdim},order} = DiscontinuousLagrange{shape,order-1}
-
-function Ferrite.shape_value(ipv::VectorizedInterpolation{4, shape}, ξ::Tensors.Vec{2, T}, I::Int) where {shape <: Ferrite.AbstractRefShape{2}, T}
-    i0, c0 = divrem(I - 1, 4)
-    i = i0 + 1
-    c = c0 + 1
-    v = Ferrite.shape_value(ipv.ip, ξ, i)
-    return SVector(ntuple(j -> j == c ? v : zero(v), 4))
-end
-
-function Ferrite.shape_value(ipv::VectorizedInterpolation{9, shape}, ξ::Tensors.Vec{3, T}, I::Int) where {shape <: Ferrite.AbstractRefShape{3}, T}
-    i0, c0 = divrem(I - 1, 9)
-    i = i0 + 1
-    c = c0 + 1
-    v = Ferrite.shape_value(ipv.ip, ξ, i)
-    return SVector(ntuple(j -> j == c ? v : zero(v), 9))
-end
+get_gradient_interpolation(::Lagrange{shape,order}) where {sdim,shape<:Ferrite.AbstractRefShape{sdim},order} = VectorizedInterpolation{sdim}(DiscontinuousLagrange{shape,order-1}())
+get_gradient_interpolation_type(::Type{Lagrange{shape,order}}) where {sdim,shape<:Ferrite.AbstractRefShape{sdim},order} = VectorizedInterpolation{sdim,shape,order-1,DiscontinuousLagrange{shape,order-1}}
 
 # Note: This extracts the face spanned by the vertices, not the actual face!
 linear_face_cell(cell::TetrahedralCell, local_face_idx::Int) = Triangle(Ferrite.faces(cell)[local_face_idx])
@@ -494,7 +478,7 @@ function interpolate_gradient_field(dh::DofHandler{spatial_dim}, u::AbstractVect
     for (cell_num, cell) in enumerate(Ferrite.CellIterator(dh))
         # Get element dofs on parent field
         Ferrite.celldofs!(cell_dofs, dh, cell_num)
-        uᵉ .= u[cell_dofs[Ferrite.dof_range(dh, field_name)]]
+        uᵉ = @views u[cell_dofs[Ferrite.dof_range(dh, field_name)]]
 
         # And initialize cellvalues for the cell to evaluate the gradient at the basis functions 
         # of the gradient field

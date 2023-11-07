@@ -17,7 +17,7 @@ In this quick example we show how to visualize strains and stresses side-by-side
 ```@example 1
 using Ferrite
 import FerriteViz
-using FerriteViz: ε
+ε(∇u) = (∇u+transpose(∇u))/2
 import WGLMakie #activating the backend, switch to GLMakie or CairoMakie (for 2D) locally
 
 include("ferrite-examples/incompressible-elasticity.jl") #defines dh_linear, dh_quadratic, u_linear, u_quadratic and mp

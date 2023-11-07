@@ -8,8 +8,9 @@ makedocs(sitename="FerriteViz",
          pages=["Home"=> "index.md",
                 "Tutorial" => "tutorial.md",
                 "Advanced Topics" => "atopics.md",
-                "API Reference" => "api.md",],
-         strict=:example_block,
+                "API Reference" => "api.md",
+                "Devdocs" => "devdocs.md",
+                ],
 )
 
 deploydocs(repo = "github.com/Ferrite-FEM/FerriteViz.jl.git",

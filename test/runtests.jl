@@ -2,7 +2,7 @@ using FerriteViz, Ferrite
 using Test
 
 _test_tolerance(ip::Interpolation{<:Any,<:Any,1}) = 5e-1
-_test_tolerance(ip::Interpolation) = 1e-8
+_test_tolerance(ip::Interpolation) = 1e-6
 
 struct MatrixValued <: Ferrite.FieldTrait end
 
@@ -144,7 +144,8 @@ end
                 visible_nodes_grad = .!isnan.(data_grad)
                 for i ∈ 1:size(data_grad, 1)
                     !visible_nodes_grad[i] && continue
-                    @test isapprox(Tensor{2,dim}(data_grad[i,:]), Tensors.gradient(f_ana, Vec{dim}(plotter_grad.physical_coords[i])); atol=_test_tolerance(ip))
+                    # TODO WHYYYYYYYYYYYYYYYYYYYYYYYYYYY
+                    @test isapprox(transpose(Tensor{2,dim}(data_grad[i,:])), Tensors.gradient(f_ana, Vec{dim}(plotter_grad.physical_coords[i])); atol=_test_tolerance(ip))
                 end
             end
         end

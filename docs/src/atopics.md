@@ -1,8 +1,10 @@
 # Advanced Topics
 
 ```@example 1
-import JSServe # hide
-JSServe.Page() # hide
+import JSServe, WGLMakie # hide
+JSServe.Page(exportable=true, offline=true) # hide
+WGLMakie.activate!() # hide
+WGLMakie.Makie.inline!(true) # hide
 ```
 
 ## Gradient field visualization

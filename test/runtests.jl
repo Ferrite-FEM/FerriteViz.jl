@@ -39,7 +39,7 @@ end
                            (3,Tetrahedron, Lagrange{3,RefTetrahedron,2}()),
                            (4,Quadrilateral, Lagrange{2,RefCube,1}()),
                            (2,Quadrilateral, Lagrange{2,RefCube,2}()),
-                           (4,Hexahedron, Lagrange{3,RefCube,1}()),
+                           (5,Hexahedron, Lagrange{3,RefCube,1}()),
                            (2,Hexahedron, Lagrange{3,RefCube,2}())
         ]
         @testset "scalar($num_elements_per_dim, $geo, $ip)" begin

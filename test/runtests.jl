@@ -39,7 +39,7 @@ end
                            (3,Tetrahedron, Lagrange{3,RefTetrahedron,2}()),
                            (4,Quadrilateral, Lagrange{2,RefCube,1}()),
                            (2,Quadrilateral, Lagrange{2,RefCube,2}()),
-                           (5,Hexahedron, Lagrange{3,RefCube,1}()),
+                           (4,Hexahedron, Lagrange{3,RefCube,1}()),
                            (2,Hexahedron, Lagrange{3,RefCube,2}())
         ]
         @testset "scalar($num_elements_per_dim, $geo, $ip)" begin
@@ -59,7 +59,7 @@ end
                 plotter = FerriteViz.MakiePlotter(dh,u)
                 data = FerriteViz.transfer_solution(plotter,u,process=x->x)[:,1]
                 visible_nodes = .!isnan.(data)# TODO add API
-                @test isapprox(data[visible_nodes], f_ana.(plotter.physical_coords[visible_nodes]); atol=_test_tolerance(ip))
+                @test all(isapprox.(data[visible_nodes], f_ana.(plotter.physical_coords[visible_nodes]); atol=_test_tolerance(ip)))
             end
 
             # Compute gradient/flux field
@@ -67,7 +67,7 @@ end
                 (dh_grad, u_grad) = FerriteViz.interpolate_gradient_field(dh, u, :u)
 
                 # Check gradient of solution
-                qr = QuadratureRule{dim,Ferrite.getrefshape(ip)}(2)
+                qr = QuadratureRule{dim,Ferrite.getrefshape(ip)}(2) # TODO sample random point
                 ip_geo = Ferrite.default_interpolation(geo)
                 ip_grad = Ferrite.getfieldinterpolation(dh_grad, Ferrite.find_field(dh_grad, :gradient))
                 cellvalues_grad = Ferrite.CellVectorValues(qr, ip_grad, ip_geo)
@@ -79,7 +79,7 @@ end
                         x = spatial_coordinate(cellvalues_grad, q_point, coords)
                         uₐₚₚᵣₒₓ = function_value(cellvalues_grad, q_point, uₑ)
                         uₐₙₐ = Tensors.gradient(f_ana, x)
-                        @test isapprox(uₐₙₐ, uₐₚₚᵣₒₓ;atol=_test_tolerance(ip))
+                        @test all(isapprox.(uₐₙₐ, uₐₚₚᵣₒₓ;atol=_test_tolerance(ip)))
                     end
                 end
 
@@ -89,7 +89,7 @@ end
                 visible_nodes_grad = .!isnan.(data_grad)
                 for i ∈ 1:size(data_grad, 1)
                     !visible_nodes_grad[i] && continue
-                    @test isapprox(Vec{dim}(data_grad[i,:]), Tensors.gradient(f_ana, Vec{dim}(plotter_grad.physical_coords[i])); atol=_test_tolerance(ip))
+                    @test all(isapprox.(Vec{dim}(data_grad[i,:]), Tensors.gradient(f_ana, Vec{dim}(plotter_grad.physical_coords[i])); atol=_test_tolerance(ip)))
                 end
             end
         end
@@ -113,7 +113,7 @@ end
                 visible_nodes = .!isnan.(data)# TODO add API
                 for i ∈ 1:size(data, 1)
                     !visible_nodes[i] && continue
-                    @test isapprox(Vec{dim}(data[i,:]), f_ana(Vec{dim}(plotter.physical_coords[i])); atol=_test_tolerance(ip))
+                    @test all(isapprox.(Vec{dim}(data[i,:]), f_ana(Vec{dim}(plotter.physical_coords[i])); atol=_test_tolerance(ip)))
                 end
             end
 
@@ -122,7 +122,7 @@ end
                 (dh_grad, u_grad) = FerriteViz.interpolate_gradient_field(dh, u, :u)
 
                 # Check gradient of solution
-                qr = QuadratureRule{dim,Ferrite.getrefshape(ip)}(2)
+                qr = QuadratureRule{dim,Ferrite.getrefshape(ip)}(2) # TODO sample random point
                 ip_geo = Ferrite.default_interpolation(geo)
                 ip_grad = Ferrite.getfieldinterpolation(dh_grad, Ferrite.find_field(dh_grad, :gradient))
                 cellvalues_grad = Ferrite.CellScalarValues(qr, ip_grad, ip_geo)
@@ -134,7 +134,7 @@ end
                         x = spatial_coordinate(cellvalues_grad, q_point, coords)
                         uₐₚₚᵣₒₓ = function_value(MatrixValued(), cellvalues_grad, q_point, uₑ)
                         uₐₙₐ = Tensors.gradient(f_ana, x)
-                        @test isapprox(uₐₙₐ, uₐₚₚᵣₒₓ;atol=_test_tolerance(ip))
+                        @test all(isapprox.(uₐₙₐ, uₐₚₚᵣₒₓ;atol=_test_tolerance(ip)))
                     end
                 end
 
@@ -145,7 +145,7 @@ end
                 for i ∈ 1:size(data_grad, 1)
                     !visible_nodes_grad[i] && continue
                     # TODO WHYYYYYYYYYYYYYYYYYYYYYYYYYYY
-                    @test isapprox(transpose(Tensor{2,dim}(data_grad[i,:])), Tensors.gradient(f_ana, Vec{dim}(plotter_grad.physical_coords[i])); atol=_test_tolerance(ip))
+                    @test all(isapprox.(transpose(Tensor{2,dim}(data_grad[i,:])), Tensors.gradient(f_ana, Vec{dim}(plotter_grad.physical_coords[i])); atol=_test_tolerance(ip)))
                 end
             end
         end

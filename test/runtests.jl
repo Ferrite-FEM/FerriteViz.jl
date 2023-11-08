@@ -145,7 +145,7 @@ end
                 for i ∈ 1:size(data_grad, 1)
                     !visible_nodes_grad[i] && continue
                     # TODO WHYYYYYYYYYYYYYYYYYYYYYYYYYYY
-                    @test all(isapprox.(transpose(Tensor{2,dim}(data_grad[i,:])), Tensors.gradient(f_ana, Vec{dim}(plotter_grad.physical_coords[i])); atol=_test_tolerance(ip)))
+                    @test all(isapprox.(Tensor{2,dim}(data_grad[i,:]), Tensors.gradient(f_ana, Vec{dim}(plotter_grad.physical_coords[i])); atol=_test_tolerance(ip)))
                 end
             end
         end

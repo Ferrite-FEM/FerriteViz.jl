@@ -494,7 +494,7 @@ end
 This is a helper to access the correct value in Tensors.jl entities, because the gradient index is the outermost one.
 """
 @inline _tensorsjl_gradient_accessor(v::Tensors.Vec{dim}, field_dim_idx::Int, spatial_dim_idx::Int) where {dim} = v[spatial_dim_idx]
-@inline _tensorsjl_gradient_accessor(m::Tensors.Tensor{2,dim}, field_dim_idx::Int, spatial_dim_idx::Int) where {dim} = m[field_dim_idx, spatial_dim_idx]
+@inline _tensorsjl_gradient_accessor(m::Tensors.Tensor{2,dim}, field_dim_idx::Int, spatial_dim_idx::Int) where {dim} = m[spatial_dim_idx, field_dim_idx]
 
 """
     interpolate_gradient_field(dh::DofHandler, u::AbstractVector, field_name::Symbol; copy_fields::Vector{Symbol})

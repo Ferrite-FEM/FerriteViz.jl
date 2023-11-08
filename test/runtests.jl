@@ -42,7 +42,7 @@ end
                            (4,Hexahedron, Lagrange{3,RefCube,1}()),
                            (2,Hexahedron, Lagrange{3,RefCube,2}())
         ]
-        @testset failfast=true  "scalar($num_elements_per_dim, $geo, $ip)" begin
+        @testset "scalar($num_elements_per_dim, $geo, $ip)" begin
             # Get solution
             dim = Ferrite.getdim(ip)
             grid = generate_grid(geo, ntuple(x->num_elements_per_dim, dim));
@@ -94,7 +94,7 @@ end
             end
         end
 
-        @testset failfast=true "vector($num_elements_per_dim, $geo, $ip)" begin
+        @testset "vector($num_elements_per_dim, $geo, $ip)" begin
             # Get solution
             dim = Ferrite.getdim(ip)
             grid = generate_grid(geo, ntuple(x->num_elements_per_dim, dim));

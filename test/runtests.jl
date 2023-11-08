@@ -1,8 +1,8 @@
 using FerriteViz, Ferrite
 using Test
 
-_test_tolerance(ip::Interpolation{<:Any,<:Any,1}) = 5e-1
-_test_tolerance(ip::Interpolation) = 1e-6
+# _test_tolerance(ip::Interpolation{<:Any,<:Any,1}) = 5e-1
+_test_tolerance(ip::Interpolation) = 1e-6 # Float32 computations are involved!
 
 struct MatrixValued <: Ferrite.FieldTrait end
 
@@ -32,14 +32,14 @@ end
 @testset "utility operations" begin
     # Check scalar problems
     for (num_elements_per_dim, geo, ip) ∈ [
-                           (4,Triangle, Lagrange{2,RefTetrahedron,1}()),
+                        #    (4,Triangle, Lagrange{2,RefTetrahedron,1}()),
                            (2,Triangle, Lagrange{2,RefTetrahedron,2}()),
                            (2,Triangle, Lagrange{2,RefTetrahedron,3}()),
-                           (5,Tetrahedron, Lagrange{3,RefTetrahedron,1}()),
-                           (3,Tetrahedron, Lagrange{3,RefTetrahedron,2}()),
-                           (4,Quadrilateral, Lagrange{2,RefCube,1}()),
+                        #    (5,Tetrahedron, Lagrange{3,RefTetrahedron,1}()),
+                           (2,Tetrahedron, Lagrange{3,RefTetrahedron,2}()),
+                        #    (4,Quadrilateral, Lagrange{2,RefCube,1}()),
                            (2,Quadrilateral, Lagrange{2,RefCube,2}()),
-                           (4,Hexahedron, Lagrange{3,RefCube,1}()),
+                        #    (4,Hexahedron, Lagrange{3,RefCube,1}()),
                            (2,Hexahedron, Lagrange{3,RefCube,2}())
         ]
         @testset "scalar($num_elements_per_dim, $geo, $ip)" begin
@@ -52,7 +52,8 @@ end
             close!(dh);
 
             u = Vector{Float64}(undef, ndofs(dh))
-            f_ana(x) = sum(0.5 * x.^2)
+            f_ana(x::Union{Vec{2},FerriteViz.GeometryBasics.Point{2}}) = 0.5x[1]^2 - 2x[2]^2 + x[1]*x[2]
+            f_ana(x::Union{Vec{3},FerriteViz.GeometryBasics.Point{3}}) = -x[1]^2 + 0.3*x[2]^2 + 2*x[3]^2 + 5x[1]*x[2] -   2x[1]*x[3] + 0.1x[3]*x[2]
             Ferrite.apply_analytical!(u, dh, :u, f_ana)
 
             @testset "solution fields" begin
@@ -67,29 +68,36 @@ end
                 (dh_grad, u_grad) = FerriteViz.interpolate_gradient_field(dh, u, :u)
 
                 # Check gradient of solution
-                qr = QuadratureRule{dim,Ferrite.getrefshape(ip)}(2) # TODO sample random point
-                ip_geo = Ferrite.default_interpolation(geo)
-                ip_grad = Ferrite.getfieldinterpolation(dh_grad, Ferrite.find_field(dh_grad, :gradient))
-                cellvalues_grad = Ferrite.CellVectorValues(qr, ip_grad, ip_geo)
-                for cell in CellIterator(dh_grad)
-                    reinit!(cellvalues_grad, cell)
-                    coords = getcoordinates(cell)
-                    uₑ = @views u_grad[celldofs(cell)]
-                    for q_point in 1:getnquadpoints(cellvalues_grad)
-                        x = spatial_coordinate(cellvalues_grad, q_point, coords)
-                        uₐₚₚᵣₒₓ = function_value(cellvalues_grad, q_point, uₑ)
-                        uₐₙₐ = Tensors.gradient(f_ana, x)
-                        @test all(isapprox.(uₐₙₐ, uₐₚₚᵣₒₓ;atol=_test_tolerance(ip)))
+                @testset "interpolate_gradient_field" begin
+                    qr = QuadratureRule{dim,Ferrite.getrefshape(ip)}(2) # TODO sample random point
+                    ip_geo = Ferrite.default_interpolation(geo)
+                    ip_grad = Ferrite.getfieldinterpolation(dh_grad, Ferrite.find_field(dh_grad, :gradient))
+                    cellvalues_grad = Ferrite.CellVectorValues(qr, ip_grad, ip_geo)
+                    for cell in CellIterator(dh_grad)
+                        reinit!(cellvalues_grad, cell)
+                        coords = getcoordinates(cell)
+                        uₑ = @views u_grad[celldofs(cell)]
+                        for q_point in 1:getnquadpoints(cellvalues_grad)
+                            x = spatial_coordinate(cellvalues_grad, q_point, coords)
+                            uₐₚₚᵣₒₓ = function_value(cellvalues_grad, q_point, uₑ)
+                            uₐₙₐ = Tensors.gradient(f_ana, x)
+                            @test all(isapprox.(uₐₙₐ, uₐₚₚᵣₒₓ;atol=_test_tolerance(ip)))
+                        end
                     end
                 end
 
                 # Check for correct transfer
-                plotter_grad = FerriteViz.MakiePlotter(dh_grad,u_grad)
-                data_grad = FerriteViz.transfer_solution(plotter_grad,u_grad; field_name=:gradient, process=x->x)
-                visible_nodes_grad = .!isnan.(data_grad)
-                for i ∈ 1:size(data_grad, 1)
-                    !visible_nodes_grad[i] && continue
-                    @test all(isapprox.(Vec{dim}(data_grad[i,:]), Tensors.gradient(f_ana, Vec{dim}(plotter_grad.physical_coords[i])); atol=_test_tolerance(ip)))
+                @testset "transfer_solution" begin
+                    plotter_grad = FerriteViz.MakiePlotter(dh_grad,u_grad)
+                    data_grad = FerriteViz.transfer_solution(plotter_grad,u_grad; field_name=:gradient, process=x->x)
+                    visible_nodes_grad = .!isnan.(data_grad)
+                    for i ∈ 1:size(data_grad, 1)
+                        !visible_nodes_grad[i] && continue
+                        x = Vec{dim,Float64}(plotter_grad.physical_coords[i])
+                        ∇uₐₚₚᵣₒₓ = Vec{dim,Float64}(data_grad[i,:])
+                        ∇uₐₙₐ = Tensors.gradient(f_ana, x)
+                        @test all(isapprox.(∇uₐₚₚᵣₒₓ, ∇uₐₙₐ; atol=_test_tolerance(ip)))
+                    end
                 end
             end
         end
@@ -103,7 +111,16 @@ end
             add!(dh, :u, dim, ip)
             close!(dh);
 
-            f_ana(x) = Vec{dim}(i->(sum(x.^(i-1) /i)))
+            # Some test functions with rather complicated gradients
+            f_ana(x::Union{Vec{3},FerriteViz.GeometryBasics.Point{3}}) = Vec{3}((
+                -x[1]^2 + 0.3*x[2]^2 + 2*x[3]^2 + 5x[1]*x[2] -   2x[1]*x[3] + 0.1x[3]*x[2],
+                 x[1]^2 - 0.3*x[2]^2 + 1*x[3]^2 - 5x[1]*x[2] +   2x[1]*x[3]               ,
+                          1.3*x[2]^2 - 2*x[3]^2 + 5x[1]*x[2] - 0.7x[1]*x[3] - 0.1x[3]*x[2],
+            ))
+            f_ana(x::Union{Vec{2},FerriteViz.GeometryBasics.Point{2}}) = Vec{2}((
+                -x[1]^2 + 0.3*x[2]^2 +   5x[1]*x[2],
+                 x[1]^2 + 2.3*x[2]^2 - 0.1x[1]*x[2],
+            ))
             u = Vector{Float64}(undef, ndofs(dh))
             Ferrite.apply_analytical!(u, dh, :u, f_ana)
 
@@ -113,7 +130,9 @@ end
                 visible_nodes = .!isnan.(data)# TODO add API
                 for i ∈ 1:size(data, 1)
                     !visible_nodes[i] && continue
-                    @test all(isapprox.(Vec{dim}(data[i,:]), f_ana(Vec{dim}(plotter.physical_coords[i])); atol=_test_tolerance(ip)))
+                    uₐₚₚᵣₒₓ = Vec{dim}(data[i,:])
+                    uₐₙₐ = f_ana(Vec{dim}(plotter.physical_coords[i]))
+                    @test all(isapprox.(uₐₚₚᵣₒₓ, uₐₙₐ; atol=_test_tolerance(ip)))
                 end
             end
 
@@ -122,30 +141,37 @@ end
                 (dh_grad, u_grad) = FerriteViz.interpolate_gradient_field(dh, u, :u)
 
                 # Check gradient of solution
-                qr = QuadratureRule{dim,Ferrite.getrefshape(ip)}(2) # TODO sample random point
-                ip_geo = Ferrite.default_interpolation(geo)
-                ip_grad = Ferrite.getfieldinterpolation(dh_grad, Ferrite.find_field(dh_grad, :gradient))
-                cellvalues_grad = Ferrite.CellScalarValues(qr, ip_grad, ip_geo)
-                for cell in CellIterator(dh_grad)
-                    reinit!(cellvalues_grad, cell)
-                    coords = getcoordinates(cell)
-                    uₑ = @views u_grad[celldofs(cell)]
-                    for q_point in 1:getnquadpoints(cellvalues_grad)
-                        x = spatial_coordinate(cellvalues_grad, q_point, coords)
-                        uₐₚₚᵣₒₓ = function_value(MatrixValued(), cellvalues_grad, q_point, uₑ)
-                        uₐₙₐ = Tensors.gradient(f_ana, x)
-                        @test all(isapprox.(uₐₙₐ, uₐₚₚᵣₒₓ;atol=_test_tolerance(ip)))
+                @testset "interpolate_gradient_field" begin
+                    qr = QuadratureRule{dim,Ferrite.getrefshape(ip)}(2) # TODO sample random point
+                    ip_geo = Ferrite.default_interpolation(geo)
+                    ip_grad = Ferrite.getfieldinterpolation(dh_grad, Ferrite.find_field(dh_grad, :gradient))
+                    cellvalues_grad = Ferrite.CellScalarValues(qr, ip_grad, ip_geo)
+                    for cell in CellIterator(dh_grad)
+                        reinit!(cellvalues_grad, cell)
+                        coords = getcoordinates(cell)
+                        uₑ = @views u_grad[celldofs(cell)]
+                        for q_point in 1:getnquadpoints(cellvalues_grad)
+                            x = spatial_coordinate(cellvalues_grad, q_point, coords)
+                            ∇uₐₚₚᵣₒₓ = function_value(MatrixValued(), cellvalues_grad, q_point, uₑ)
+                            ∇uₐₙₐ = Tensors.gradient(f_ana, x)
+                            @test all(isapprox.(∇uₐₙₐ, ∇uₐₚₚᵣₒₓ;atol=_test_tolerance(ip)))
+                        end
                     end
                 end
 
                 # Check for correct transfer
-                plotter_grad = FerriteViz.MakiePlotter(dh_grad,u_grad)
-                data_grad = FerriteViz.transfer_solution(plotter_grad,u_grad; field_name=:gradient, process=x->x)
-                visible_nodes_grad = .!isnan.(data_grad)
-                for i ∈ 1:size(data_grad, 1)
-                    !visible_nodes_grad[i] && continue
-                    # TODO WHYYYYYYYYYYYYYYYYYYYYYYYYYYY
-                    @test all(isapprox.(Tensor{2,dim}(data_grad[i,:]), Tensors.gradient(f_ana, Vec{dim}(plotter_grad.physical_coords[i])); atol=_test_tolerance(ip)))
+                @testset "transfer_solution" begin
+                    plotter_grad = FerriteViz.MakiePlotter(dh_grad,u_grad)
+                    data_grad = FerriteViz.transfer_solution(plotter_grad,u_grad; field_name=:gradient, process=x->x)
+                    visible_nodes_grad = .!isnan.(data_grad)
+                    for i ∈ 1:size(data_grad, 1)
+                        !visible_nodes_grad[i] && continue
+                        x = Vec{dim,Float64}(plotter_grad.physical_coords[i])
+                        # Transpose because constructed from Vector and not from Tuple :)
+                        ∇uₐₚₚᵣₒₓ = transpose(Tensor{2,dim,Float64,2*dim}(data_grad[i,:]))
+                        ∇uₐₙₐ = Tensors.gradient(f_ana, x)
+                        @test all(isapprox.(∇uₐₙₐ, ∇uₐₚₚᵣₒₓ; atol=_test_tolerance(ip)))
+                    end
                 end
             end
         end

@@ -40,3 +40,13 @@ This package offers a set of unique features that are not easily reproducible wi
 - GPU powered plotting with GLMakie.jl, jupyter/pluto notebook plotting with WGLMakie.jl and vector graphics with CairoMakie.jl
 - visualization of high order solutions via first order refinement
 - visualization of non-conforming solutions, e.g. for Crouzeix-Raviart ansatz
+
+## Viewing the docs locally
+
+To view the docs locally use the provided live server:
+
+```julia
+include("docs/liveserver.jl")
+```
+
+Opening the html files in the browser directly might fail with a CORS error, manifesting itself figures which don't render correctly.

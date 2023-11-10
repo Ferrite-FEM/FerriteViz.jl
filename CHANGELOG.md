@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] - 2023-11-10
+### Added
+ - uniform refinement for high-order solutions ([#97][github-97])
+ - dependabot for GitHub actions ([#101][github-101])
+ - attempt to increase internal machinery test coverage ([#104][github-104])
+
+### Modified
+ - `README.md` improvements with example gifs ([#96][github-96])
+ - CI trigger only for PRs and master ([#105][github-105])
+ - update docs to Documenter v1 ([#106][github-106])
+ - update Makie in docs to v0.19.12 ([#109][github-109])
+
+### Fixed
+ - 0 `ntriangles` for empty domains ([#92][github-92])
+ - correct link for plasticity example ([#93][github-93])
+ - colorbar for 0 values and `ferriteviewer` deformation default changed to false ([#95][github-95])
+
 ## [0.2.1] - 2023-05-24
 ### Added
  - Basic culling where all faces of all boundary elements are rendered ([#56][github-56]).
@@ -66,7 +83,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [github-83]: https://github.com/Ferrite-FEM/FerriteViz.jl/pull/83
 [github-85]: https://github.com/Ferrite-FEM/FerriteViz.jl/pull/85
 [github-89]: https://github.com/Ferrite-FEM/FerriteViz.jl/pull/89
+[github-92]: https://github.com/Ferrite-FEM/FerriteViz.jl/pull/92
+[github-93]: https://github.com/Ferrite-FEM/FerriteViz.jl/pull/93
+[github-95]: https://github.com/Ferrite-FEM/FerriteViz.jl/pull/95
+[github-96]: https://github.com/Ferrite-FEM/FerriteViz.jl/pull/96
+[github-97]: https://github.com/Ferrite-FEM/FerriteViz.jl/pull/97
+[github-101]: https://github.com/Ferrite-FEM/FerriteViz.jl/pull/101
+[github-104]: https://github.com/Ferrite-FEM/FerriteViz.jl/pull/104
+[github-105]: https://github.com/Ferrite-FEM/FerriteViz.jl/pull/105
+[github-106]: https://github.com/Ferrite-FEM/FerriteViz.jl/pull/106
+[github-109]: https://github.com/Ferrite-FEM/FerriteViz.jl/pull/109
 
-[Unreleased]: https://github.com/Ferrite-FEM/FerriteViz.jl/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/Ferrite-FEM/FerriteViz.jl/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/Ferrite-FEM/FerriteViz.jl/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/Ferrite-FEM/FerriteViz.jl/compare/v0.2.1...v0.2.0
 [0.2.0]: https://github.com/Ferrite-FEM/FerriteViz.jl/compare/v0.2.0...v0.1.4

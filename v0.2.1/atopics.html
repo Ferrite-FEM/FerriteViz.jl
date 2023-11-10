@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Advanced Topics · FerriteViz</title><script data-outdated-warner src="assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.045/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.13.24/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL="."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="assets/documenter.js"></script><script src="siteinfo.js"></script><script src="../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href="index.html">FerriteViz</a></span></div><form class="docs-search" action="search.html"><input class="docs-search-query" id="documenter-search-query" name="q" type="text" placeholder="Search docs"/></form><ul class="docs-menu"><li><a class="tocitem" href="index.html">Home</a></li><li><a class="tocitem" href="tutorial.html">Tutorial</a></li><li class="is-active"><a class="tocitem" href="atopics.html">Advanced Topics</a><ul class="internal"><li><a class="tocitem" href="#Gradient-field-visualization"><span>Gradient field visualization</span></a></li><li><a class="tocitem" href="#High-order-fields"><span>High-order fields</span></a></li><li><a class="tocitem" href="#Live-plotting"><span>Live plotting</span></a></li></ul></li><li><a class="tocitem" href="api.html">API Reference</a></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><nav class="breadcrumb"><ul class="is-hidden-mobile"><li class="is-active"><a href="atopics.html">Advanced Topics</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href="atopics.html">Advanced Topics</a></li></ul></nav><div class="docs-right"><a class="docs-edit-link" href="https://github.com/Ferrite-FEM/FerriteViz.jl/blob/master/docs/src/atopics.md" title="Edit on GitHub"><span class="docs-icon fab"></span><span class="docs-label is-hidden-touch">Edit on GitHub</span></a><a class="docs-settings-button fas fa-cog" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-sidebar-button fa fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a></div></header><article class="content" id="documenter-page"><h1 id="Advanced-Topics"><a class="docs-heading-anchor" href="#Advanced-Topics">Advanced Topics</a><a id="Advanced-Topics-1"></a><a class="docs-heading-anchor-permalink" href="#Advanced-Topics" title="Permalink"></a></h1><h2 id="Gradient-field-visualization"><a class="docs-heading-anchor" href="#Gradient-field-visualization">Gradient field visualization</a><a id="Gradient-field-visualization-1"></a><a class="docs-heading-anchor-permalink" href="#Gradient-field-visualization" title="Permalink"></a></h2><p>FerriteViz also makes it easy to visualize gradient fields, like for example strain or stress fields. A common approach to visualize stresses and strains is to compute the L2 projection onto a H1 field and plot this. However, a big downside is that we loose the ability to investigate the jumps between elements, as they get smoothed out, hiding possible issues in the solution. Therefore, we provide the ability to interpolate the gradient into a piecewise discontinuous field via <code>FerriteViz.interpolate_gradient_field</code>. This function may be moved to Ferrite in the future.</p><p>In this quick example we show how to visualize strains and stresses side-by-side</p><pre><code class="language-julia hljs">using Ferrite
+import FerriteViz
+using FerriteViz: ε
+import WGLMakie #activating the backend, switch to GLMakie or CairoMakie (for 2D) locally
+
+include(&quot;ferrite-examples/incompressible-elasticity.jl&quot;) #defines dh_linear, dh_quadratic, u_linear, u_quadratic and mp
+
+(dh_linear_grad, u_linear_grad) = FerriteViz.interpolate_gradient_field(dh_linear, u_linear, :u)
+(dh_quadratic_grad, u_quadratic_grad) = FerriteViz.interpolate_gradient_field(dh_quadratic, u_quadratic, :u)
+plotter_linear = FerriteViz.MakiePlotter(dh_linear_grad, u_linear_grad)
+plotter_quadratic = FerriteViz.MakiePlotter(dh_quadratic_grad, u_quadratic_grad)
+σ(∇u) = 2*mp.G*dev(ε(∇u)) + mp.K*tr(ε(∇u))*ones(ε(∇u)) #helper function to map gradient to stress
+cmap = :jet
+
+f = WGLMakie.Figure()
+axs = [WGLMakie.Axis(f[1, 1], title=&quot;Strain norm (linear)&quot;),WGLMakie.Axis(f[1, 2], title=&quot;Stress norm (linear)&quot;),WGLMakie.Axis(f[1, 3], title=&quot;Pressure (deformed, linear)&quot;),
+       WGLMakie.Axis(f[3, 1], title=&quot;Strain norm (quadratic)&quot;),WGLMakie.Axis(f[3, 2], title=&quot;Stress norm (quadratic)&quot;),WGLMakie.Axis(f[3, 3], title=&quot;Pressure (deformed, quadratic)&quot;)]
+p1 = FerriteViz.solutionplot!(axs[1], plotter_linear, process=∇u-&gt;norm(ε(∇u)), colormap=cmap, field=:gradient)
+p2 = FerriteViz.solutionplot!(axs[2], plotter_linear, process=∇u-&gt;norm(σ(∇u)), colormap=cmap, field=:gradient)
+p3 = FerriteViz.solutionplot!(axs[3], dh_linear, u_linear, field=:p, deformation_field=:u, colormap=cmap)
+f[2,1] = WGLMakie.Colorbar(f[1,1], p1, vertical=false)
+f[2,2] = WGLMakie.Colorbar(f[1,2], p2, vertical=false)
+f[2,3] = WGLMakie.Colorbar(f[1,3], p3, vertical=false)
+
+p4 = FerriteViz.solutionplot!(axs[4], plotter_quadratic, process=∇u-&gt;norm(ε(∇u)), colormap=cmap, field=:gradient)
+p5 = FerriteViz.solutionplot!(axs[5], plotter_quadratic, process=∇u-&gt;norm(σ(∇u)), colormap=cmap, field=:gradient)
+p6 = FerriteViz.solutionplot!(axs[6], dh_quadratic, u_quadratic, field=:p, deformation_field=:u, colormap=cmap)
+f[4,1] = WGLMakie.Colorbar(f[3,1], p1, vertical=false)
+f[4,2] = WGLMakie.Colorbar(f[3,2], p2, vertical=false)
+f[4,3] = WGLMakie.Colorbar(f[3,3], p3, vertical=false)
+
+f</code></pre><div>
+  <div id="90842a74-015d-4d60-a944-c54be5e06f6a" data-jscall-id="root">
+    <div>
+      <script src="jsserve/js/JSServe.bundled.js" type="module"></script>
+      <div></div>
+    </div>
+    <span>
+      <script type="module">JSServe.lock_loading(() => JSServe.init_session('90842a74-015d-4d60-a944-c54be5e06f6a', null, 'root'))</script>
+    </span>
+  </div>
+  <div id="902408e2-cd48-45bb-b831-ebd8aea1b554" data-jscall-id="subsession-application-dom">
+    <div>
+      <div></div>
+    </div>
+    <div data-jscall-id="1">
+      <script type="module">    JSServe.lock_loading(() => {
+        return JSServe.fetch_binary('jsserve/bin/23f3727fe026eddbe362b725410594fe60f78b4f-12236252651957795033.bin').then(msgs=> JSServe.init_session('902408e2-cd48-45bb-b831-ebd8aea1b554', msgs, 'sub'));
+    })
+</script>
+      <canvas data-jscall-id="2" tabindex="0"></canvas>
+    </div>
+  </div>
+</div><p>An alternative to this approach is to compute gradient quantities at samples points and plot these via <code>arrows</code>.</p><h2 id="High-order-fields"><a class="docs-heading-anchor" href="#High-order-fields">High-order fields</a><a id="High-order-fields-1"></a><a class="docs-heading-anchor-permalink" href="#High-order-fields" title="Permalink"></a></h2><p>The investigation of high-order fields is currently only supported via a first-order refinment of the problem. Here, the high-order approximation is replaced by a first order approximation of the field, which is spanned by the nodes of the high-order approximation. For example, the first order refinement of a heat problem on a square domain for Lagrange polynomials of order 5 looks like this:</p><pre><code class="language-julia hljs">include(&quot;ferrite-examples/heat-equation.jl&quot;); #defines manufactured_heat_problem
+
+f = WGLMakie.Figure()
+axs = [WGLMakie.Axis3(f[1, 1], title=&quot;Coarse&quot;), WGLMakie.Axis3(f[1, 2], title=&quot;Fine&quot;)]
+
+dh,u = manufactured_heat_problem(Triangle, Lagrange{2,RefTetrahedron,5}(), 1)
+dh_for,u_for = FerriteViz.for_discretization(dh, u)
+plotter_for = FerriteViz.MakiePlotter(dh_for, u_for)
+FerriteViz.surface!(axs[1], plotter_for)
+
+dh,u = manufactured_heat_problem(Triangle, Lagrange{2,RefTetrahedron,5}(), 3)
+dh_for,u_for = FerriteViz.for_discretization(dh, u)
+plotter_for = FerriteViz.MakiePlotter(dh_for, u_for)
+FerriteViz.surface!(axs[2], plotter_for)
+
+f</code></pre><div id="e7252668-b6e3-493a-a17d-bfe781842d21" data-jscall-id="subsession-application-dom">
+  <div>
+    <div></div>
+  </div>
+  <div data-jscall-id="3">
+    <script type="module">    JSServe.lock_loading(() => {
+        return JSServe.fetch_binary('jsserve/bin/9da401d15373cff19cf0f014bf3e8decd3a77af5-11683720521992716700.bin').then(msgs=> JSServe.init_session('e7252668-b6e3-493a-a17d-bfe781842d21', msgs, 'sub'));
+    })
+</script>
+    <canvas data-jscall-id="4" tabindex="0"></canvas>
+  </div>
+</div><p>Note that this method produces small artifacts due to the flattening of the nonlinearities of the high order ansatz. However, it is still sufficient to investigate important features of the solution. In future we will also provide an adaptive tessellation algorithm to resolve the high-order fields with full detail.</p><h2 id="Live-plotting"><a class="docs-heading-anchor" href="#Live-plotting">Live plotting</a><a id="Live-plotting-1"></a><a class="docs-heading-anchor-permalink" href="#Live-plotting" title="Permalink"></a></h2><p>Plotting while a computational heavy simulation is performed can be easily achieved with FerriteViz.jl. Every plotter object of type <code>MakiePlotter</code> holds a property called <code>u</code> which is a so called <code>Observable</code>. If an <code>Observable</code> changes, all its dependencies are triggered to change as well. So, all we need to do is to update the observable <code>plotter.u</code>. For this purpose the function <a href="api.html#FerriteViz.update!"><code>FerriteViz.update!</code></a> is provided. It takes a <code>plotter:MakiePlotter</code> and a new solutiuon vector <code>u_new</code> and updates <code>plotter.u</code>, thereby all open plots called with <code>plotter</code> are updated.</p><p>A summary of the needed steps for live plotting:</p><ol><li>Create a plotter before your time stepping begins</li><li>Call a plot or the <code>ferriteviewer</code> and save the return in a variable, e.g. <code>fig</code></li><li><code>display(fig)</code> in order to force the plot/viewer to pop up, even if its called inside a function body</li><li><code>FerriteViz.update!(plotter,u_new)</code> where <code>u_new</code> corresponds to your new solution of the time step</li></ol><p>As an illustrative example, let&#39;s consider a slightly modified <a href="https://github.com/koehlerson/FerriteViz.jl/blob/master/docs/src/ferrite-examples/plasticity.jl">plasticity example of Ferrite.jl</a>. For the full source code, please refer to the link. In the following code we only highlight the necessary changes.</p><pre><code class="language-julia hljs">function solve(liveplotting=false)
+    # set up your problem
+    # lots of code
+    dh = create_dofhandler(grid, interpolation) #helper function from script file
+    n_dofs = ndofs(dh)  # total number of dofs
+    u  = zeros(n_dofs)
+
+    if liveplotting
+        ####### Here we take care of the conceptual steps 1, 2 and 3 #######
+        plotter = MakiePlotter(dh,u)
+        fig = ferriteviewer(plotter)
+        display(fig)
+        ####################################################################
+    end
+
+    Δu = zeros(n_dofs)  # displacement correction
+    r = zeros(n_dofs)   # residual
+    K = create_sparsity_pattern(dh); # tangent stiffness matrix
+
+    nqp = getnquadpoints(cellvalues)
+    states = [[MaterialState() for _ in 1:nqp] for _ in 1:getncells(grid)]
+
+    # Newton-Raphson loop
+    NEWTON_TOL = 1 # 1 N
+
+    for timestep in 1:n_timesteps
+        while true; newton_itr += 1
+
+            if newton_itr &gt; 8
+                error(&quot;Reached maximum Newton iterations, aborting&quot;)
+                break
+            end
+            K, r = doassemble(cellvalues, facevalues, K, grid, dh, material, u,
+                             states, traction);
+            norm_r = norm(r[Ferrite.free_dofs(dbcs)])
+
+            if norm_r &lt; NEWTON_TOL
+                break
+            end
+
+            apply_zero!(K, r, dbcs)
+            Δu = Symmetric(K) \ r
+            u -= Δu
+        end
+
+        if liveplotting
+            ####### Step 4 updating the current solution vector in plotter #######
+            FerriteViz.update!(plotter,u)
+            ######################################################################
+            sleep(0.1)
+        end
+
+        # Update all the material states after we have reached equilibrium
+        for cell_states in states
+            foreach(update_state!, cell_states)
+        end
+        u_max[timestep] = max(abs.(u)...) # maximum displacement in current timestep
+    end
+
+    # postprocessing
+    # lots of code
+    return u, dh, traction_magnitude
+end
+
+u, dh, traction_magnitude = solve();</code></pre><p>Note that we create <code>plotter::MakiePlotter</code> object before the time stepping begins, as well as calling <code>ferriteviewer</code> on the <code>plotter</code>. The next function call is crucial to get the live plotting working. <code>display(fig)</code> forces the viewer to pop up, even if it&#39;s inside a function body. Now, the only missing piece is the <code>FerriteViz.update!</code> of the plotter, which happens directly after the Newton iteration. The result for this code looks like this:</p><p><img src="https://github.com/Ferrite-FEM/FerriteViz.jl/blob/master/docs/src/assets/liveplotting.gif?raw=true" alt="liveplot"/></p><p>Since the computational load of one time step is in this example too low, the plotter would just update all the time and likely never display something, so we artificially increase the load of one time step by <code>sleep</code>ing for 0.1s.</p><p>If you don&#39;t need the full viewer as a live plot, you can of course call instead <code>solutionplot</code> (or any other plot/plot combination) with appropriate keyword arguments to only have a specific live plot. This can be beneficial performancewise.</p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="tutorial.html">« Tutorial</a><a class="docs-footer-nextpage" href="api.html">API Reference »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 0.27.24 on <span class="colophon-date" title="Wednesday 24 May 2023 11:12">Wednesday 24 May 2023</span>. Using Julia version 1.6.7.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>

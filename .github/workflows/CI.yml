@@ -34,12 +34,12 @@ jobs:
             ${{ runner.os }}-
       #- uses: julia-actions/julia-buildpkg@v1 # Temporary replace by the following to run tests against Ferrite#master
       - run: |
-            julia --color=yes --project=. -e '
-                using Pkg
-                packages = [
-                PackageSpec(;url="https://github.com/Ferrite-FEM/Ferrite.jl.git", rev="master"),
-                ]
-                Pkg.add(packages)
-                Pkg.instantiate()'
-            shell: bash
+          julia --color=yes --project=. -e '
+            using Pkg
+            packages = [
+            PackageSpec(;url="https://github.com/Ferrite-FEM/Ferrite.jl.git", rev="master"),
+            ]
+            Pkg.add(packages)
+            Pkg.instantiate()'
+        shell: bash
       - uses: julia-actions/julia-runtest@v1

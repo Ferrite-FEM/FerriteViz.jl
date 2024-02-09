@@ -1,17 +1,17 @@
 # These functions generate the corresponding first order cells of an interpolation.
 # Triangle
-for_nodes(::Union{Ferrite.Lagrange{2,Ferrite.RefTetrahedron,1},Ferrite.DiscontinuousLagrange{2,Ferrite.RefTetrahedron,1},Ferrite.Triangle}) = (
+for_nodes(::Union{Lagrange{RefTriangle,1},DiscontinuousLagrange{RefTriangle,1},Triangle}) = (
     (3,1,2),
 )
 # Quadratic Triangle
-for_nodes(::Union{Ferrite.Lagrange{2,Ferrite.RefTetrahedron,2},Ferrite.DiscontinuousLagrange{2,Ferrite.RefTetrahedron,2},Ferrite.QuadraticTriangle}) = (
+for_nodes(::Union{Lagrange{RefTriangle,2},DiscontinuousLagrange{RefTriangle,2},QuadraticTriangle}) = (
     (6,1,4),
     (5,6,4),
     (3,6,5),
     (5,4,2),
 )
 # Cubic Triangle
-for_nodes(::Union{Ferrite.Lagrange{2,Ferrite.RefTetrahedron,3},Ferrite.DiscontinuousLagrange{2,Ferrite.RefTetrahedron,3},Ferrite.Cell{2,10,3}}) = (
+for_nodes(::Union{Lagrange{RefTriangle,3},DiscontinuousLagrange{RefTriangle,3}}) = (
     (3,8,7),
     (7,8,10),
     (8,9,10),
@@ -23,7 +23,7 @@ for_nodes(::Union{Ferrite.Lagrange{2,Ferrite.RefTetrahedron,3},Ferrite.Discontin
     (10,4,5),
 )
 # Biquadratic Triangle
-for_nodes(::Union{Ferrite.Lagrange{2,Ferrite.RefTetrahedron,4},Ferrite.DiscontinuousLagrange{2,Ferrite.RefTetrahedron,4},Ferrite.Cell{2,15,3}}) = (
+for_nodes(::Union{Lagrange{RefTriangle,4},DiscontinuousLagrange{RefTriangle,4}}) = (
     (3,10,9),
     (13,9,10),
     (10,11,13),
@@ -42,7 +42,7 @@ for_nodes(::Union{Ferrite.Lagrange{2,Ferrite.RefTetrahedron,4},Ferrite.Discontin
     (7,6,2),
 )
 # Quintic Triangle
-for_nodes(::Union{Ferrite.Lagrange{2,Ferrite.RefTetrahedron,5},Ferrite.DiscontinuousLagrange{2,Ferrite.RefTetrahedron,5},Ferrite.Cell{2,20,3}}) = (
+for_nodes(::Union{Lagrange{RefTriangle,5},DiscontinuousLagrange{RefTriangle,5}}) = (
     (3,12,11),
     (16,11,12),
     (12,13,16),
@@ -70,11 +70,11 @@ for_nodes(::Union{Ferrite.Lagrange{2,Ferrite.RefTetrahedron,5},Ferrite.Discontin
     (8,7,2),
 )
 # Tetrahedron
-for_nodes(::Union{Ferrite.Lagrange{3,Ferrite.RefTetrahedron,1},Ferrite.DiscontinuousLagrange{3,Ferrite.RefTetrahedron,1},Ferrite.Tetrahedron}) = (
+for_nodes(::Union{Lagrange{RefTetrahedron,1},DiscontinuousLagrange{RefTetrahedron,1},Tetrahedron}) = (
     (1,2,3,4),
 )
 # Quadratic Tetrahedron
-for_nodes(::Union{Ferrite.Lagrange{3,Ferrite.RefTetrahedron,2},Ferrite.DiscontinuousLagrange{3,Ferrite.RefTetrahedron,2},Ferrite.QuadraticTetrahedron}) = (
+for_nodes(::Union{Lagrange{RefTetrahedron,2},DiscontinuousLagrange{RefTetrahedron,2},QuadraticTetrahedron}) = (
     (5,2,6,9),
     (7,6,3,10),
     (8,9,10,4),
@@ -85,22 +85,22 @@ for_nodes(::Union{Ferrite.Lagrange{3,Ferrite.RefTetrahedron,2},Ferrite.Discontin
     (9,10,8,6),
 )
 # Quadrilateral
-for_nodes(::Union{Ferrite.Lagrange{2,Ferrite.RefCube,1},Ferrite.DiscontinuousLagrange{2,Ferrite.RefCube,1},Ferrite.Quadrilateral}) = (
+for_nodes(::Union{Lagrange{RefQuadrilateral,1},DiscontinuousLagrange{RefQuadrilateral,1},Quadrilateral}) = (
     (1,2,3,4),
 )
 # Quadratic Quadrilateral
-for_nodes(::Union{Ferrite.Lagrange{2,Ferrite.RefCube,2},Ferrite.DiscontinuousLagrange{2,Ferrite.RefCube,2},Ferrite.QuadraticQuadrilateral}) = (
+for_nodes(::Union{Lagrange{RefQuadrilateral,2},DiscontinuousLagrange{RefQuadrilateral,2},QuadraticQuadrilateral}) = (
     (1,5,9,8),
     (5,2,6,9),
     (9,6,3,7),
     (8,9,7,4),
 )
 # Hexahedron
-for_nodes(::Union{Ferrite.Lagrange{3,Ferrite.RefCube,1},Ferrite.DiscontinuousLagrange{3,Ferrite.RefCube,1},Ferrite.Hexahedron}) = (
+for_nodes(::Union{Lagrange{RefHexahedron,1},DiscontinuousLagrange{RefHexahedron,1},Hexahedron}) = (
     (1,2,3,4,5,6,7,8),
 )
 # Quadratic Hexahedron
-for_nodes(::Union{Ferrite.Lagrange{3,Ferrite.RefCube,2},Ferrite.DiscontinuousLagrange{3,Ferrite.RefCube,2},Ferrite.Cell{3,27,6}}) = (
+for_nodes(::Union{Lagrange{RefHexahedron,2},DiscontinuousLagrange{RefHexahedron,2},QuadraticHexahedron}) = (
     (1,9,21,12,17,22,27,25),
     (17,22,27,25,5,13,26,16),
     (9,2,10,21,22,18,23,27),
@@ -114,21 +114,12 @@ for_nodes(::Union{Ferrite.Lagrange{3,Ferrite.RefCube,2},Ferrite.DiscontinuousLag
 """
 Get the interpolation of the first order refinement. 
 """
-for_interpolation(ip::Ferrite.Lagrange{dim,shape,order}) where {dim,shape,order} = Ferrite.Lagrange{dim,shape,1}()
+for_interpolation(ip::Lagrange{shape,order}) where {shape,order} = Lagrange{shape,1}()
 
-for_base_geometry_type(ip::Ferrite.Lagrange{2,Ferrite.RefCube,order}) where {order} = Ferrite.Quadrilateral
-for_base_geometry_type(ip::Ferrite.Lagrange{3,Ferrite.RefCube,order}) where {order} = Ferrite.Hexahedron
-for_base_geometry_type(ip::Ferrite.Lagrange{2,Ferrite.RefTetrahedron,order}) where {order} = Ferrite.Triangle
-for_base_geometry_type(ip::Ferrite.Lagrange{3,Ferrite.RefTetrahedron,order}) where {order} = Ferrite.Tetrahedron
-
-# TODO move into ferrite core
-function Ferrite.field_offset(dh::Ferrite.DofHandler, field_name::Int)
-    offset = 0
-    for i in 1:field_name-1
-        offset += Ferrite.getnbasefunctions(dh.field_interpolations[i])::Int * dh.field_dims[i]
-    end
-    return offset
-end
+for_base_geometry_type(ip::Lagrange{RefQuadrilateral,order}) where {order} = Quadrilateral
+for_base_geometry_type(ip::Lagrange{RefHexahedron,order}) where {order} = Hexahedron
+for_base_geometry_type(ip::Lagrange{RefTriangle,order}) where {order} = Triangle
+for_base_geometry_type(ip::Lagrange{RefTetrahedron,order}) where {order} = Tetrahedron
 
 # TODO move into ferrite core
 function Ferrite.dof_range(dh::Ferrite.DofHandler, field_idx::Int)
@@ -145,20 +136,23 @@ Create a first order discretization w.r.t. a field and transfer
 the solution.
 """
 function for_discretization(dh, u)
-    field_idx=1
-
-    # Some helpers
-    ip = Ferrite.getfieldinterpolation(dh, field_idx)
-    field_dim = Ferrite.getfielddim(dh, field_idx)
-    spatial_dim = Ferrite.getdim(dh.grid)
-
+    @assert length(dh.subdofhandlers) == 1 "Subdomains not supported yet"
     # TODO Dofs for fields are not continuous. Think harder.
     @assert Ferrite.nfields(dh) == 1 "Multiple fields not supported yet"
+    sdh = dh.subdofhandlers[1]
+    field_idx=1
+    grid = dh.grid
+
+    # Some helpers
+    ip = Ferrite.getfieldinterpolation(sdh, field_idx)
+    field_dim = Ferrite.getfielddim(sdh, field_idx)
+    spatial_dim = Ferrite.getdim(grid)
+
     # # Get dof range, the hard way
     # dof_min = dh.ndofs.x
     # dof_max = 0
     ncells = 0
-    for cell ∈ Ferrite.CellIterator(dh)
+    for cell ∈ Ferrite.CellIterator(sdh)
         # celldofs = Ferrite.celldofs(cell)
         # dof_max = max(dof_max, maximum(celldofs))
         # dof_min = min(dof_min, minimum(celldofs))
@@ -166,21 +160,21 @@ function for_discretization(dh, u)
     end
 
     # Preallocate
-    nodes = Vector{typeof(dh.grid.nodes[1])}(undef, Ferrite.ndofs(dh)) #(dof_max-dof_min+1)÷field_dim)
-    cells = Vector{Ferrite.getcelltype(dh.grid)}(undef, ncells)
+    nodes = Vector{typeof(grid.nodes[1])}(undef, Ferrite.ndofs(dh)) #(dof_max-dof_min+1)÷field_dim)
+    cells = Vector{Ferrite.getcelltype(grid)}(undef, ncells)
 
     ref_coords = Ferrite.reference_coordinates(ip)
     # Starting here we assume a single type of cell being present
     # TODO improve this.
-    ip_geo = Ferrite.default_interpolation(typeof(dh.grid.cells[1]))
+    ip_geo = Ferrite.default_interpolation(typeof(grid.cells[1]))
     nodes_per_cell = length(ref_coords)
-    qr = Ferrite.QuadratureRule{spatial_dim, Ferrite.getrefshape(ip)}(zeros(nodes_per_cell), ref_coords)
-    cv = Ferrite.CellScalarValues(qr, ip, ip_geo)
+    qr = Ferrite.QuadratureRule{Ferrite.getrefshape(ip)}(zeros(nodes_per_cell), ref_coords)
+    cv = Ferrite.CellValues(qr, ip, ip_geo)
     cellidx = 1
-    for cell ∈ Ferrite.CellIterator(dh)
+    for cell ∈ Ferrite.CellIterator(sdh)
         Ferrite.reinit!(cv, cell)
         coords = Ferrite.getcoordinates(cell)
-        dofs_f = Ferrite.celldofs(cell)[Ferrite.dof_range(dh, field_idx)]
+        dofs_f = Ferrite.celldofs(cell)[Ferrite.dof_range(sdh, field_idx)]
 
         # Extract coordinates
         for q ∈ 1:nodes_per_cell
@@ -195,17 +189,18 @@ function for_discretization(dh, u)
     end
 
     # Generate a new dof handler.
-    grid_new = Ferrite.Grid(cells, nodes)
-    dh_new = Ferrite.DofHandler(grid_new)
-    Ferrite.push!(dh_new, getfieldname(dh, field_idx), Ferrite.getfielddim(dh, field_idx), for_interpolation(ip))
-    Ferrite.close!(dh_new);
+    grid_new = Grid(cells, nodes)
+    dh_new = DofHandler(grid_new)
+    add!(dh_new, getfieldname(sdh, field_idx), Ferrite.getfielddim(sdh, field_idx), for_interpolation(ip))
+    close!(dh_new);
 
     # Transfer solution the dumb way.
     # TODO this can be optimized.
     u_new = zeros(Ferrite.ndofs(dh_new))
+    dh_dof_range = Ferrite.celldofs(dh_new, 1)
     for cell_idx ∈ 1:length(dh_new.grid.cells)
-        dh_dof_range = dh_new.cell_dofs_offset[cell_idx]:(dh_new.cell_dofs_offset[cell_idx+1]-1)
-        dofs = dh_new.cell_dofs[dh_dof_range][Ferrite.dof_range(dh_new, field_idx)]
+        Ferrite.celldofs!(dh_dof_range, dh_new, cell_idx)
+        dofs = dh_dof_range[Ferrite.dof_range(dh_new.subdofhandlers[1], 1)]
         u_new[dofs] .= u[[dh_new.grid.cells[cell_idx].nodes...]]
     end
 

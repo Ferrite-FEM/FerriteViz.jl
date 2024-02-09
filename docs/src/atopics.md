@@ -1,8 +1,10 @@
 # Advanced Topics
 
 ```@example 1
-import JSServe # hide
-JSServe.Page() # hide
+import JSServe, WGLMakie # hide
+JSServe.Page(exportable=true, offline=true) # hide
+WGLMakie.activate!() # hide
+WGLMakie.Makie.inline!(true) # hide
 ```
 
 ## Gradient field visualization
@@ -17,7 +19,7 @@ In this quick example we show how to visualize strains and stresses side-by-side
 ```@example 1
 using Ferrite
 import FerriteViz
-using FerriteViz: ε
+ε(∇u) = (∇u+transpose(∇u))/2
 import WGLMakie #activating the backend, switch to GLMakie or CairoMakie (for 2D) locally
 
 include("ferrite-examples/incompressible-elasticity.jl") #defines dh_linear, dh_quadratic, u_linear, u_quadratic and mp
@@ -63,12 +65,12 @@ include("ferrite-examples/heat-equation.jl"); #defines manufactured_heat_problem
 f = WGLMakie.Figure()
 axs = [WGLMakie.Axis3(f[1, 1], title="Coarse"), WGLMakie.Axis3(f[1, 2], title="Fine")]
 
-dh,u = manufactured_heat_problem(Triangle, Lagrange{2,RefTetrahedron,5}(), 1)
+dh,u = manufactured_heat_problem(Triangle, Lagrange{RefTriangle,5}(), 1)
 dh_for,u_for = FerriteViz.for_discretization(dh, u)
 plotter_for = FerriteViz.MakiePlotter(dh_for, u_for)
 FerriteViz.surface!(axs[1], plotter_for)
 
-dh,u = manufactured_heat_problem(Triangle, Lagrange{2,RefTetrahedron,5}(), 3)
+dh,u = manufactured_heat_problem(Triangle, Lagrange{RefTriangle,5}(), 3)
 dh_for,u_for = FerriteViz.for_discretization(dh, u)
 plotter_for = FerriteViz.MakiePlotter(dh_for, u_for)
 FerriteViz.surface!(axs[2], plotter_for)
@@ -84,7 +86,7 @@ include("ferrite-examples/heat-equation.jl"); #defines manufactured_heat_problem
 f = WGLMakie.Figure()
 axs = [WGLMakie.Axis3(f[1, 1], title="Coarse"), WGLMakie.Axis3(f[1, 2], title="Fine")]
 
-dh, u = manufactured_heat_problem(Hexahedron, Lagrange{3,RefCube,2}(), 2);
+dh, u = manufactured_heat_problem(Hexahedron, Lagrange{RefHexahedron,2}(), 2);
 plotter = FerriteViz.MakiePlotter(dh,u);
 clip_plane = FerriteViz.ClipPlane(Ferrite.Vec((0.0,0.5,0.5)), 0.1);
 clipped_plotter = FerriteViz.crinkle_clip(plotter, clip_plane);

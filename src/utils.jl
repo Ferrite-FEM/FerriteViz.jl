@@ -296,16 +296,16 @@ function decompose!(coord_offset, coord_matrix::Vector{Point{sdim,T}}, ref_coord
 end
 
 """
-    decompose!(coord_offset, coord_matrix, ref_coord_matrix, triangle_offset, triangle_matrix, grid, cell::Ferrite.AbstractCell{3,N,M})
+    decompose!(coord_offset, coord_matrix, ref_coord_matrix, triangle_offset, triangle_matrix, grid, cell::Ferrite.AbstractCell{<:Ferrite.AbstractRefShape{3}})
 
 Decompose volumetric objects via their faces.
 """
-function decompose!(coord_offset, coord_matrix, ref_coord_matrix, triangle_offset, triangle_matrix, grid, cell::Ferrite.AbstractCell{<:Ferrite.AbstractRefShape{3}})
+function decompose!(coord_offset, coord_matrix, ref_coord_matrix, triangle_offset, triangle_matrix, grid, cell::Ferrite.AbstractCell{CellType}) where CellType<:Ferrite.AbstractRefShape{3}
     for face_index ∈ 1:Ferrite.nfaces(cell)
         face_coord_offset = coord_offset
         (coord_offset, triangle_offset) = decompose!(coord_offset, coord_matrix, ref_coord_matrix, triangle_offset, triangle_matrix, grid, linear_face_cell(cell, face_index))
         for ci ∈ face_coord_offset:(coord_offset-1)
-            new_coord = transfer_quadrature_face_to_cell(ref_coord_matrix[ci, 1:2], cell, face_index)
+            new_coord = Ferrite.face_to_element_transformation(Tensors.Vec{2}(ref_coord_matrix[ci, 1:2]), CellType, face_index)
             ref_coord_matrix[ci, :] = new_coord
         end
     end
@@ -557,34 +557,6 @@ function dof_to_node(dh::Ferrite.AbstractDofHandler, u::Vector{T}; field_name=:u
         end
     end
     return data
-end
-
-"""
-    transfer_quadrature_face_to_cell(point::AbstractVector, cell::Ferrite.AbstractCell{3,N,4}, face::Int)
-
-Mapping from 2D triangle to 3D face of a tetrahedon.
-"""
-function transfer_quadrature_face_to_cell(point::AbstractVector, cell::TetrahedralCell, face::Int)
-    x,y = point
-    face == 1 && return [ 1-x-y,  y,  0]
-    face == 2 && return [ y,  0,  1-x-y]
-    face == 3 && return [ x,  y,  1-x-y]
-    face == 4 && return [ 0,  1-x-y,  y]
-end
-
-"""
-    transfer_quadrature_face_to_cell(point::AbstractVector, cell::Ferrite.AbstractCell{3,N,6}, face::Int) 
-
-Mapping from 2D quadrilateral to 3D face of a hexahedron.
-"""
-function transfer_quadrature_face_to_cell(point::AbstractVector, cell::HexahedralCell, face::Int)
-    x,y = point
-    face == 1 && return [ y,  x, -1]
-    face == 2 && return [ x, -1,  y]
-    face == 3 && return [ 1,  x,  y]
-    face == 4 && return [-x,  1,  y]
-    face == 5 && return [-1,  y,  x]
-    face == 6 && return [ x,  y,  1]
 end
 
 """

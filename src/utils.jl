@@ -334,7 +334,7 @@ function transfer_solution(plotter::MakiePlotter{dim,DH,T}, u::Vector; field_nam
     sdh1 = first(sdhs)
     ip_field = Ferrite.getfieldinterpolation(sdh1,field_name)
     # field related variables
-    pv = Ferrite.PointValuesInternal(Ferrite.reference_coordinates(ip_field)[1], ip_field)
+    pv = Ferrite.PointValues(ip_field; update_gradients=false)
     field_dim = Ferrite.getfielddim(dh, field_name)
     ref_shape = Ferrite.getrefshape(ip_field)
     val_buffer = Ferrite.shape_value(ip_field, Ferrite.Vec(ntuple(d->0.0,getdim(ref_shape))), 1)
@@ -345,7 +345,7 @@ function transfer_solution(plotter::MakiePlotter{dim,DH,T}, u::Vector; field_nam
     for sdh in getsubdofhandlers(dh,field_name)
         cellset_ = collect(sdh.cellset)
         ip_field = Ferrite.getfieldinterpolation(sdh,field_name)
-        pv = Ferrite.PointValuesInternal(Ferrite.reference_coordinates(ip_field)[1], ip_field)
+        pv = Ferrite.PointValues(ip_field; update_gradients=false)
         field_dim = Ferrite.getfielddim(dh, field_name)
         ref_shape = Ferrite.getrefshape(ip_field)
         val_buffer = Ferrite.shape_value(ip_field, Ferrite.Vec(ntuple(d->0.0,getdim(ref_shape))), 1)
@@ -366,8 +366,10 @@ function _transfer_solution!(data,pv,sdh,ip_field,cellset_,val_buffer,val,field_
 
     cell_geo_ref = Ferrite.getcells(grid, cellset_[1])
 
-    Ferrite.reinit!(pv, Tensors.Vec{dim}(ref_coords[1,:]))
+    cell_coordinates = Ferrite.getcoordinates(grid, cellset_[1])
+    Ferrite.reinit!(pv, cell_coordinates, Tensors.Vec{dim}(ref_coords[1,:]))
     n_basefuncs = Ferrite.getnbasefunctions(pv)
+    
 
     _local_coords = Ferrite.getcoordinates(grid,cellset_[1])
     _local_celldofs = Ferrite.celldofs(dh,cellset_[1])
@@ -385,12 +387,13 @@ function _transfer_solution!(data,pv,sdh,ip_field,cellset_,val_buffer,val,field_
         Ferrite.getcoordinates!(_local_coords,grid,cell_idx)
         Ferrite.celldofs!(_local_celldofs,dh,cell_idx)
         _celldofs_field = @view(_local_celldofs[local_dof_range])
+        getcoordinates!(cell_coordinates, grid, cell_idx)
 
         # Loop over the triangles of the cell and interpolate at the vertices
         for triangle_index in triangles_on_cell(plotter, cell_idx)
             for current_vertex_index in plotter.all_triangles[triangle_index]
                 _local_ref_coords = Tensors.Vec{dim}(@view(ref_coords[current_vertex_index,:]))
-                Ferrite.reinit!(pv, _local_ref_coords)
+                Ferrite.reinit!(pv, cell_coordinates, _local_ref_coords)
                 val_buffer = Ferrite.function_value(pv, 1, @views(u[_celldofs_field]))
                 val = process(val_buffer)
                 for d in 1:_processreturndim

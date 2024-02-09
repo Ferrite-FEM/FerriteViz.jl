@@ -369,7 +369,6 @@ function _transfer_solution!(data,pv,sdh,ip_field,cellset_,val_buffer,val,field_
     cell_coordinates = Ferrite.getcoordinates(grid, cellset_[1])
     Ferrite.reinit!(pv, cell_coordinates, Tensors.Vec{dim}(ref_coords[1,:]))
     n_basefuncs = Ferrite.getnbasefunctions(pv)
-    
 
     _local_coords = Ferrite.getcoordinates(grid,cellset_[1])
     _local_celldofs = Ferrite.celldofs(dh,cellset_[1])

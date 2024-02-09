@@ -21,14 +21,14 @@ keyword arguments are:
 - `process::Function=postprocess` function to construct nodal scalar values from a vector valued problem
 - `colormap::Symbol=:cividis`
 - `deformation_scale=1.0`
-- `shading=false`
+- `shading=Makie.NoShading`
 - `scale_plot=false`
 - `transparent=false`
 """
 @recipe(SolutionPlot) do scene
     Attributes(
     scale_plot=false,
-    shading=false,
+    shading=Makie.NoShading,
     field=:default,
     deformation_field=:default,
     process=postprocess,
@@ -92,14 +92,14 @@ keyword arguments are:
 - `process::Function=identity` function to construct cell scalar values. Defaults to `identity`, i.e. scalar values.
 - `colormap::Symbol=:cividis`
 - `deformation_scale=1.0`
-- `shading=false`
+- `shading=Makie.NoShading`
 - `scale_plot=false`
 - `transparent=false`
 """
 @recipe(CellPlot) do scene
     Attributes(
     scale_plot=false,
-    shading=false,
+    shading=Makie.NoShading,
     deformation_field=:default,
     process=identity,
     colormap=:cividis,
@@ -238,7 +238,7 @@ function Makie.plot!(WF::Wireframe{<:Tuple{<:MakiePlotter{dim}}}) where dim
     end
     colorrange = isempty(cellset_to_value) ? (0,1) : (0,maximum(values(cellset_to_value)))
     cellset_u =  reshape(transfer_scalar_celldata(plotter, cellset_u; process=identity), num_vertices(plotter))
-    Makie.mesh!(WF, plotter.mesh, color=cellset_u, shading=false, scale_plot=false, colormap=:darktest, visible=WF[:cellsets])
+    Makie.mesh!(WF, plotter.mesh, color=cellset_u, shading=Makie.NoShading, scale_plot=false, colormap=:darktest, visible=WF[:cellsets])
     #plot the nodes
     shouldplot = @lift ($(WF[:visible]) && $(WF[:plotnodes]))
     Makie.scatter!(WF,gridnodes,markersize=WF[:markersize], color=WF[:color], visible=shouldplot)
@@ -290,7 +290,7 @@ function Makie.plot!(WF::Wireframe{<:Tuple{<:Ferrite.AbstractGrid{dim}}}) where 
     plotter = MakiePlotter(dh,cellset_u)
     cellset_u =  reshape(transfer_scalar_celldata(plotter, cellset_u; process=identity), num_vertices(plotter))
     colorrange = isempty(cellset_to_value) ? (0,1) : (0,maximum(values(cellset_to_value)))
-    Makie.mesh!(WF, plotter.mesh, color=cellset_u, shading=false, scale_plot=false, colormap=:darktest, visible=WF[:cellsets])
+    Makie.mesh!(WF, plotter.mesh, color=cellset_u, shading=Makie.NoShading, scale_plot=false, colormap=:darktest, visible=WF[:cellsets])
     Makie.text!(WF,nodelabels, position=nodepositions, fontsize=WF[:fontsize], offset=WF[:offset],color=WF[:nodelabelcolor])
     Makie.text!(WF,celllabels, position=cellpositions, fontsize=WF[:fontsize], color=WF[:celllabelcolor], align=(:center,:center))
     Makie.linesegments!(WF,lines,color=WF[:color], strokewidth=WF[:strokewidth], visible=WF[:visible])
@@ -307,7 +307,7 @@ values are transformed to a scalar based on `process` which defaults to the magn
 - `field = :default`
 - `process = postprocess`
 - `scale_plot = false`
-- `shading = false`
+- `shading = Makie.NoShading`
 - `colormap = :cividis`
 """
 @recipe(Surface) do scene
@@ -315,7 +315,7 @@ values are transformed to a scalar based on `process` which defaults to the magn
     field = :default,
     process = postprocess,
     scale_plot = false,
-    shading = false,
+    shading = Makie.NoShading,
     colormap = :cividis,
     )
 end

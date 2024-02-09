@@ -10,12 +10,16 @@ getdim(::Type{<:Ferrite.AbstractRefShape{rdim}}) where rdim = rdim
 get_gradient_interpolation(::Lagrange{shape,order}) where {sdim,shape<:Ferrite.AbstractRefShape{sdim},order} = VectorizedInterpolation{sdim}(DiscontinuousLagrange{shape,order-1}())
 get_gradient_interpolation_type(::Type{Lagrange{shape,order}}) where {sdim,shape<:Ferrite.AbstractRefShape{sdim},order} = VectorizedInterpolation{sdim,shape,order-1,DiscontinuousLagrange{shape,order-1}}
 
-# Note: This extracts the face spanned by the vertices, not the actual face!
+"""
+    linear_face_cell(cell::Ferrite.Cell, local_face_idx::Int)
+
+Get the geometrically linear face of a given cell.
+
+!!! warning
+    This may extracts the face spanned by the vertices, not the actual face!
+"""
 linear_face_cell(cell::TetrahedralCell, local_face_idx::Int) = Triangle(Ferrite.faces(cell)[local_face_idx])
 linear_face_cell(cell::HexahedralCell, local_face_idx::Int)  = Quadrilateral(Ferrite.faces(cell)[local_face_idx])
-
-# Obtain the face interpolation on regular geometries.
-getfaceip(ip::Ferrite.Interpolation{dim, shape, order}, local_face_idx::Int) where {dim, shape <: Union{Ferrite.RefTetrahedron, Ferrite.RefCube}, order} = Ferrite.getlowerdim(ip)
 
 struct MakiePlotter{dim,DH<:Ferrite.AbstractDofHandler,T1,TOP<:Union{Nothing,Ferrite.AbstractTopology},T2,M,TRI} <: AbstractPlotter
     dh::DH
@@ -40,9 +44,11 @@ triangles_on_cell(plotter::MP, cell_idx::Int) where {MP <: MakiePlotter} = (plot
     MakiePlotter(dh::Ferrite.AbstractDofHandler, u::Vector, topology::TOP) where {TOP<:Ferrite.AbstractTopology}
 
 Builds a static triangulation of the underlying `grid` in `dh.grid` for rendering via Makie.
-The triangulation acts as a "L2" triangulation, i.e. each triangle node is doubled.
-For large 3D grids, prefer to use the second constructor if you have already a `topology`.
-Otherwise, it will be rebuilt which is time consuming.
+The triangulation acts as a "L2" triangulation, i.e. the nodes which are shared between elements in the mesh are doubled.
+
+!!! tip
+    For large 3D grids, prefer to use the second constructor if you have already a `topology`.
+    Otherwise, it will be rebuilt which is time consuming.
 """
 function MakiePlotter(dh::Ferrite.AbstractDofHandler, u::Vector, topology::TOP) where {TOP<:Union{Nothing,Ferrite.AbstractTopology}}
     cells = Ferrite.getcells(dh.grid)
@@ -69,7 +75,7 @@ function MakiePlotter(dh::Ferrite.AbstractDofHandler, u::Vector, topology::TOP) 
     triangles = Matrix{Int}(undef, num_triangles, 3)
     triangle_cell_map = Vector{Int}(undef, num_triangles)
     physical_coords = Vector{GeometryBasics.Point{dim,Float32}}(undef, num_triangles*3)
-    gridnodes = [GeometryBasics.Point{dim,Float32}(node.data) for node in Ferrite.getcoordinates.(Ferrite.getnodes(dh.grid))]
+    gridnodes = [GeometryBasics.Point{dim,Float32}(node.data) for node in Ferrite.get_node_coordinate.(Ferrite.getnodes(dh.grid))]
     reference_coords = Matrix{Float64}(undef, num_triangles*3,dim)
 
     # Decompose does the heavy lifting for us
@@ -93,19 +99,23 @@ end
 MakiePlotter(dh,u) = MakiePlotter(dh,u,Ferrite.getdim(dh.grid) > 2 ? Ferrite.ExclusiveTopology(dh.grid.cells) : nothing)
 
 """
-Clip plane described by the normal and its distance to the coordinate origin.
+    ClipPlane{T}(normal, distance_to_origin)
+
+Clip plane with data of type `T` described by the normal and its distance to the coordinate origin.
+
+!!! details
+    **INTERNAL**: Instances are callable as `plane(grid, cellid)` returning true if all nodes of a cell are on the side of the positive side of the plane,
+    i.e. where for its normal we have coord ⋅ plane.normal > plane.distance. With this helper we perform the crinkle clip internally. xref `[crinkle_clip!](@ref)`
 """
 struct ClipPlane{T}
     normal::Tensors.Vec{3,T}
     distance::T
 end
 
-"""
-Binary decision function to clip a cell with a plane for the crinkle clip.
-"""
+# Binary decision function to clip a cell with a plane for the crinkle clip.
 function (plane::ClipPlane)(grid, cellid)
     cell = grid.cells[cellid]
-    coords = Ferrite.getcoordinates.(Ferrite.getnodes(grid)[[cell.nodes...]])
+    coords = Ferrite.get_node_coordinate.(Ferrite.getnodes(grid)[[cell.nodes...]])
     for coord ∈ coords
         if coord ⋅ plane.normal > plane.distance
             return false
@@ -116,10 +126,13 @@ end
 
 """
     crinkle_clip!(plotter::MakiePlotter{3}, decision_fun)
+
 Crinkle clip updates the visibility of the triangles, based on an
 implicit description of the clipping surface. Here `decision_fun` takes the grid and
 a cell index as input and returns whether the cell is visible or not.
-Note that chained calls to `crinkle_clip!` won't work.
+
+!!! warning
+    Chained calls to `crinkle_clip!` won't work at the moment.
 """
 function crinkle_clip!(plotter::MakiePlotter{3,DH,T}, decision_fun::DF) where {DH,T,DF}
     dh = plotter.dh
@@ -143,6 +156,7 @@ end
 
 """
     crinkle_clip(plotter::MakiePlotter{3}, decision_fun) -> MakiePlotter
+
 Crinkle clip generates a new plotter with updated visibility of the triangles.
 Non-mutating version of `crinkle_clip!`.
 Note that chained calls to `crinkle_clip` won't work.
@@ -184,18 +198,21 @@ ntriangles(cell::HexahedralCell) = 6*4
 """
 Get the vertices represented as a list of coordinates of a cell.
 
-@TODO refactor into Ferrite core.
+!!! details
+    **TODO** refactor into Ferrite core.
 """
 function vertices(grid::Ferrite.AbstractGrid, cell::Ferrite.AbstractCell)
     Ferrite.getnodes(grid)[[Ferrite.vertices(cell)...]]
 end
 
 """
+    decompose!(coord_offset, coord_matrix, ref_coord_matrix, triangle_offset, triangle_matrix, grid, cell::Union{Ferrite.AbstractCell{2,N,3}, Ferrite.AbstractCell{3,3,1}})
+
 Decompose a triangle into a coordinates and a triangle index list to disconnect it properly. Guarantees to preserve orderings and orientations.
 """
 function decompose!(coord_offset, coord_matrix, ref_coord_matrix, triangle_offset, triangle_matrix, grid, cell::TriangularCell)
     for (i,v) in enumerate(vertices(grid, cell))
-        coord_matrix[coord_offset] = GeometryBasics.Point(Ferrite.getcoordinates(v)...)
+        coord_matrix[coord_offset] = GeometryBasics.Point(Ferrite.get_node_coordinate(v)...)
         ref_coord_matrix[coord_offset,1:2] = Ferrite.reference_coordinates(Ferrite.default_interpolation(typeof(cell)))[i]
         triangle_matrix[triangle_offset,i] = coord_offset
         coord_offset+=1
@@ -204,22 +221,33 @@ function decompose!(coord_offset, coord_matrix, ref_coord_matrix, triangle_offse
     (coord_offset, triangle_offset)
 end
 
-"""
+@doc raw"""
+    decompose!(coord_offset, coord_matrix::Vector{Point{space_dim,T}}, ref_coord_matrix, triangle_offset, triangle_matrix, grid, cell::Union{Ferrite.AbstractCell{2,N,4}, Ferrite.AbstractCell{3,4,1}})
+
 Decompose a quadrilateral into a coordinates and a triangle index list to disconnect it properly. Guarantees to preserve orderings and orientations.
 
-Assumes a CCW quadrilateral numbering:
-4---3
-|   |
-1---2
-and creates the decomposition
-4-------3
-| \\ C / |
-|  \\ /  |
-|D  5  B|
-|  / \\  |
-| / A \\ |
-1-------2
-where A=(1,2,5),B=(2,3,5),C=(3,4,5),D=(4,1,5) are the generated triangles in this order.
+!!! details
+    This function takes a CCW ordered quadrilateral, i.e.
+    ```
+    4-------3
+    |       |
+    |       |
+    |       |
+    |       |
+    |       |
+    1-------2
+    ```
+    and creates the decomposition
+    ```
+    4-------3
+    | \ C / |
+    |  \ /  |
+    |D  5  B|
+    |  / \  |
+    | / A \ |
+    1-------2
+    ```
+    where A=(1,2,5),B=(2,3,5),C=(3,4,5),D=(4,1,5) are the generated triangles in this order.
 """
 function decompose!(coord_offset, coord_matrix::Vector{Point{sdim,T}}, ref_coord_matrix, triangle_offset, triangle_matrix, grid, cell::QuadrilateralCell) where {sdim, T}
     # A bit more complicated. The default diagonal decomposition into 2 triangles is missing a solution mode.
@@ -230,7 +258,7 @@ function decompose!(coord_offset, coord_matrix::Vector{Point{sdim,T}}, ref_coord
     # Compute coordinate of vertex 5
     center = zeros(sdim)
     for v in vts
-        center += Ferrite.getcoordinates(v)
+        center += Ferrite.get_node_coordinate(v)
     end
     center /= 4.0
 
@@ -245,12 +273,12 @@ function decompose!(coord_offset, coord_matrix::Vector{Point{sdim,T}}, ref_coord
         v2 = vts[i2]
 
         # current vertex
-        coord_matrix[coord_offset] = GeometryBasics.Point(Ferrite.getcoordinates(v1)...)
+        coord_matrix[coord_offset] = GeometryBasics.Point(Ferrite.get_node_coordinate(v1)...)
         ref_coord_matrix[coord_offset, 1:2] = Ferrite.reference_coordinates(Ferrite.default_interpolation(typeof(cell)))[i]
         coord_offset+=1
 
         # next vertex in chain
-        coord_matrix[coord_offset] = GeometryBasics.Point(Ferrite.getcoordinates(v2)...)
+        coord_matrix[coord_offset] = GeometryBasics.Point(Ferrite.get_node_coordinate(v2)...)
         ref_coord_matrix[coord_offset, 1:2] = Ferrite.reference_coordinates(Ferrite.default_interpolation(typeof(cell)))[i2]
         coord_offset+=1
 
@@ -268,6 +296,8 @@ function decompose!(coord_offset, coord_matrix::Vector{Point{sdim,T}}, ref_coord
 end
 
 """
+    decompose!(coord_offset, coord_matrix, ref_coord_matrix, triangle_offset, triangle_matrix, grid, cell::Ferrite.AbstractCell{3,N,M})
+
 Decompose volumetric objects via their faces.
 """
 function decompose!(coord_offset, coord_matrix, ref_coord_matrix, triangle_offset, triangle_matrix, grid, cell::Ferrite.AbstractCell{<:Ferrite.AbstractRefShape{3}})
@@ -323,7 +353,8 @@ end
     transfer_solution(plotter::MakiePlotter{dim,DH,T}, u::Vector; field_idx::Int=1, process::Function=FerriteViz.postprocess) where {dim,DH<:Ferrite.AbstractDofHandler,T}
 Transfer the solution of a plotter to the tessellated mesh in `dim`.
 
-@TODO Refactor. This is peak inefficiency.
+!!! details
+    **TODO**: Refactor. This is peak inefficiency.
 """
 function transfer_solution(plotter::MakiePlotter{dim,DH,T}, u::Vector; field_name=:u, process::FUN=FerriteViz.postprocess) where {dim,DH<:Ferrite.AbstractDofHandler,T,FUN}
     # select objects from plotter
@@ -334,8 +365,6 @@ function transfer_solution(plotter::MakiePlotter{dim,DH,T}, u::Vector; field_nam
     sdh1 = first(sdhs)
     ip_field = Ferrite.getfieldinterpolation(sdh1,field_name)
     # field related variables
-    pv = Ferrite.PointValuesInternal(Ferrite.reference_coordinates(ip_field)[1], ip_field)
-    field_dim = Ferrite.getfielddim(dh, field_name)
     ref_shape = Ferrite.getrefshape(ip_field)
     val_buffer = Ferrite.shape_value(ip_field, Ferrite.Vec(ntuple(d->0.0,getdim(ref_shape))), 1)
     val = process(val_buffer)
@@ -345,7 +374,7 @@ function transfer_solution(plotter::MakiePlotter{dim,DH,T}, u::Vector; field_nam
     for sdh in getsubdofhandlers(dh,field_name)
         cellset_ = collect(sdh.cellset)
         ip_field = Ferrite.getfieldinterpolation(sdh,field_name)
-        pv = Ferrite.PointValuesInternal(Ferrite.reference_coordinates(ip_field)[1], ip_field)
+        pv = Ferrite.PointValues(ip_field; update_gradients=false)
         field_dim = Ferrite.getfielddim(dh, field_name)
         ref_shape = Ferrite.getrefshape(ip_field)
         val_buffer = Ferrite.shape_value(ip_field, Ferrite.Vec(ntuple(d->0.0,getdim(ref_shape))), 1)
@@ -366,13 +395,14 @@ function _transfer_solution!(data,pv,sdh,ip_field,cellset_,val_buffer,val,field_
 
     cell_geo_ref = Ferrite.getcells(grid, cellset_[1])
 
-    Ferrite.reinit!(pv, Tensors.Vec{dim}(ref_coords[1,:]))
     n_basefuncs = Ferrite.getnbasefunctions(pv)
 
     _local_coords = Ferrite.getcoordinates(grid,cellset_[1])
     _local_celldofs = Ferrite.celldofs(dh,cellset_[1])
     _celldofs_field = @view(_local_celldofs[local_dof_range])
     _local_ref_coords = Tensors.Vec{dim}(ref_coords[1,:])
+
+    Ferrite.reinit!(pv, _local_coords, Tensors.Vec{dim}(ref_coords[1,:]))
 
     # We just loop over all cells
     for (isvisible,(cell_idx,cell_geo)) in zip(plotter.visible,enumerate(Ferrite.getcells(dh.grid)))
@@ -390,7 +420,7 @@ function _transfer_solution!(data,pv,sdh,ip_field,cellset_,val_buffer,val,field_
         for triangle_index in triangles_on_cell(plotter, cell_idx)
             for current_vertex_index in plotter.all_triangles[triangle_index]
                 _local_ref_coords = Tensors.Vec{dim}(@view(ref_coords[current_vertex_index,:]))
-                Ferrite.reinit!(pv, _local_ref_coords)
+                Ferrite.reinit!(pv, _local_coords, _local_ref_coords)
                 val_buffer = Ferrite.function_value(pv, 1, @views(u[_celldofs_field]))
                 val = process(val_buffer)
                 for d in 1:_processreturndim
@@ -426,6 +456,8 @@ function transfer_scalar_celldata(plotter::MakiePlotter{dim,DH,T}, u::Vector; pr
 end
 
 """
+    _tensorsjl_gradient_accessor(v::Tensors.Vec, field_dim_idx::Int, spatial_dim_idx::Int)
+
 This is a helper to access the correct value in Tensors.jl entities, because the gradient index is the outermost one.
 """
 @inline _tensorsjl_gradient_accessor(v::Tensors.Vec{dim}, field_dim_idx::Int, spatial_dim_idx::Int) where {dim} = v[spatial_dim_idx]
@@ -480,12 +512,12 @@ function interpolate_gradient_field(dh::DofHandler{spatial_dim}, u::AbstractVect
         Ferrite.celldofs!(cell_dofs, dh, cell_num)
         uᵉ = @views u[cell_dofs[Ferrite.dof_range(dh, field_name)]]
 
-        # And initialize cellvalues for the cell to evaluate the gradient at the basis functions 
+        # And initialize cellvalues for the cell to evaluate the gradient at the basis functions
         # of the gradient field
         Ferrite.reinit!(cv, cell)
 
         # Now we simply loop over all basis functions of the gradient field and evaluate the gradient
-        for i ∈ 1:getnquadpoints(qr_gradient)
+        for i ∈ 1:Ferrite.getnquadpoints(qr_gradient)
             uᵉgradi = Ferrite.function_gradient(cv, i, uᵉ)
             for ds in 1:spatial_dim
                 for df in 1:field_dim
@@ -528,6 +560,8 @@ function dof_to_node(dh::Ferrite.AbstractDofHandler, u::Vector{T}; field_name=:u
 end
 
 """
+    transfer_quadrature_face_to_cell(point::AbstractVector, cell::Ferrite.AbstractCell{3,N,4}, face::Int)
+
 Mapping from 2D triangle to 3D face of a tetrahedon.
 """
 function transfer_quadrature_face_to_cell(point::AbstractVector, cell::TetrahedralCell, face::Int)
@@ -539,6 +573,8 @@ function transfer_quadrature_face_to_cell(point::AbstractVector, cell::Tetrahedr
 end
 
 """
+    transfer_quadrature_face_to_cell(point::AbstractVector, cell::Ferrite.AbstractCell{3,N,6}, face::Int) 
+
 Mapping from 2D quadrilateral to 3D face of a hexahedron.
 """
 function transfer_quadrature_face_to_cell(point::AbstractVector, cell::HexahedralCell, face::Int)
@@ -553,12 +589,18 @@ end
 
 """
     uniform_refinement(plotter::MakiePlotter)
+    uniform_refinement(plotter::MakiePlotter, num_refinements::Int)
 
 Generates 3 triangles for each triangle by adding a center vertex and connecting them (orientation preserving).
-    
-!!! note This function currently does not increase the resolution of the geometrical points in space, only the solution quality!
 
-!!! note TODO investigate whether it is possible to eliminate the coordinate duplication without trashing the caches
+!!! danger
+    This method has high RAM usage!
+
+!!! info
+    This function currently does not increase the resolution of the geometrical points in space, only the solution quality!
+
+!!! details
+    **TODO** investigate whether it is possible to eliminate the coordinate duplication without trashing the caches
 """
 function uniform_refinement(plotter::MakiePlotter{dim,DH,T1,TOP,T2,M,TRI}) where {dim,DH,T1,TOP,T2,M,TRI}
     # Number of triangles in the unrefined mesh
@@ -646,18 +688,6 @@ function uniform_refinement(plotter::MakiePlotter{dim,DH,T1,TOP,T2,M,TRI}) where
     )
 end
 
-
-"""
-    uniform_refinement(plotter::MakiePlotter)
-
-Generates 3 triangles for each triangle by adding a center vertex and connecting them (orientation preserving).
-
-!!! note HIGH RAM USAGE!
-
-!!! note This function currently does not increase the resolution of the geometrical points in space, only the solution quality!
-
-!!! note TODO investigate whether it is possible to eliminate the coordinate duplication without trashing the caches
-"""
 function uniform_refinement(plotter::MakiePlotter{dim,DH,T1,TOP,T2,M,TRI}, num_refinements::Int) where {dim,DH,T1,TOP,T2,M,TRI}
     num_refinements == 0 && return plotter
     new_plotter = uniform_refinement(plotter)
@@ -677,6 +707,12 @@ struct MatrixizedInterpolation{vdim1, vdim2, refshape, order, SI <: ScalarInterp
         return new{vdim1, vdim2, refshape, order, SI}(ip)
     end
 end
+
+Ferrite.mapping_type(::MatrixizedInterpolation) = Ferrite.IdentityMapping()
+
+Ferrite.typeof_N(   ::Type{T}, ::MatrixizedInterpolation{dim,dim}, ::VectorizedInterpolation{dim, <: Ferrite.AbstractRefShape{dim}}) where {T, dim} = Tensor{2, dim, T}
+Ferrite.typeof_dNdx(::Type{T}, ::MatrixizedInterpolation{dim,dim}, ::VectorizedInterpolation{dim, <: Ferrite.AbstractRefShape{dim}}) where {T, dim} = Tensor{3, dim, T}
+Ferrite.typeof_dNdξ(::Type{T}, ::MatrixizedInterpolation{dim,dim}, ::VectorizedInterpolation{dim, <: Ferrite.AbstractRefShape{dim}}) where {T, dim} = Tensor{3, dim, T}
 
 Ferrite.n_components(::MatrixizedInterpolation{vdim1, vdim2}) where {vdim1, vdim2} = vdim1*vdim2
 Ferrite.adjust_dofs_during_distribution(ip::MatrixizedInterpolation) = Ferrite.adjust_dofs_during_distribution(ip.ip)

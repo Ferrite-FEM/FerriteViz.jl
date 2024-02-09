@@ -1,7 +1,7 @@
 name = "FerriteViz"
 uuid = "59d0093e-b1f1-4fb7-ac85-ab57e45f39d9"
 authors = ["Maximilian Köhler <maximilian.koehler@ruhr-uni-bochum.de> and contributors"]
-version = "0.2.1"
+version = "0.2.2"
 
 [deps]
 Ferrite = "c061ca5d-56c9-439f-9c0e-210fe06d3992"
@@ -14,9 +14,9 @@ StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 Tensors = "48a634ad-e948-5137-8d70-aa71f2a747f4"
 
 [compat]
-Ferrite = "0.3.13"
+Ferrite = "0.3.14"
 GeometryBasics = "0.4"
-Makie = "0.17,0.18,0.19"
+Makie = "0.17,0.18,0.19,0.20"
 ShaderAbstractions = "0.3,0.4"
 Tensors = "1"
 julia = "1"

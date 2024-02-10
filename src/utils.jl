@@ -548,7 +548,7 @@ function dof_to_node(dh::Ferrite.AbstractDofHandler, u::Vector{T}; field_name=:u
         dof_range_ = Ferrite.dof_range(fh, field_name)
         for cell in Ferrite.CellIterator(dh,fh.cellset)
             _celldofs = Ferrite.celldofs(cell)
-            local_celldofs_field = reshape(@view(_celldofs[dof_range_]), (field_dim,length(cell.nodes)))
+            local_celldofs_field = reshape(@view(_celldofs[dof_range_]), (field_dim, length(dof_range_)÷field_dim))
             for (local_nodeid,node) in enumerate(cell.nodes)
                 for d in 1:field_dim
                     data[node, d] = u[local_celldofs_field[d,local_nodeid]]

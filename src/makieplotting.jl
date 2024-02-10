@@ -33,7 +33,7 @@ keyword arguments are:
     deformation_field=:default,
     process=postprocess,
     colormap=:cividis,
-    colorrange=(0,1),
+    colorrange=(0,0),
     transparent=false,
     deformation_scale = 1.0,
     )
@@ -66,17 +66,23 @@ function Makie.plot!(SP::SolutionPlot{<:Tuple{<:MakiePlotter}})
     end
     mins = @lift(minimum(x->isnan(x) ?  1e10 : x, $solution))
     maxs = @lift(maximum(x->isnan(x) ? -1e10 : x, $solution))
-    SP[:colorrange] = @lift begin
-        if isapprox($mins,$maxs)
-            if isapprox($mins,zero($mins)) && isapprox($maxs,zero($maxs))
-                (1e-18,2e-18)
+    colorrange = SP[:colorrange][]
+    SP[:colorrange] = if (colorrange[1]==colorrange[2]) 
+        @lift begin
+            if isapprox($mins,$maxs)
+                if isapprox($mins,zero($mins)) && isapprox($maxs,zero($maxs))
+                    (1e-18,2e-18)
+                else
+                    ($mins,1.01($maxs))
+                end
             else
-                ($mins,1.01($maxs))
+                ($mins,$maxs)
             end
-        else
-            ($mins,$maxs)
         end
+    else
+        SP[:colorrange]
     end
+
     return Makie.mesh!(SP, plotter.mesh, color=solution, shading=SP[:shading], scale_plot=SP[:scale_plot], colormap=SP[:colormap],colorrange=SP[:colorrange] , transparent=SP[:transparent])
 end
 

@@ -20,6 +20,7 @@ keyword arguments are:
 - `deformation_field::Symbol=:default` field that transforms the mesh by the given deformation, defaults to no deformation
 - `process::Function=postprocess` function to construct nodal scalar values from a vector valued problem
 - `colormap::Symbol=:cividis`
+- `colorrange::NTuple{2,<:Number}`: Specify (min, max) of the colorscale. If not given, min and max are calculated automatically from the data. 
 - `deformation_scale=1.0`
 - `shading=false`
 - `scale_plot=false`
@@ -78,6 +79,7 @@ keyword arguments are:
 - `deformation_field::Symbol=:default` field that transforms the mesh by the given deformation, defaults to no deformation
 - `process::Function=identity` function to construct cell scalar values. Defaults to `identity`, i.e. scalar values.
 - `colormap::Symbol=:cividis`
+- `colorrange::NTuple{2,<:Number}`: Specify (min, max) of the colorscale. If not given, min and max are calculated automatically from the data. 
 - `deformation_scale=1.0`
 - `shading=false`
 - `scale_plot=false`
@@ -90,7 +92,7 @@ keyword arguments are:
     deformation_field=:default,
     process=identity,
     colormap=:cividis,
-    colorrange=(0,1),
+    colorrange=Makie.automatic,
     transparent=false,
     deformation_scale = 1.0,
     )
@@ -113,11 +115,8 @@ function Makie.plot!(CP::CellPlot{<:Tuple{<:MakiePlotter{dim},Vector}}) where di
             plotter.physical_coords_mesh[1:end] = plotter.physical_coords .+ ($(CP[:deformation_scale]) .* $(u_matrix))
         end
     end
-    mins = minimum(qp_values)
-    maxs = maximum(qp_values)
-    CP[:colorrange] = @lift(isapprox($mins,$maxs) ? ($mins,1.01($maxs)) : ($mins,$maxs))
     solution =  @lift(reshape(transfer_scalar_celldata(plotter, qp_values; process=$(CP[:process])), num_vertices(plotter)))
-    return Makie.mesh!(CP, plotter.mesh, color=solution, shading=CP[:shading], scale_plot=CP[:scale_plot], colormap=CP[:colormap], transparent=CP[:transparent])
+    return Makie.mesh!(CP, plotter.mesh, color=solution, shading=CP[:shading], scale_plot=CP[:scale_plot], colormap=CP[:colormap], transparent=CP[:transparent], colorrange=CP[:colorrange])
 end
 
 """

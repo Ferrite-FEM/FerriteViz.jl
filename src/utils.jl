@@ -708,13 +708,13 @@ function uniform_refinement(plotter::MakiePlotter{dim,DH,T1,TOP,T2,M,TRI}) where
     n_visible = sum(plotter.visible[refined_triangle_cell_map])
     n_notvisible = length(refined_triangles) - n_visible
     refined_vis_triangles[ .! plotter.visible[refined_triangle_cell_map]] .= (GeometryBasics.GLTriangleFace(1,1,1) for i in 1:n_notvisible)
-    refined_vis_triangles = ShaderAbstractions.Buffer(Makie.Observable(refined_triangles))
+    refined_vis_triangles_m = ShaderAbstractions.Buffer(Makie.Observable(refined_vis_triangles))
     refined_physical_coords_m = ShaderAbstractions.Buffer(Makie.Observable(copy(refined_physical_coords)))
-    refined_mesh = GeometryBasics.Mesh(refined_physical_coords_m, refined_vis_triangles)
+    refined_mesh = GeometryBasics.Mesh(refined_physical_coords_m, refined_vis_triangles_m)
 
     return MakiePlotter{dim,DH,T1,TOP,T2,M,TRI}(
         plotter.dh, plotter.u, plotter.topology, plotter.visible, plotter.gridnodes,
-        refined_physical_coords, refined_physical_coords_m, refined_triangles, refined_vis_triangles, refined_triangle_cell_map,
+        refined_physical_coords, refined_physical_coords_m, refined_triangles, refined_vis_triangles_m, refined_triangle_cell_map,
         plotter.cell_triangle_offsets .* 4, refined_reference_coords, refined_mesh
     )
 end

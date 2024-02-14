@@ -33,7 +33,7 @@ keyword arguments are:
     deformation_field=:default,
     process=postprocess,
     colormap=:cividis,
-    colorrange=(0,1),
+    colorrange=Makie.automatic,
     transparent=false,
     deformation_scale = 1.0,
     )
@@ -62,19 +62,6 @@ function Makie.plot!(SP::SolutionPlot{<:Tuple{<:MakiePlotter}})
             plotter.physical_coords_mesh[1:end] = plotter.physical_coords
         else
             plotter.physical_coords_mesh[1:end] = plotter.physical_coords .+ ($(SP[:deformation_scale]) .* $(u_matrix))
-        end
-    end
-    mins = @lift(minimum(x->isnan(x) ?  1e10 : x, $solution))
-    maxs = @lift(maximum(x->isnan(x) ? -1e10 : x, $solution))
-    SP[:colorrange] = @lift begin
-        if isapprox($mins,$maxs)
-            if isapprox($mins,zero($mins)) && isapprox($maxs,zero($maxs))
-                (1e-18,2e-18)
-            else
-                ($mins,1.01($maxs))
-            end
-        else
-            ($mins,$maxs)
         end
     end
     return Makie.mesh!(SP, plotter.mesh, color=solution, shading=SP[:shading], scale_plot=SP[:scale_plot], colormap=SP[:colormap],colorrange=SP[:colorrange] , transparent=SP[:transparent])

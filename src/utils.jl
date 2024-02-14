@@ -571,23 +571,16 @@ end
 
 # maps the dof vector in nodal order, only needed for wireframe nodal deformation (since we display the original nodes)
 function dof_to_node(dh::Ferrite.AbstractDofHandler, u::Vector{T}; field_name=:u) where T
+    data = Ferrite.reshape_to_nodes(dh, u, field_name)
     field_dim = Ferrite.getfielddim(dh, field_name)
-    data = fill(NaN, Ferrite.getnnodes(dh.grid), field_dim)
-    fhs = getfieldhandlers(dh,field_name)
-
-    for fh in fhs
-        dof_range_ = Ferrite.dof_range(fh, field_name)
-        for cell in Ferrite.CellIterator(dh,fh.cellset)
-            _celldofs = Ferrite.celldofs(cell)
-            local_celldofs_field = reshape(@view(_celldofs[dof_range_]), (field_dim,length(cell.nodes)))
-            for (local_nodeid,node) in enumerate(cell.nodes)
-                for d in 1:field_dim
-                    data[node, d] = u[local_celldofs_field[d,local_nodeid]]
-                end
-            end
-        end
-    end
-    return data
+    # reshape_to_nodes gives either [Nx1] or [Nx3] to match vtk expectations
+    # Makie doesn't support view in to_vertices, so we have to collect: 
+    return collect(transpose(view(data, 1:field_dim, :)))
+    
+    # On Ferrite master, we have instead something like
+    # data = Ferrite.evaluate_at_grid_nodes(dh, u, field_name)
+    # Probably we cannot return the reinterpreted array due to a lack of support in Makie, so
+    # return collect(transpose(reinterpret(reshape, T, data)))
 end
 
 """

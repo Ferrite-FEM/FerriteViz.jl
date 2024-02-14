@@ -25,6 +25,7 @@ keyword arguments are:
 - `shading=false`
 - `scale_plot=false`
 - `transparent=false`
+- `nan_color::Union{Symbol, <:Colorant}=:red`
 """
 @recipe(SolutionPlot) do scene
     Attributes(
@@ -37,6 +38,7 @@ keyword arguments are:
     colorrange=Makie.automatic,
     transparent=false,
     deformation_scale = 1.0,
+    nan_color=:red,
     )
 end
 
@@ -65,7 +67,7 @@ function Makie.plot!(SP::SolutionPlot{<:Tuple{<:MakiePlotter}})
             plotter.physical_coords_mesh[1:end] = plotter.physical_coords .+ ($(SP[:deformation_scale]) .* $(u_matrix))
         end
     end
-    return Makie.mesh!(SP, plotter.mesh, color=solution, shading=SP[:shading], scale_plot=SP[:scale_plot], colormap=SP[:colormap],colorrange=SP[:colorrange] , transparent=SP[:transparent])
+    return Makie.mesh!(SP, plotter.mesh, color=solution, shading=SP[:shading], scale_plot=SP[:scale_plot], colormap=SP[:colormap],colorrange=SP[:colorrange] , transparent=SP[:transparent], nan_color=SP[:nan_color])
 end
 
 """
@@ -84,6 +86,7 @@ keyword arguments are:
 - `shading=false`
 - `scale_plot=false`
 - `transparent=false`
+- `nan_color::Union{Symbol, <:Colorant}=:red`
 """
 @recipe(CellPlot) do scene
     Attributes(
@@ -95,6 +98,7 @@ keyword arguments are:
     colorrange=Makie.automatic,
     transparent=false,
     deformation_scale = 1.0,
+    nan_color=:red,
     )
 end
 
@@ -116,7 +120,7 @@ function Makie.plot!(CP::CellPlot{<:Tuple{<:MakiePlotter{dim},Vector}}) where di
         end
     end
     solution =  @lift(reshape(transfer_scalar_celldata(plotter, qp_values; process=$(CP[:process])), num_vertices(plotter)))
-    return Makie.mesh!(CP, plotter.mesh, color=solution, shading=CP[:shading], scale_plot=CP[:scale_plot], colormap=CP[:colormap], transparent=CP[:transparent], colorrange=CP[:colorrange])
+    return Makie.mesh!(CP, plotter.mesh, color=solution, shading=CP[:shading], scale_plot=CP[:scale_plot], colormap=CP[:colormap], transparent=CP[:transparent], colorrange=CP[:colorrange], nan_color=CP[:nan_color])
 end
 
 """
@@ -298,6 +302,7 @@ values are transformed to a scalar based on `process` which defaults to the magn
 - `scale_plot = false`
 - `shading = false`
 - `colormap = :cividis`
+- `nan_color::Union{Symbol, <:Colorant}=:red`
 """
 @recipe(Surface) do scene
     Attributes(
@@ -306,6 +311,7 @@ values are transformed to a scalar based on `process` which defaults to the magn
     scale_plot = false,
     shading = false,
     colormap = :cividis,
+    nan_color=:red,
     )
 end
 
@@ -322,7 +328,7 @@ function Makie.plot!(SF::Surface{<:Tuple{<:MakiePlotter{2}}})
     coords = @lift begin
         Point3f[Point3f(coord[1], coord[2], $(solution)[idx]) for (idx, coord) in enumerate(plotter.physical_coords)]
     end
-    return Makie.mesh!(SF, coords, plotter.vis_triangles, color=solution, scale_plot=SF[:scale_plot], shading=SF[:shading], colormap=SF[:colormap])
+    return Makie.mesh!(SF, coords, plotter.vis_triangles, color=solution, scale_plot=SF[:scale_plot], shading=SF[:shading], colormap=SF[:colormap], nan_color=SF[:nan_color])
 end
 
 """

@@ -312,6 +312,7 @@ values are transformed to a scalar based on `process` which defaults to the magn
 - `scale_plot = false`
 - `shading = false`
 - `colormap = :cividis`
+- `colorrange = (0,1)`
 """
 @recipe(Surface) do scene
     Attributes(

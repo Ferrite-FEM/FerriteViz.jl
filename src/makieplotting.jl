@@ -20,10 +20,12 @@ keyword arguments are:
 - `deformation_field::Symbol=:default` field that transforms the mesh by the given deformation, defaults to no deformation
 - `process::Function=postprocess` function to construct nodal scalar values from a vector valued problem
 - `colormap::Symbol=:cividis`
+- `colorrange::NTuple{2,<:Number}`: Specify (min, max) of the colorscale. If not given, min and max are calculated automatically from the data. 
 - `deformation_scale=1.0`
 - `shading=false`
 - `scale_plot=false`
 - `transparent=false`
+- `nan_color::Union{Symbol, <:Colorant}=:red`
 """
 @recipe(SolutionPlot) do scene
     Attributes(
@@ -33,9 +35,10 @@ keyword arguments are:
     deformation_field=:default,
     process=postprocess,
     colormap=:cividis,
-    colorrange=(0,1),
+    colorrange=Makie.automatic,
     transparent=false,
     deformation_scale = 1.0,
+    nan_color=:red,
     )
 end
 
@@ -64,20 +67,7 @@ function Makie.plot!(SP::SolutionPlot{<:Tuple{<:MakiePlotter}})
             plotter.physical_coords_mesh[1:end] = plotter.physical_coords .+ ($(SP[:deformation_scale]) .* $(u_matrix))
         end
     end
-    mins = @lift(minimum(x->isnan(x) ?  1e10 : x, $solution))
-    maxs = @lift(maximum(x->isnan(x) ? -1e10 : x, $solution))
-    SP[:colorrange] = @lift begin
-        if isapprox($mins,$maxs)
-            if isapprox($mins,zero($mins)) && isapprox($maxs,zero($maxs))
-                (1e-18,2e-18)
-            else
-                ($mins,1.01($maxs))
-            end
-        else
-            ($mins,$maxs)
-        end
-    end
-    return Makie.mesh!(SP, plotter.mesh, color=solution, shading=SP[:shading], scale_plot=SP[:scale_plot], colormap=SP[:colormap],colorrange=SP[:colorrange] , transparent=SP[:transparent])
+    return Makie.mesh!(SP, plotter.mesh, color=solution, shading=SP[:shading], scale_plot=SP[:scale_plot], colormap=SP[:colormap],colorrange=SP[:colorrange] , transparent=SP[:transparent], nan_color=SP[:nan_color])
 end
 
 """
@@ -91,10 +81,12 @@ keyword arguments are:
 - `deformation_field::Symbol=:default` field that transforms the mesh by the given deformation, defaults to no deformation
 - `process::Function=identity` function to construct cell scalar values. Defaults to `identity`, i.e. scalar values.
 - `colormap::Symbol=:cividis`
+- `colorrange::NTuple{2,<:Number}`: Specify (min, max) of the colorscale. If not given, min and max are calculated automatically from the data. 
 - `deformation_scale=1.0`
 - `shading=false`
 - `scale_plot=false`
 - `transparent=false`
+- `nan_color::Union{Symbol, <:Colorant}=:red`
 """
 @recipe(CellPlot) do scene
     Attributes(
@@ -103,9 +95,10 @@ keyword arguments are:
     deformation_field=:default,
     process=identity,
     colormap=:cividis,
-    colorrange=(0,1),
+    colorrange=Makie.automatic,
     transparent=false,
     deformation_scale = 1.0,
+    nan_color=:red,
     )
 end
 
@@ -126,11 +119,8 @@ function Makie.plot!(CP::CellPlot{<:Tuple{<:MakiePlotter{dim},Vector}}) where di
             plotter.physical_coords_mesh[1:end] = plotter.physical_coords .+ ($(CP[:deformation_scale]) .* $(u_matrix))
         end
     end
-    mins = minimum(qp_values)
-    maxs = maximum(qp_values)
-    CP[:colorrange] = @lift(isapprox($mins,$maxs) ? ($mins,1.01($maxs)) : ($mins,$maxs))
     solution =  @lift(reshape(transfer_scalar_celldata(plotter, qp_values; process=$(CP[:process])), num_vertices(plotter)))
-    return Makie.mesh!(CP, plotter.mesh, color=solution, shading=CP[:shading], scale_plot=CP[:scale_plot], colormap=CP[:colormap], transparent=CP[:transparent])
+    return Makie.mesh!(CP, plotter.mesh, color=solution, shading=CP[:shading], scale_plot=CP[:scale_plot], colormap=CP[:colormap], transparent=CP[:transparent], colorrange=CP[:colorrange], nan_color=CP[:nan_color])
 end
 
 """
@@ -313,6 +303,7 @@ values are transformed to a scalar based on `process` which defaults to the magn
 - `shading = false`
 - `colormap = :cividis`
 - `colorrange=Makie.automatic`
+- `nan_color::Union{Symbol, <:Colorant}=:red`
 """
 @recipe(Surface) do scene
     Attributes(
@@ -322,6 +313,7 @@ values are transformed to a scalar based on `process` which defaults to the magn
     shading = false,
     colormap = :cividis,
     colorrange=Makie.automatic,
+    nan_color=:red,
     )
 end
 
@@ -351,7 +343,7 @@ function Makie.plot!(SF::Surface{<:Tuple{<:MakiePlotter{2}}})
             ($mins,$maxs)
         end
     end
-    return Makie.mesh!(SF, coords, plotter.vis_triangles, color=solution, scale_plot=SF[:scale_plot], shading=SF[:shading], colormap=SF[:colormap], colorrange=SF[:colorrange])
+    return Makie.mesh!(SF, coords, plotter.vis_triangles, color=solution, scale_plot=SF[:scale_plot], shading=SF[:shading], colormap=SF[:colormap], colorrange=SF[:colorrange], nan_color=SF[:nan_color])
 end
 
 """

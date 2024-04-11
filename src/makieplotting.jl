@@ -302,6 +302,7 @@ values are transformed to a scalar based on `process` which defaults to the magn
 - `scale_plot = false`
 - `shading = false`
 - `colormap = :cividis`
+- `colorrange=Makie.automatic`
 - `nan_color::Union{Symbol, <:Colorant}=:red`
 """
 @recipe(Surface) do scene
@@ -311,6 +312,7 @@ values are transformed to a scalar based on `process` which defaults to the magn
     scale_plot = false,
     shading = false,
     colormap = :cividis,
+    colorrange=Makie.automatic,
     nan_color=:red,
     )
 end
@@ -328,7 +330,20 @@ function Makie.plot!(SF::Surface{<:Tuple{<:MakiePlotter{2}}})
     coords = @lift begin
         Point3f[Point3f(coord[1], coord[2], $(solution)[idx]) for (idx, coord) in enumerate(plotter.physical_coords)]
     end
-    return Makie.mesh!(SF, coords, plotter.vis_triangles, color=solution, scale_plot=SF[:scale_plot], shading=SF[:shading], colormap=SF[:colormap], nan_color=SF[:nan_color])
+    mins = @lift(minimum(x->isnan(x) ?  1e10 : x, $solution))
+    maxs = @lift(maximum(x->isnan(x) ? -1e10 : x, $solution))
+    SF[:colorrange] = @lift begin
+        if isapprox($mins,$maxs)
+            if isapprox($mins,zero($mins)) && isapprox($maxs,zero($maxs))
+                (1e-18,2e-18)
+            else
+                ($mins,1.01($maxs))
+            end
+        else
+            ($mins,$maxs)
+        end
+    end
+    return Makie.mesh!(SF, coords, plotter.vis_triangles, color=solution, scale_plot=SF[:scale_plot], shading=SF[:shading], colormap=SF[:colormap], colorrange=SF[:colorrange], nan_color=SF[:nan_color])
 end
 
 """

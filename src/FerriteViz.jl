@@ -1,8 +1,10 @@
 module FerriteViz
 
 using Makie
+using StaticArrays
 using Tensors
-import Ferrite
+using Ferrite
+import Ferrite: get_grid, getrefshape
 import GeometryBasics
 import ShaderAbstractions
 import LinearAlgebra

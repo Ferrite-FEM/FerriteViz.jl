@@ -22,7 +22,7 @@ keyword arguments are:
 - `colormap::Symbol=:cividis`
 - `colorrange::NTuple{2,<:Number}`: Specify (min, max) of the colorscale. If not given, min and max are calculated automatically from the data. 
 - `deformation_scale=1.0`
-- `shading=false`
+- `shading=Makie.NoShading`
 - `scale_plot=false`
 - `transparent=false`
 - `nan_color::Union{Symbol, <:Colorant}=:red`
@@ -30,7 +30,7 @@ keyword arguments are:
 @recipe(SolutionPlot) do scene
     Attributes(
     scale_plot=false,
-    shading=false,
+    shading=Makie.NoShading,
     field=:default,
     deformation_field=:default,
     process=postprocess,
@@ -83,7 +83,7 @@ keyword arguments are:
 - `colormap::Symbol=:cividis`
 - `colorrange::NTuple{2,<:Number}`: Specify (min, max) of the colorscale. If not given, min and max are calculated automatically from the data. 
 - `deformation_scale=1.0`
-- `shading=false`
+- `shading=Makie.NoShading`
 - `scale_plot=false`
 - `transparent=false`
 - `nan_color::Union{Symbol, <:Colorant}=:red`
@@ -91,7 +91,7 @@ keyword arguments are:
 @recipe(CellPlot) do scene
     Attributes(
     scale_plot=false,
-    shading=false,
+    shading=Makie.NoShading,
     deformation_field=:default,
     process=identity,
     colormap=:cividis,
@@ -143,7 +143,7 @@ Plots the finite element mesh, optionally labels it and transforms it if a suita
 - `nodelabelcolor=:darkblue`
 - `celllabels=false` global cell id labels
 - `celllabelcolor=:darkred`
-- `textsize::Int=15` size of the label's text
+- `fontsize::Int=15` size of the label's text
 - `visible=true`
 """
 @recipe(Wireframe) do scene
@@ -155,7 +155,7 @@ Plots the finite element mesh, optionally labels it and transforms it if a suita
     deformation_field=:default,
     visible=true,
     deformation_scale=1,
-    textsize=15,
+    fontsize=15,
     offset=(0.0,0.0),
     nodelabels=false,
     nodelabelcolor=:darkblue,
@@ -228,7 +228,7 @@ function Makie.plot!(WF::Wireframe{<:Tuple{<:MakiePlotter{dim}}}) where dim
     end
     colorrange = isempty(cellset_to_value) ? (0,1) : (0,maximum(values(cellset_to_value)))
     cellset_u =  reshape(transfer_scalar_celldata(plotter, cellset_u; process=identity), num_vertices(plotter))
-    Makie.mesh!(WF, plotter.mesh, color=cellset_u, shading=false, scale_plot=false, colormap=:darktest, visible=WF[:cellsets])
+    Makie.mesh!(WF, plotter.mesh, color=cellset_u, shading=Makie.NoShading, scale_plot=false, colormap=:darktest, visible=WF[:cellsets])
     #plot the nodes
     shouldplot = @lift ($(WF[:visible]) && $(WF[:plotnodes]))
     Makie.scatter!(WF,gridnodes,markersize=WF[:markersize], color=WF[:color], visible=shouldplot)
@@ -238,8 +238,8 @@ function Makie.plot!(WF::Wireframe{<:Tuple{<:MakiePlotter{dim}}}) where dim
     #set up celllabels
     celllabels = @lift $(WF[:celllabels]) ? ["$i" for i in 1:Ferrite.getncells(plotter.dh.grid)] : [""]
     cellpositions = @lift $(WF[:celllabels]) ? [midpoint(cell,$gridnodes) for cell in Ferrite.getcells(plotter.dh.grid)] : (dim < 3 ? [Point2f((0,0))] : [Point3f((0,0,0))])
-    Makie.text!(WF,nodepositions, text=nodelabels, textsize=WF[:textsize], offset=WF[:offset],color=WF[:nodelabelcolor])
-    Makie.text!(WF,celllabels, position=cellpositions, textsize=WF[:textsize], color=WF[:celllabelcolor], align=(:center,:center))
+    Makie.text!(WF,nodepositions, text=nodelabels, fontsize=WF[:fontsize], offset=WF[:offset],color=WF[:nodelabelcolor])
+    Makie.text!(WF,celllabels, position=cellpositions, fontsize=WF[:fontsize], color=WF[:celllabelcolor], align=(:center,:center))
     #plot edges (3D) /faces (2D) of the mesh
     Makie.linesegments!(WF,lines,color=WF[:color], linewidth=WF[:strokewidth], visible=WF[:visible], depth_shift=WF[:depth_shift])
 end
@@ -262,11 +262,8 @@ function Makie.plot!(WF::Wireframe{<:Tuple{<:Ferrite.AbstractGrid{dim}}}) where 
     celllabels = @lift $(WF[:celllabels]) ? ["$i" for i in 1:Ferrite.getncells(grid)] : [""]
     cellpositions = @lift $(WF[:celllabels]) ? [midpoint(cell,coords) for cell in Ferrite.getcells(grid)] : (dim < 3 ? [Point2f((0,0))] : [Point3f((0,0,0))])
     #cellsetsplot
-    if isconcretetype(grid.cells)
-        dh = Ferrite.DofHandler(grid)
-    else
-        dh = Ferrite.MixedDofHandler(grid)
-    end
+
+    dh = Ferrite.DofHandler(grid)
     cellsets = grid.cellsets
     cellset_to_value = Dict{String,Int}()
     for (cellsetidx,(cellsetname,cellset)) in enumerate(cellsets)
@@ -283,9 +280,9 @@ function Makie.plot!(WF::Wireframe{<:Tuple{<:Ferrite.AbstractGrid{dim}}}) where 
     plotter = MakiePlotter(dh,cellset_u)
     cellset_u =  reshape(transfer_scalar_celldata(plotter, cellset_u; process=identity), num_vertices(plotter))
     colorrange = isempty(cellset_to_value) ? (0,1) : (0,maximum(values(cellset_to_value)))
-    Makie.mesh!(WF, plotter.mesh, color=cellset_u, shading=false, scale_plot=false, colormap=:darktest, visible=WF[:cellsets])
-    Makie.text!(WF,nodelabels, position=nodepositions, textsize=WF[:textsize], offset=WF[:offset],color=WF[:nodelabelcolor])
-    Makie.text!(WF,celllabels, position=cellpositions, textsize=WF[:textsize], color=WF[:celllabelcolor], align=(:center,:center))
+    Makie.mesh!(WF, plotter.mesh, color=cellset_u, shading=Makie.NoShading, scale_plot=false, colormap=:darktest, visible=WF[:cellsets])
+    Makie.text!(WF,nodelabels, position=nodepositions, fontsize=WF[:fontsize], offset=WF[:offset],color=WF[:nodelabelcolor])
+    Makie.text!(WF,celllabels, position=cellpositions, fontsize=WF[:fontsize], color=WF[:celllabelcolor], align=(:center,:center))
     Makie.linesegments!(WF,lines,color=WF[:color], strokewidth=WF[:strokewidth], visible=WF[:visible])
 end
 
@@ -300,7 +297,7 @@ values are transformed to a scalar based on `process` which defaults to the magn
 - `field = :default`
 - `process = postprocess`
 - `scale_plot = false`
-- `shading = false`
+- `shading = Makie.NoShading`
 - `colormap = :cividis`
 - `colorrange=Makie.automatic`
 - `nan_color::Union{Symbol, <:Colorant}=:red`
@@ -310,7 +307,7 @@ values are transformed to a scalar based on `process` which defaults to the magn
     field = :default,
     process = postprocess,
     scale_plot = false,
-    shading = false,
+    shading = Makie.NoShading,
     colormap = :cividis,
     colorrange=Makie.automatic,
     nan_color=:red,
@@ -361,26 +358,29 @@ the arrows are unicolored. Otherwise the color corresponds to the magnitude, or 
     )
 end
 
-function Makie.plot!(AR::Arrows{<:Tuple{<:MakiePlotter{dim}}}) where dim
+function Makie.plot!(AR::Arrows{<:Tuple{<:MakiePlotter{sdim}}}) where sdim
     plotter = AR[1][]
     solution = @lift begin
         if $(AR[:field]) === :default
             field_name = Ferrite.getfieldnames(plotter.dh)[1]
-            @assert Ferrite.getfielddim(plotter.dh,field_name) > 1
+            field_dim = Ferrite.getfielddim(plotter.dh, field_name)
+            @assert field_dim == sdim "Dimension of field $field_name is $field_dim does not match spatial dimension $sdim"
             transfer_solution(plotter,$(plotter.u); field_name=field_name, process=identity)
         else
-            @assert Ferrite.getfielddim(plotter.dh,$(AR[:field])) > 1
+            field_name = $(AR[:field])
+            field_dim = Ferrite.getfielddim(plotter.dh, field_name)
+            @assert field_dim == sdim "Dimension of field $field_name is $field_dim does not match spatial dimension $sdim"
             transfer_solution(plotter,$(plotter.u); field_name=$(AR[:field]), process=identity)
         end
     end
-    if dim  == 2
+    if sdim  == 2
         ns = @lift([Vec2f(i) for i in eachrow($(solution))])
         lengths = @lift($(AR[:color])===:default ? $(AR[:process]).($(ns)) : ones(length($(ns)))*$(AR[:color]))
-    elseif dim  == 3
+    elseif sdim  == 3
         ns = @lift([Vec3f(i) for i in eachrow($(solution))])
         lengths = @lift($(AR[:color])===:default ? $(AR[:process]).($(ns)) : ones(length($(ns)))*$(AR[:color]))
     else
-        error("Arrows plots are only available in dim ≥ 2")
+        error("Arrows plots are only available in dimension ≥ 2")
     end
     Makie.arrows!(AR, plotter.physical_coords, ns, arrowsize=AR[:arrowsize], colormap=AR[:colormap], color=lengths, lengthscale=AR[:lengthscale])
 end
@@ -395,7 +395,7 @@ end
 - `strokewidth=2` strokwidth of faces/edges
 - `color=theme(scene, :linecolor)`
 - `markersize=30` size of the nodes
-- `textsize=60` textsize of node-, edges- and facelabels
+- `fontsize=60` fontsize of node-, edges- and facelabels
 - `nodelabels=true` switch that controls plotting of nodelabels
 - `nodelabelcolor=:darkred`
 - `nodelabeloffset=(0.0,0.0)` offset of the nodelabel text relative to its associated node
@@ -413,7 +413,7 @@ end
     strokewidth=theme(scene, :linewidth),
     color=theme(scene, :linecolor),
     markersize=theme(scene, :markersize),
-    textsize=60,
+    fontsize=60,
     nodelabels=true,
     nodelabelcolor=:darkred,
     nodelabeloffset=(0.0,0.0),
@@ -458,12 +458,12 @@ function Makie.plot!(Ele::Elementinfo{<:Tuple{<:Ferrite.Interpolation{dim,refsha
         end
         position ./= idx
         position = dim == 2 ? Point2f(position) : Point3f(position)
-        Makie.text!(Ele,"$id", position=position, textsize=Ele[:textsize], offset=Ele[:facelabeloffset],color=Ele[:facelabelcolor],visible=Ele[:facelabels],font=Ele[:font])
+        Makie.text!(Ele,"$id", position=position, fontsize=Ele[:fontsize], offset=Ele[:facelabeloffset],color=Ele[:facelabelcolor],visible=Ele[:facelabels],font=Ele[:font])
     end
     if dim == 3
         for (id,edge) in enumerate(edgenodes)
             position = Point3f((elenodes[edge[1],:] + elenodes[refshape==Ferrite.RefCube ? edge[2] : edge[end],:])*0.5)
-            t = Makie.text!(Ele,"$id", position=position, textsize=Ele[:textsize], offset=Ele[:edgelabeloffset],color=Ele[:edgelabelcolor],visible=Ele[:edgelabels],align=(:center,:center),font=Ele[:font])
+            t = Makie.text!(Ele,"$id", position=position, fontsize=Ele[:fontsize], offset=Ele[:edgelabeloffset],color=Ele[:edgelabelcolor],visible=Ele[:edgelabels],align=(:center,:center),font=Ele[:font])
             # Boundingbox can't switch currently from pixelspace to "coordinate" space in recipes
             #bb = Makie.boundingbox(t)
             #Makie.wireframe!(Ele,bb,space=:pixel)
@@ -475,7 +475,7 @@ function Makie.plot!(Ele::Elementinfo{<:Tuple{<:Ferrite.Interpolation{dim,refsha
     nodelabels = @lift $(Ele[:nodelabels]) ? ["$i" for i in 1:size(elenodes,1)] : [""]
     nodepositions = @lift $(Ele[:nodelabels]) ? [dim < 3 ? Point2f(row) : Point3f(row) for row in eachrow(elenodes)] : (dim < 3 ? [Point2f((0,0))] : [Point3f((0,0,0))])
     #set up celllabels
-    Makie.text!(Ele,nodelabels, position=nodepositions, textsize=Ele[:textsize], offset=Ele[:nodelabeloffset],color=Ele[:nodelabelcolor],font=Ele[:font])
+    Makie.text!(Ele,nodelabels, position=nodepositions, fontsize=Ele[:fontsize], offset=Ele[:nodelabeloffset],color=Ele[:nodelabelcolor],font=Ele[:font])
     #plot edges (3D) /faces (2D) of the mesh
     Makie.linesegments!(Ele,lines,color=Ele[:color], linewidth=Ele[:strokewidth])
 end

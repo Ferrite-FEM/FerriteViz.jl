@@ -8,22 +8,22 @@ function create_cook_grid(nx, ny)
                Tensors.Vec{2}((0.0,  44.0))]
     grid = generate_grid(Quadrilateral, (nx, ny), corners);
     # facesets for boundary conditions
-    addfaceset!(grid, "clamped", x -> norm(x[1]) ≈ 0.0);
-    addfaceset!(grid, "traction", x -> norm(x[1]) ≈ 48.0);
+    addfacetset!(grid, "clamped", x -> norm(x[1]) ≈ 0.0);
+    addfacetset!(grid, "traction", x -> norm(x[1]) ≈ 48.0);
     return grid
 end;
 
 function create_values(interpolation_u, interpolation_p)
     # quadrature rules
     qr      = QuadratureRule{RefQuadrilateral}(3)
-    face_qr = FaceQuadratureRule{RefQuadrilateral}(3)
+    face_qr = FacetQuadratureRule{RefQuadrilateral}(3)
 
     # geometric interpolation
     interpolation_geom = Lagrange{RefQuadrilateral,1}()
 
     # cell and facevalues for u
     cellvalues_u = CellValues(qr, interpolation_u, interpolation_geom)
-    facevalues_u = FaceValues(face_qr, interpolation_u, interpolation_geom)
+    facevalues_u = FacetValues(face_qr, interpolation_u, interpolation_geom)
 
     # cellvalues for p
     cellvalues_p = CellValues(qr, interpolation_p, interpolation_geom)
@@ -41,7 +41,7 @@ end;
 
 function create_bc(dh)
     dbc = ConstraintHandler(dh)
-    add!(dbc, Dirichlet(:u, getfaceset(dh.grid, "clamped"), (x,t) -> zero(Tensors.Vec{2}), [1,2]))
+    add!(dbc, Dirichlet(:u, getfacetset(dh.grid, "clamped"), (x,t) -> zero(Tensors.Vec{2}), [1,2]))
     close!(dbc)
     t = 0.0
     update!(dbc, t)
@@ -54,7 +54,7 @@ struct LinearElasticity{T}
 end
 
 function doassemble(cellvalues_u::CellValues, cellvalues_p::CellValues,
-                    facevalues_u::FaceValues, K::SparseMatrixCSC, grid::Grid{sdim},
+                    facevalues_u::FacetValues, K::SparseMatrixCSC, grid::Grid{sdim},
                     dh::DofHandler, mp::LinearElasticity) where {sdim}
 
     f = zeros(ndofs(dh))
@@ -121,8 +121,8 @@ function assemble_up!(Ke, fe, cell, cellvalues_u, cellvalues_p, facevalues_u, gr
     # We integrate the Neumann boundary using the facevalues.
     # We loop over all the faces in the cell, then check if the face
     # is in our `"traction"` faceset.
-    @inbounds for face in 1:nfaces(cell)
-        if onboundary(cell, face) && (cellid(cell), face) ∈ getfaceset(grid, "traction")
+    @inbounds for face in 1:nfacets(cell)
+        if (cellid(cell), face) ∈ getfacetset(grid, "traction")
             reinit!(facevalues_u, cell, face)
             for q_point in 1:getnquadpoints(facevalues_u)
                 dΓ = getdetJdV(facevalues_u, q_point)
@@ -160,11 +160,11 @@ function solve(interpolation_u, interpolation_p, mp)
     u = K \ f;
 
     # export
-    filename = "cook_" * (isa(interpolation_u, Lagrange{RefQuadrilateral,1}) ? "linear" : "quadratic") *
-                         "_linear"
-    vtk_grid(filename, dh) do vtkfile
-        vtk_point_data(vtkfile, dh, u)
-    end
+    # filename = "cook_" * (isa(interpolation_u, Lagrange{RefQuadrilateral,1}) ? "linear" : "quadratic") *
+    #                      "_linear"
+    # vtk_grid(filename, dh) do vtkfile
+    #     vtk_point_data(vtkfile, dh, u)
+    # end
     return u,dh
 end
 

@@ -145,8 +145,8 @@ function for_discretization(dh, u)
 
     # Some helpers
     ip = Ferrite.getfieldinterpolation(sdh, field_idx)
-    field_dim = Ferrite.getfielddim(sdh, field_idx)
-    spatial_dim = Ferrite.getdim(grid)
+    field_dim = Ferrite.n_components(sdh, field_idx)
+    spatial_dim = Ferrite.getspatialdim(grid)
 
     # # Get dof range, the hard way
     # dof_min = dh.ndofs.x
@@ -166,7 +166,7 @@ function for_discretization(dh, u)
     ref_coords = Ferrite.reference_coordinates(ip)
     # Starting here we assume a single type of cell being present
     # TODO improve this.
-    ip_geo = Ferrite.default_interpolation(typeof(grid.cells[1]))
+    ip_geo = Ferrite.geometric_interpolation(typeof(grid.cells[1]))
     nodes_per_cell = length(ref_coords)
     qr = Ferrite.QuadratureRule{Ferrite.getrefshape(ip)}(zeros(nodes_per_cell), ref_coords)
     cv = Ferrite.CellValues(qr, ip, ip_geo)
@@ -191,7 +191,7 @@ function for_discretization(dh, u)
     # Generate a new dof handler.
     grid_new = Grid(cells, nodes)
     dh_new = DofHandler(grid_new)
-    add!(dh_new, getfieldname(sdh, field_idx), Ferrite.getfielddim(sdh, field_idx), for_interpolation(ip))
+    add!(dh_new, getfieldname(sdh, field_idx), Ferrite.n_components(sdh, field_idx), for_interpolation(ip))
     close!(dh_new);
 
     # Transfer solution the dumb way.

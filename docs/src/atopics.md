@@ -1,8 +1,8 @@
 # Advanced Topics
 
 ```@example 1
-import JSServe, WGLMakie # hide
-JSServe.Page(exportable=true, offline=true) # hide
+import WGLMakie, Bonito # hide
+Bonito.Page() # hide
 WGLMakie.activate!() # hide
 WGLMakie.Makie.inline!(true) # hide
 ```

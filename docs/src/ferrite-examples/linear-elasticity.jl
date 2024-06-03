@@ -48,24 +48,24 @@ function assemble_steady_linear_elastic_global(cellvalues::CellValues, K::Sparse
 end
 
 function manufactured_linear_elastic_problem(element_type, ip, num_elements_per_dim, component)
-    dim = Ferrite.getdim(ip)
+    dim = Ferrite.getrefdim(ip)
     grid = generate_grid(element_type, ntuple(x->num_elements_per_dim, dim));
-    ip_geo = Ferrite.default_interpolation(typeof(grid.cells[1]))
+    ip_geo = Ferrite.geometric_interpolation(typeof(grid.cells[1]))
     qr = QuadratureRule{Ferrite.getrefshape(ip)}(2*Ferrite.getorder(ip))
     cellvalues = CellValues(qr, ip, ip_geo);
 
     ∂Ω = union(
-        getfaceset(grid, "left"),
-        getfaceset(grid, "right"),
-        getfaceset(grid, "top"),
-        getfaceset(grid, "bottom"),
+        getfacetset(grid, "left"),
+        getfacetset(grid, "right"),
+        getfacetset(grid, "top"),
+        getfacetset(grid, "bottom"),
     );
 
     if dim == 3
         ∂Ω = union(
             ∂Ω,
-            getfaceset(grid, "front"),
-            getfaceset(grid, "back")
+            getfacetset(grid, "front"),
+            getfacetset(grid, "back")
         )
     end
 

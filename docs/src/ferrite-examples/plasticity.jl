@@ -102,14 +102,14 @@ end
 function create_values(interpolation)
     # setup quadrature rules
     qr      = QuadratureRule{RefTetrahedron}(2)
-    face_qr = FaceQuadratureRule{RefTetrahedron}(3)
+    face_qr = FacetQuadratureRule{RefTetrahedron}(3)
 
     # create geometric interpolation (use the same as for u)
     interpolation_geom = Lagrange{RefTetrahedron,1}()^3
 
     # cell and facevalues for u
     cellvalues_u = CellValues(qr, interpolation, interpolation_geom)
-    facevalues_u = FaceValues(face_qr, interpolation, interpolation_geom)
+    facevalues_u = FacetValues(face_qr, interpolation, interpolation_geom)
 
     return cellvalues_u, facevalues_u
 end;
@@ -125,14 +125,14 @@ function create_bc(dh, grid)
     dbcs = ConstraintHandler(dh)
     # Clamped on the left side
     dofs = [1, 2, 3]
-    dbc = Dirichlet(:u, getfaceset(grid, "left"), (x,t) -> [0.0, 0.0, 0.0], dofs)
+    dbc = Dirichlet(:u, getfacetset(grid, "left"), (x,t) -> [0.0, 0.0, 0.0], dofs)
     add!(dbcs, dbc)
     close!(dbcs)
     return dbcs
 end;
 
 function doassemble(cellvalues::CellValues{dim},
-                    facevalues::FaceValues{dim}, K::SparseMatrixCSC, grid::Grid,
+                    facevalues::FacetValues{dim}, K::SparseMatrixCSC, grid::Grid,
                     dh::DofHandler, material::J2Plasticity, u, states, t) where {dim}
     r = zeros(ndofs(dh))
     assembler = start_assemble(K, r)
@@ -177,8 +177,8 @@ function assemble_cell!(Ke, re, cell, cellvalues, facevalues, grid, material,
     symmetrize_lower!(Ke)
 
     # Add traction as a negative contribution to the element residual `re`:
-    for face in 1:nfaces(cell)
-        if onboundary(cell, face) && (cellid(cell), face) ∈ getfaceset(grid, "right")
+    for face in 1:nfacets(cell)
+        if (cellid(cell), face) ∈ getfacetset(grid, "right")
             reinit!(facevalues, cell, face)
             for q_point in 1:getnquadpoints(facevalues)
                 dΓ = getdetJdV(facevalues, q_point)

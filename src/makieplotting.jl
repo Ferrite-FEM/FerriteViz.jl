@@ -206,7 +206,7 @@ function Makie.plot!(WF::Wireframe{<:Tuple{<:MakiePlotter{dim}}}) where dim
         dim > 2 ? (lines = Point3f[]) : (lines = Point2f[])
         grid = Ferrite.get_grid(plotter.dh)
         for cell in Ferrite.getcells(grid)
-            boundaryentities = Ferrite.facets(cell)
+            boundaryentities = Ferrite.edges(cell)
             append!(lines, [$gridnodes[e] for boundary in boundaryentities for e in boundary])
         end
         lines
@@ -272,7 +272,7 @@ function Makie.plot!(WF::Wireframe{<:Tuple{<:Ferrite.AbstractGrid{dim}}}) where 
     allcells = Ferrite.getcells(grid)
     ncells   = Ferrite.getncells(grid)
     for cell in allcells
-        boundaryentities = Ferrite.facets(cell)
+        boundaryentities = Ferrite.edges(cell)
         append!(lines, [coords[e] for boundary in boundaryentities for e in boundary])
     end
     nodes = @lift($(WF[:plotnodes]) ? coords : Point3f[Point3f(0,0,0)])
@@ -577,6 +577,13 @@ end
 
 ####### One Shot Methods #######
 const FerriteVizPlots = Union{Type{<:Wireframe},Type{<:SolutionPlot},Type{<:Arrows},Type{<:Surface}}
+function Makie.args_preferred_axis(a::PT, b::Union{MakiePlotter{sdim},Grid{sdim}}) where {PT <: FerriteVizPlots, sdim}
+    if sdim ≤ 2
+        return Makie.Axis
+    else
+        return Makie.LScene
+    end
+end
 
 function Makie.convert_arguments(P::FerriteVizPlots, dh::Ferrite.AbstractDofHandler, u::Vector)
     return (MakiePlotter(dh,u),)

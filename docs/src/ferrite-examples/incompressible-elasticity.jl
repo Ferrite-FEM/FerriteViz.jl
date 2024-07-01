@@ -154,7 +154,7 @@ function solve(interpolation_u, interpolation_p, mp)
     cellvalues_u, cellvalues_p, facevalues_u = create_values(interpolation_u, interpolation_p)
 
     # assembly and solve
-    K = create_sparsity_pattern(dh);
+    K = allocate_matrix(dh);
     K, f = doassemble(cellvalues_u, cellvalues_p, facevalues_u, K, grid, dh, mp);
     apply!(K, f, dbc)
     u = K \ f;

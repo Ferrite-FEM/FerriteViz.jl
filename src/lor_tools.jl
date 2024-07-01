@@ -138,7 +138,7 @@ the solution.
 function for_discretization(dh, u)
     @assert length(dh.subdofhandlers) == 1 "Subdomains not supported yet"
     # TODO Dofs for fields are not continuous. Think harder.
-    @assert Ferrite.nfields(dh) == 1 "Multiple fields not supported yet"
+    @assert length(Ferrite.getfieldnames(dh)) == 1 "Multiple fields not supported yet"
     sdh = dh.subdofhandlers[1]
     field_idx=1
     grid = dh.grid
@@ -191,7 +191,13 @@ function for_discretization(dh, u)
     # Generate a new dof handler.
     grid_new = Grid(cells, nodes)
     dh_new = DofHandler(grid_new)
-    add!(dh_new, getfieldname(sdh, field_idx), Ferrite.n_components(sdh, field_idx), for_interpolation(ip))
+    vdim = Ferrite.n_components(sdh, field_idx)
+    lip = if vdim > 1
+        for_interpolation(ip)^vdim
+    else
+        for_interpolation(ip)
+    end
+    add!(dh_new, getfieldname(sdh, field_idx), lip)
     close!(dh_new);
 
     # Transfer solution the dumb way.

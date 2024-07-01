@@ -73,7 +73,7 @@ function manufactured_linear_elastic_problem(element_type, ip, num_elements_per_
     add!(dh, :u, ip)
     close!(dh);
 
-    K = create_sparsity_pattern(dh)
+    K = allocate_matrix(dh)
 
     ch = ConstraintHandler(dh);
     dbc = Dirichlet(:u, ∂Ω, (x, t) -> [0.0 for i ∈ 1:dim])

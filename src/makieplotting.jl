@@ -266,7 +266,7 @@ end
 function Makie.plot!(WF::Wireframe{<:Tuple{<:Ferrite.AbstractGrid{dim}}}) where dim
     @info WF
     grid   = WF[1][]
-    coords = [Ferrite.getcoordinates(node)[i] for node in Ferrite.getnodes(grid), i in 1:dim] 
+    coords = [Ferrite.get_node_coordinate(node)[i] for node in Ferrite.getnodes(grid), i in 1:dim] 
     coords = Makie.to_vertices(coords)
     dim > 2 ? (lines = Point3f[]) : (lines = Point2f[])
     allcells = Ferrite.getcells(grid)

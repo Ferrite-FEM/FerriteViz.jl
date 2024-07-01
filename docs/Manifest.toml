@@ -1,6 +1,6 @@
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.10.2"
+julia_version = "1.10.4"
 manifest_format = "2.0"
 project_hash = "3584c0ea6a470f2745c28be2dfe2f35e2c289a51"
 
@@ -203,7 +203,7 @@ weakdeps = ["Dates", "LinearAlgebra"]
 [[deps.CompilerSupportLibraries_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "e66e0078-7015-5450-92f7-15fbd957f2ae"
-version = "1.1.0+0"
+version = "1.1.1+0"
 
 [[deps.ConcurrentUtilities]]
 deps = ["Serialization", "Sockets"]
@@ -379,11 +379,11 @@ version = "3.3.10+0"
 
 [[deps.Ferrite]]
 deps = ["EnumX", "ForwardDiff", "LinearAlgebra", "NearestNeighbors", "OrderedCollections", "Preferences", "Reexport", "SparseArrays", "StaticArrays", "Tensors", "WriteVTK"]
-git-tree-sha1 = "1ca8d2bea9f1465b475502afbdaeb3728ad85cb6"
-repo-rev = "master"
+git-tree-sha1 = "41089c050fc5f0017b1cab609e28bc016da7f9d9"
+repo-rev = "fe/v1"
 repo-url = "https://github.com/Ferrite-FEM/Ferrite.jl.git"
 uuid = "c061ca5d-56c9-439f-9c0e-210fe06d3992"
-version = "0.3.14"
+version = "1.0.0"
 
     [deps.Ferrite.extensions]
     FerriteBlockArrays = "BlockArrays"

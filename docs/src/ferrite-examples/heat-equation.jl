@@ -68,7 +68,7 @@ function manufactured_heat_problem(element_type, ip, num_elements_per_dim)
     add!(dh, :u, ip)
     close!(dh);
 
-    K = create_sparsity_pattern(dh)
+    K = allocate_matrix(dh)
 
     ch = ConstraintHandler(dh);
     dbc = Dirichlet(:u, ∂Ω, (x, t) -> 0)

@@ -372,7 +372,7 @@ function transfer_solution(plotter::MakiePlotter{dim,DH,T}, u::Vector; field_nam
     ref_dim = Ferrite.getrefdim(ref_shape)
     # Create a coordinate inside the reference space to evaluate the shape function at
     ξinside = Ferrite.Vec(ntuple(d->0.0,ref_dim))
-    val_buffer = Ferrite.shape_value(ip_field, ξinside, 1)
+    val_buffer = Ferrite.reference_shape_value(ip_field, ξinside, 1)
     # NOTE this does not work for fancy ansatz spaces where derivatives are mixed in (e.g. Hermite)
     val = process(val_buffer)
     _processreturn = length(process(val_buffer))
@@ -384,7 +384,7 @@ function transfer_solution(plotter::MakiePlotter{dim,DH,T}, u::Vector; field_nam
         pv = Ferrite.PointValues(ip_field; update_gradients=false)
         field_dim = Ferrite.n_components(dh, field_name)
         ref_shape = Ferrite.getrefshape(ip_field)
-        val_buffer = Ferrite.shape_value(ip_field, ξinside, 1)
+        val_buffer = Ferrite.reference_shape_value(ip_field, ξinside, 1)
         val = process(val_buffer)
         _transfer_solution!(data,pv,sdh,ip_field,cellset_,val_buffer,val,field_name,field_dim,plotter,u,process) #function barrier for ip_field and thus pointvalues
     end
@@ -717,11 +717,11 @@ Ferrite.get_n_copies(::MatrixizedInterpolation{vdim1, vdim2}) where {vdim1, vdim
 function Ferrite.getnbasefunctions(ipv::MatrixizedInterpolation{vdim1, vdim2}) where {vdim1, vdim2}
     return vdim1 * vdim2 * getnbasefunctions(ipv.ip)
 end
-function Ferrite.shape_value(ipv::MatrixizedInterpolation{vdim, vdim, shape}, ξ::Tensors.Vec{refdim, T}, I::Int) where {vdim, refdim, shape <: Ferrite.AbstractRefShape{refdim}, T}
+function Ferrite.reference_shape_value(ipv::MatrixizedInterpolation{vdim, vdim, shape}, ξ::Tensors.Vec{refdim, T}, I::Int) where {vdim, refdim, shape <: Ferrite.AbstractRefShape{refdim}, T}
     # First flatten to vector
     i0, c0 = divrem(I - 1, vdim^2)
     i = i0 + 1
-    v = Ferrite.shape_value(ipv.ip, ξ, i)
+    v = Ferrite.reference_shape_value(ipv.ip, ξ, i)
 
     # Then compute matrix index
     ci0, cj0 = divrem(c0, vdim)
@@ -738,7 +738,7 @@ end
 # vdim1 != vdim2 != refdim
 # function shape_gradient_and_value(ipv::MatrixizedInterpolation{vdim1, vdim2, shape}, ξ::V, I::Int) where {vdim1, vdim2, refdim, shape <: AbstractRefShape{refdim}, T, V <: Vec{refdim, T}}
 #     # Load with dual numbers and compute the value
-#     f = x -> shape_value(ipv, x, I)
+#     f = x -> reference_shape_value(ipv, x, I)
 #     ξd = Tensors._load(ξ, Tensors.Tag(f, V))
 #     value_grad = f(ξd)
 #     # Extract the value and gradient

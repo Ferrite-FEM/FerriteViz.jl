@@ -116,7 +116,7 @@ end;
 
 function create_dofhandler(grid, interpolation)
     dh = DofHandler(grid)
-    push!(dh, :u, interpolation) # add a displacement field with 3 components
+    add!(dh, :u, interpolation) # add a displacement field with 3 components
     close!(dh)
     return dh
 end
@@ -239,7 +239,7 @@ function solve(liveplotting=false)
     end
     Δu = zeros(n_dofs)  # displacement correction
     r = zeros(n_dofs)   # residual
-    K = create_sparsity_pattern(dh); # tangent stiffness matrix
+    K = allocate_matrix(dh); # tangent stiffness matrix
 
     # Create material states. One array for each cell, where each element is an array of material-
     # states - one for each integration point

@@ -567,14 +567,17 @@ end
 
 ####### One Shot Methods #######
 const FerriteVizPlots = Union{Type{<:Wireframe},Type{<:SolutionPlot},Type{<:Arrows},Type{<:Surface}}
-function Makie.args_preferred_axis(a::PT, b::Union{MakiePlotter{sdim},Grid{sdim}}) where {PT <: Union{Type{<:Wireframe},Type{<:SolutionPlot},Type{<:Arrows},Type{<:Surface},Type{<:CellPlot}}, sdim}
+# We default with our axis choice to the spatial dimension of the problem
+function Makie.args_preferred_axis(a, b::Union{MakiePlotter{sdim},Grid{sdim}}, args...) where {sdim}
     if sdim ≤ 2
         return Makie.Axis
     else
         return Makie.LScene
     end
 end
+# Surface plots are special, as they are 2D problems which are deformed into the third dimension
+Makie.args_preferred_axis(a::Type{<:Surface}, b::Union{MakiePlotter{sdim},Grid{sdim}}, args...) where {sdim} = Makie.LScene
 
-function Makie.convert_arguments(P::FerriteVizPlots, dh::Ferrite.AbstractDofHandler, u::Vector)
+function Makie.convert_arguments(P::FerriteVizPlots, dh::Ferrite.AbstractDofHandler, u::AbstractVector)
     return (MakiePlotter(dh,u),)
 end

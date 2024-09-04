@@ -2,7 +2,7 @@
 
 ## Solve a Boundary Value Problem
 
-Start with solving a boundary value problem as you would usually do with Ferrite. It is crucial that you safe your used DofHandler
+Start with solving a boundary value problem as you would usually do with Ferrite. It is crucial that you save your used DofHandler
 and solution vector because we need to pass those objects to `MakiePlotter`.
 
 

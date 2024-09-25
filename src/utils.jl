@@ -94,7 +94,7 @@ function MakiePlotter(dh::Ferrite.AbstractDofHandler, u::Vector, topology::TOP) 
     mesh = GeometryBasics.Mesh(physical_coords_m,vis_triangles)
     return MakiePlotter{dim,typeof(dh),eltype(u),typeof(topology),Float32,typeof(mesh),eltype(vis_triangles)}(dh,Observable(u),topology,visible,gridnodes,physical_coords,physical_coords_m,all_triangles,vis_triangles,triangle_cell_map,cell_triangle_offsets,reference_coords,mesh)
 end
-MakiePlotter(dh,u) = MakiePlotter(dh,u,Ferrite.getspatialdim(dh.grid) > 2 ? Ferrite.ExclusiveTopology(dh.grid.cells) : nothing)
+MakiePlotter(dh,u) = MakiePlotter(dh,u,Ferrite.getspatialdim(dh.grid) > 2 ? Ferrite.ExclusiveTopology(dh.grid) : nothing)
 
 """
     ClipPlane{T}(normal, distance_to_origin)
@@ -111,8 +111,8 @@ struct ClipPlane{T}
 end
 
 # Binary decision function to clip a cell with a plane for the crinkle clip.
-function (plane::ClipPlane)(grid, cellid)
-    cell = grid.cells[cellid]
+function (plane::ClipPlane)(grid::AbstractGrid, cellid::Int)
+    cell = getcells(grid, cellid)
     coords = Ferrite.get_node_coordinate.(Ferrite.getnodes(grid)[[cell.nodes...]])
     for coord ∈ coords
         if coord ⋅ plane.normal > plane.distance

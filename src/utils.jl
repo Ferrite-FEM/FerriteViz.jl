@@ -111,7 +111,7 @@ struct ClipPlane{T}
 end
 
 # Binary decision function to clip a cell with a plane for the crinkle clip.
-function (plane::ClipPlane)(grid::AbstractGrid, cellid::Int)
+function (plane::ClipPlane)(grid::Ferrite.AbstractGrid, cellid::Int)
     cell = getcells(grid, cellid)
     coords = Ferrite.get_node_coordinate.(Ferrite.getnodes(grid)[[cell.nodes...]])
     for coord ∈ coords

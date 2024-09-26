@@ -485,8 +485,8 @@ function Makie.plot!(Ele::Elementinfo{<:Tuple{<:Ferrite.Interpolation{dim,refsha
     Makie.linesegments!(Ele,lines,color=Ele[:color], linewidth=Ele[:linewidth])
 end
 
-Makie.convert_arguments(P::Type{<:Elementinfo}, cell::C) where C<:Ferrite.AbstractCell = (Ferrite.default_interpolation(typeof(cell)),)
-Makie.convert_arguments(P::Type{<:Elementinfo}, celltype::Type{C}) where C<:Ferrite.AbstractCell = (Ferrite.default_interpolation(celltype),)
+Makie.convert_arguments(P::Type{<:Elementinfo}, cell::C) where C<:Ferrite.AbstractCell = (Ferrite.geometric_interpolation(typeof(cell)),)
+Makie.convert_arguments(P::Type{<:Elementinfo}, celltype::Type{C}) where C<:Ferrite.AbstractCell = (Ferrite.geometric_interpolation(celltype),)
 Makie.convert_arguments(P::Type{<:Elementinfo}, iptype::Type{IP}) where IP<:Ferrite.Interpolation = (iptype(),)
 
 """

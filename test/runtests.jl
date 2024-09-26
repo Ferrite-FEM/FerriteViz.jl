@@ -43,7 +43,7 @@ end
         ]
         @testset failfast=true "scalar($num_elements_per_dim, $geo, $ip)" begin
             # Get solution
-            dim = Ferrite.getdim(ip)
+            dim = Ferrite.getrefdim(ip)
             grid = generate_grid(geo, ntuple(x->num_elements_per_dim, dim));
 
             dh = DofHandler(grid)
@@ -69,7 +69,7 @@ end
                 # Check gradient of solution
                 @testset "interpolate_gradient_field" begin
                     qr = QuadratureRule{Ferrite.getrefshape(ip)}(2) # TODO sample random point
-                    ip_geo = Ferrite.default_interpolation(geo)
+                    ip_geo = Ferrite.geometric_interpolation(geo)
                     ip_grad = Ferrite.getfieldinterpolation(dh_grad, Ferrite.find_field(dh_grad, :gradient))
                     cellvalues_grad = Ferrite.CellValues(qr, ip_grad, ip_geo)
                     for cell in CellIterator(dh_grad)
@@ -103,7 +103,7 @@ end
 
         @testset failfast=true "vector($num_elements_per_dim, $geo, $ip)" begin
             # Get solution
-            dim = Ferrite.getdim(ip)
+            dim = Ferrite.getrefdim(ip)
             grid = generate_grid(geo, ntuple(x->num_elements_per_dim, dim));
 
             dh = DofHandler(grid)
@@ -142,7 +142,7 @@ end
                 # Check gradient of solution
                 @testset "interpolate_gradient_field" begin
                     qr = QuadratureRule{Ferrite.getrefshape(ip)}(2) # TODO sample random point
-                    ip_geo = Ferrite.default_interpolation(geo)
+                    ip_geo = Ferrite.geometric_interpolation(geo)
                     ip_grad = Ferrite.getfieldinterpolation(dh_grad, Ferrite.find_field(dh_grad, :gradient))
                     cellvalues_grad = Ferrite.CellValues(qr, ip_grad, ip_geo)
                     for cell in CellIterator(dh_grad)

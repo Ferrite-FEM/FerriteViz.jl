@@ -499,7 +499,7 @@ function interpolate_gradient_field(dh::DofHandler{spatial_dim}, u::AbstractVect
     # FIXME this does not work for mixed grids
     ip_geom = Ferrite.geometric_interpolation(typeof(Ferrite.getcells(Ferrite.get_grid(dh), 1)))
     ref_coords_gradient = Ferrite.reference_coordinates(ip_gradient)
-    qr_gradient = QuadratureRule{getrefshape(Ferrite.getcells(get_grid(dh), 1)), Float64}(ones(length(ref_coords_gradient)), ref_coords_gradient)
+    qr_gradient = QuadratureRule{getrefshape(Ferrite.getcells(get_grid(dh), 1))}(ones(length(ref_coords_gradient)), ref_coords_gradient)
     cv = CellValues(qr_gradient, ip, ip_geom)
 
     # Buffer for the dofs

@@ -147,7 +147,7 @@ function doassemble(cellvalues::CellValues{dim},
         ue = u[eldofs]
         assemble_cell!(ke, re, cell, cellvalues, facevalues, grid, material,
                        ue, state, t)
-        assemble!(assembler, eldofs, re, ke)
+        assemble!(assembler, eldofs, ke, re)
     end
     return K, r
 end

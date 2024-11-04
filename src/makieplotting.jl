@@ -419,9 +419,12 @@ end
     color=theme(scene, :linecolor),
     markersize=theme(scene, :markersize),
     fontsize=60,
+    vertexlabels=true,
+    vertexlabelcolor=:darkred,
+    vertexlabeloffset=(0.0,0.0),
     nodelabels=true,
     nodelabelcolor=:darkred,
-    nodelabeloffset=(0.0,0.0),
+    nodelabeloffset=(0.0,20.0),
     facelabels=true,
     facelabelcolor=:darkgreen,
     facelabeloffset=(-40,0),
@@ -432,61 +435,136 @@ end
     )
 end
 
-function Makie.plot!(Ele::Elementinfo{<:Tuple{<:Ferrite.Interpolation{dim,refshape}}}) where {dim,refshape}
-    ip = Ele[1][]
-    elenodes = Ferrite.reference_coordinates(ip) |> x->reshape(reinterpret(Float64,x),(dim,length(x)))'
+function Makie.plot!(Ele::Elementinfo{<:Tuple{<:Ferrite.AbstractCell{refshape}}}) where {refshape}
+    cell = Ele[1][]
+    dim = Ferrite.getrefdim(cell)
+
+    # Draw element outline
+    gip = Ferrite.geometric_interpolation(cell)
+    elenodes = Ferrite.reference_coordinates(gip) |> x->reshape(reinterpret(Float64,x),(dim,length(x)))'
     dim > 2 ? (lines = Point3f[]) : (lines = Point2f[])
-    facenodes = Ferrite.faces(ip)
-    if dim == 2
-        append!(lines, [elenodes[e,:] for boundary in facenodes for e in boundary[1:2]]) # 1:2 because higher order node in the middle
-    else
-        edgenodes = Ferrite.edges(ip)
-        order = Ferrite.getorder(ip)
-        #TODO remove the index monstrosity below after edges are defined consistently see https://github.com/Ferrite-FEM/Ferrite.jl/issues/520
-        append!(lines, [elenodes[e,:] for boundary in edgenodes for e in boundary[1:((refshape == Ferrite.RefCube) ? 1 : (order > 1 ? 2 : 1)):((refshape == Ferrite.RefCube) ? 2 : end)]]) # 1:2 because higher order node in the middle
+    for edgenodes in Ferrite.edgedof_indices(gip)
+        append!(lines, [elenodes[edgenodes[1],:], elenodes[edgenodes[2],:]]) # The convention in Ferrite is that the first two edge nodes are always associated to the vertices
     end
-    boundaryentities = dim == 2 ? facenodes : edgenodes
-    #plot element boundary
     Makie.linesegments!(Ele,lines,color=Ele[:color], linewidth=Ele[:linewidth])
-    for (id,face) in enumerate(facenodes)
-        idx = 0
-        if refshape == Ferrite.RefCube && dim == 3
-            idx = 4
-        elseif refshape == Ferrite.RefTetrahedron && dim == 3
-            idx = 3
-        else
-            idx = 2
-        end
-        position = zeros(dim)
-        for i in 1:idx
-            position += elenodes[face[i],:]
-        end
-        position ./= idx
-        position = dim == 2 ? Point2f(position) : Point3f(position)
-        Makie.text!(Ele,"$id", position=position, fontsize=Ele[:fontsize], offset=Ele[:facelabeloffset],color=Ele[:facelabelcolor],visible=Ele[:facelabels],font=Ele[:font])
-    end
-    if dim == 3
-        for (id,edge) in enumerate(edgenodes)
-            position = Point3f((elenodes[edge[1],:] + elenodes[refshape==Ferrite.RefCube ? edge[2] : edge[end],:])*0.5)
-            t = Makie.text!(Ele,"$id", position=position, fontsize=Ele[:fontsize], offset=Ele[:edgelabeloffset],color=Ele[:edgelabelcolor],visible=Ele[:edgelabels],align=(:center,:center),font=Ele[:font])
-            # Boundingbox can't switch currently from pixelspace to "coordinate" space in recipes
-            #bb = Makie.boundingbox(t)
-            #Makie.wireframe!(Ele,bb,space=:pixel)
-        end
-    end
-    #plot the nodes
+
+    # Draw its nodes
     Makie.scatter!(Ele,elenodes,markersize=Ele[:markersize], color=Ele[:color], visible=Ele[:plotnodes])
-    #set up nodelabels
-    nodelabels = @lift $(Ele[:nodelabels]) ? ["$i" for i in 1:size(elenodes,1)] : [""]
+    nodelabels = @lift $(Ele[:nodelabels]) ? ["N$i" for i in 1:size(elenodes,1)] : [""]
     nodepositions = @lift $(Ele[:nodelabels]) ? [dim < 3 ? Point2f(row) : Point3f(row) for row in eachrow(elenodes)] : (dim < 3 ? [Point2f((0,0))] : [Point3f((0,0,0))])
-    #set up celllabels
     Makie.text!(Ele,nodelabels, position=nodepositions, fontsize=Ele[:fontsize], offset=Ele[:nodelabeloffset],color=Ele[:nodelabelcolor],font=Ele[:font])
-    #plot edges (3D) /faces (2D) of the mesh
-    Makie.linesegments!(Ele,lines,color=Ele[:color], linewidth=Ele[:linewidth])
+
+    # Annotate element vertices
+    if dim ≥ 1 && Ele[:vertexlabels][]
+        for (id,vertexnodes) in enumerate(Ferrite.vertexdof_indices(gip))
+            position = if dim == 3
+                Point3f(elenodes[vertexnodes[1],:])
+            elseif dim == 2
+                Point2f(elenodes[vertexnodes[1],:])
+            end
+            Makie.text!(Ele,"V$id", position=position, fontsize=Ele[:fontsize], offset=Ele[:edgelabeloffset],color=Ele[:edgelabelcolor],visible=Ele[:edgelabels],font=Ele[:font])
+        end
+    end
+
+    # Annotate element edges
+    if dim ≥ 2 && Ele[:edgelabels][]
+        for (id,edgenodes) in enumerate(Ferrite.edgedof_indices(gip))
+            position = if dim == 3
+                Point3f((elenodes[edgenodes[1],:] + elenodes[edgenodes[2],:])*0.5)
+            elseif dim == 2
+                Point2f((elenodes[edgenodes[1],:] + elenodes[edgenodes[2],:])*0.5)
+            end
+            Makie.text!(Ele,"E$id", position=position, fontsize=Ele[:fontsize], offset=Ele[:edgelabeloffset],color=Ele[:edgelabelcolor],visible=Ele[:edgelabels],font=Ele[:font])
+        end
+    end
+
+    # Annotate element faces
+    if dim ≥ 3 && Ele[:facelabels][]
+        for face_index ∈ 1:Ferrite.nfaces(cell)
+            linear_face = linear_face_cell(cell, face_index)
+            gip_face = Ferrite.geometric_interpolation(linear_face)
+            vertexdof_list = Ferrite.vertexdof_indices(gip_face)
+            refpositions   = Ferrite.reference_coordinates(gip_face)
+            facenodes      = [Ferrite.facet_to_element_transformation(refposition, refshape, face_index) for refposition in refpositions] |> x->reshape(reinterpret(Float64,x),(dim,length(x)))'        
+            position = zeros(dim)
+            for i in 1:length(vertexdof_list)
+                position += facenodes[vertexdof_list[i][1],:]
+            end
+            position ./= length(vertexdof_list)
+            position = dim == 2 ? Point2f(position) : Point3f(position)
+            Makie.text!(Ele,"F$face_index", position=position, fontsize=Ele[:fontsize], offset=Ele[:facelabeloffset],color=Ele[:facelabelcolor],visible=Ele[:facelabels],font=Ele[:font])
+        end
+    end
 end
 
-Makie.convert_arguments(P::Type{<:Elementinfo}, cell::C) where C<:Ferrite.AbstractCell = (Ferrite.geometric_interpolation(typeof(cell)),)
-Makie.convert_arguments(P::Type{<:Elementinfo}, celltype::Type{C}) where C<:Ferrite.AbstractCell = (Ferrite.geometric_interpolation(celltype),)
+function Makie.plot!(Ele::Elementinfo{<:Tuple{<:Ferrite.Interpolation{refshape}}}) where {refshape}
+    ip = Ele[1][]
+    dim = Ferrite.getrefdim(ip)
+
+    # Draw element boundary
+    gip = Ferrite.default_geometric_interpolation(ip)
+    geonodes = Ferrite.reference_coordinates(gip) |> x->reshape(reinterpret(Float64,x),(dim,length(x)))'
+    dim > 2 ? (lines = Point3f[]) : (lines = Point2f[])
+    for edgenodes in Ferrite.edgedof_indices(gip.ip)
+        append!(lines, [geonodes[edgenodes[1],:], geonodes[edgenodes[2],:]]) 
+    end
+    Makie.linesegments!(Ele,lines,color=Ele[:color], linewidth=Ele[:linewidth])
+
+    # Draw the interpolation nodes and its indices
+    elenodes = Ferrite.reference_coordinates(ip) |> x->reshape(reinterpret(Float64,x),(dim,length(x)))'
+    Makie.scatter!(Ele,elenodes,markersize=Ele[:markersize], color=Ele[:color], visible=Ele[:plotnodes])
+    nodelabels = @lift $(Ele[:nodelabels]) ? ["D$i" for i in 1:size(elenodes,1)] : [""]
+    nodepositions = @lift $(Ele[:nodelabels]) ? [dim < 3 ? Point2f(row) : Point3f(row) for row in eachrow(elenodes)] : (dim < 3 ? [Point2f((0,0))] : [Point3f((0,0,0))])
+    Makie.text!(Ele,nodelabels, position=nodepositions, fontsize=Ele[:fontsize], offset=Ele[:nodelabeloffset],color=Ele[:nodelabelcolor],font=Ele[:font])
+
+    # Annotate element vertices
+    if dim ≥ 1 && Ele[:vertexlabels][]
+        for (id,vertexnodes) in enumerate(Ferrite.vertexdof_indices(gip.ip))
+            position = if dim == 3
+                Point3f(elenodes[vertexnodes[1],:])
+            elseif dim == 2
+                Point2f(elenodes[vertexnodes[1],:])
+            end
+            Makie.text!(Ele,"V$id", position=position, fontsize=Ele[:fontsize], offset=Ele[:edgelabeloffset],color=Ele[:edgelabelcolor],visible=Ele[:edgelabels],font=Ele[:font])
+        end
+    end
+    # Annotate element edges
+    if dim ≥ 2 && Ele[:edgelabels][]
+        for (id,edgenodes) in enumerate(Ferrite.edgedof_indices(gip.ip))
+            position = if dim == 3
+                Point3f((elenodes[edgenodes[1],:] + elenodes[edgenodes[2],:])*0.5)
+            elseif dim == 2
+                Point2f((elenodes[edgenodes[1],:] + elenodes[edgenodes[2],:])*0.5)
+            end
+            Makie.text!(Ele,"E$id", position=position, fontsize=Ele[:fontsize], offset=Ele[:edgelabeloffset],color=Ele[:edgelabelcolor],visible=Ele[:edgelabels],font=Ele[:font])
+        end
+    end
+
+    # Annotate element faces
+    if dim ≥ 3 && Ele[:facelabels][]
+        for face_index ∈ 1:Ferrite.nfaces(ip)
+            linear_face = linear_face_cell(refshape, face_index)
+            gip_face = Lagrange{linear_face,1}()
+            vertexdof_list = Ferrite.vertexdof_indices(gip_face)
+            refpositions   = Ferrite.reference_coordinates(gip_face)
+            facenodes      = [Ferrite.facet_to_element_transformation(refposition, refshape, face_index) for refposition in refpositions] |> x->reshape(reinterpret(Float64,x),(dim,length(x)))'        
+            position = zeros(dim)
+            for i in 1:length(vertexdof_list)
+                position += facenodes[vertexdof_list[i][1],:]
+            end
+            position ./= length(vertexdof_list)
+            position = dim == 2 ? Point2f(position) : Point3f(position)
+            Makie.text!(Ele,"F$face_index", position=position, fontsize=Ele[:fontsize], offset=Ele[:facelabeloffset],color=Ele[:facelabelcolor],visible=Ele[:facelabels],font=Ele[:font])
+        end
+    end
+end
+
+function Makie.convert_arguments(P::Type{<:Elementinfo}, celltype::Type{C}) where C<:Ferrite.AbstractCell 
+    gip = geometric_interpolation(C)
+    nnodes = getnbasefunctions(gip)
+    nodes  = ntuple(x->1,nnodes)
+    return (celltype(nodes),)
+end
 Makie.convert_arguments(P::Type{<:Elementinfo}, iptype::Type{IP}) where IP<:Ferrite.Interpolation = (iptype(),)
 
 """
@@ -570,6 +648,14 @@ const FerriteVizPlots = Union{Type{<:Wireframe},Type{<:SolutionPlot},Type{<:Arro
 # We default with our axis choice to the spatial dimension of the problem
 function Makie.args_preferred_axis(a, b::Union{MakiePlotter{sdim},Grid{sdim}}, args...) where {sdim}
     if sdim ≤ 2
+        return Makie.Axis
+    else
+        return Makie.LScene
+    end
+end
+function Makie.args_preferred_axis(a::Type{<:Elementinfo}, ip_or_cell)
+    dim = Ferrite.getrefdim(ip_or_cell)
+    if dim ≤ 2
         return Makie.Axis
     else
         return Makie.LScene

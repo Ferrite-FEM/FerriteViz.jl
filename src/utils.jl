@@ -18,6 +18,8 @@ Get the geometrically linear face of a given cell.
 """
 linear_face_cell(cell::TetrahedralCell, local_face_idx::Int) = Triangle(Ferrite.faces(cell)[local_face_idx])
 linear_face_cell(cell::HexahedralCell, local_face_idx::Int)  = Quadrilateral(Ferrite.faces(cell)[local_face_idx])
+linear_face_cell(cell::Type{RefHexahedron}, local_face_idx::Int)  = RefQuadrilateral
+linear_face_cell(cell::Type{RefTetrahedron}, local_face_idx::Int) = RefTriangle
 
 struct MakiePlotter{dim,DH<:Ferrite.AbstractDofHandler,T1,TOP<:Union{Nothing,Ferrite.AbstractTopology},T2,M,TRI} <: AbstractPlotter
     dh::DH

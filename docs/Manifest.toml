@@ -259,12 +259,6 @@ deps = ["Printf"]
 uuid = "ade2ca70-3891-5945-98fb-dc099432e06a"
 version = "1.11.0"
 
-[[deps.Dbus_jll]]
-deps = ["Artifacts", "Expat_jll", "JLLWrappers", "Libdl"]
-git-tree-sha1 = "fc173b380865f70627d7dd1190dc2fce6cc105af"
-uuid = "ee1fde0b-3d02-5ea6-8484-8dfef6360eab"
-version = "1.14.10+0"
-
 [[deps.DelaunayTriangulation]]
 deps = ["AdaptivePredicates", "EnumX", "ExactPredicates", "Random"]
 git-tree-sha1 = "5620ff4ee0084a6ab7097a27ba0c19290200b037"
@@ -348,12 +342,6 @@ git-tree-sha1 = "bddad79635af6aec424f53ed8aad5d7555dc6f00"
 uuid = "4e289a0a-7415-4d19-859d-a7e5c4648b56"
 version = "1.0.5"
 
-[[deps.EpollShim_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl"]
-git-tree-sha1 = "8a4be429317c42cfae6a7fc03c31bad1970c310d"
-uuid = "2702e6a9-849d-5ed8-8c21-79e8b8f9ee43"
-version = "0.0.20230411+1"
-
 [[deps.ExactPredicates]]
 deps = ["IntervalArithmetic", "Random", "StaticArrays"]
 git-tree-sha1 = "b3f2ff58735b5f024c392fde763f29b057e4b025"
@@ -410,7 +398,7 @@ version = "1.0.0"
     Metis = "2679e427-3c69-5b7f-982b-ece356f1e94b"
 
 [[deps.FerriteViz]]
-deps = ["Ferrite", "GLMakie", "GeometryBasics", "LinearAlgebra", "Makie", "MakieCore", "Reexport", "ShaderAbstractions", "StaticArrays", "Tensors"]
+deps = ["Ferrite", "GeometryBasics", "LinearAlgebra", "Makie", "MakieCore", "ShaderAbstractions", "StaticArrays", "Tensors"]
 path = ".."
 uuid = "59d0093e-b1f1-4fb7-ac85-ab57e45f39d9"
 version = "0.2.2"
@@ -508,24 +496,6 @@ deps = ["Artifacts", "JLLWrappers", "Libdl"]
 git-tree-sha1 = "846f7026a9decf3679419122b49f8a1fdb48d2d5"
 uuid = "559328eb-81f9-559d-9380-de523a88c83c"
 version = "1.0.16+0"
-
-[[deps.GLFW]]
-deps = ["GLFW_jll"]
-git-tree-sha1 = "7ed24cfc4cb29fb10c0e8cca871ddff54c32a4c3"
-uuid = "f7f18e0c-5ee9-5ccd-a5bf-e8befd85ed98"
-version = "3.4.3"
-
-[[deps.GLFW_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "Libglvnd_jll", "Xorg_libXcursor_jll", "Xorg_libXi_jll", "Xorg_libXinerama_jll", "Xorg_libXrandr_jll", "libdecor_jll", "xkbcommon_jll"]
-git-tree-sha1 = "fcb0584ff34e25155876418979d4c8971243bb89"
-uuid = "0656b61e-2033-5cc2-a64a-77c0f6c09b89"
-version = "3.4.0+2"
-
-[[deps.GLMakie]]
-deps = ["ColorTypes", "Colors", "FileIO", "FixedPointNumbers", "FreeTypeAbstraction", "GLFW", "GeometryBasics", "LinearAlgebra", "Makie", "Markdown", "MeshIO", "ModernGL", "Observables", "PrecompileTools", "Printf", "ShaderAbstractions", "StaticArrays"]
-git-tree-sha1 = "33b8ce0764859b58a2304719f884f6f154bbe1a5"
-uuid = "e9467ef8-e4e7-5192-8a1a-b1aee30e663a"
-version = "0.10.17"
 
 [[deps.GeoFormatTypes]]
 git-tree-sha1 = "8e233d5167e63d708d41f87597433f59a0f213fe"
@@ -998,12 +968,6 @@ deps = ["Artifacts", "Libdl"]
 uuid = "c8ffd9c3-330d-5841-b78e-0817d7145fa1"
 version = "2.28.6+0"
 
-[[deps.MeshIO]]
-deps = ["ColorTypes", "FileIO", "GeometryBasics", "Printf"]
-git-tree-sha1 = "14a12d9153b1a1a22d669eede58b2ea2164ff138"
-uuid = "7269a6da-0436-5bbc-96c2-40638cbb6118"
-version = "0.4.13"
-
 [[deps.Missings]]
 deps = ["DataAPI"]
 git-tree-sha1 = "ec4f7fbeab05d7747bdf98eb74d130a2a2ed298d"
@@ -1013,12 +977,6 @@ version = "1.2.0"
 [[deps.Mmap]]
 uuid = "a63ad114-7e13-5084-954f-fe012c677804"
 version = "1.11.0"
-
-[[deps.ModernGL]]
-deps = ["Libdl"]
-git-tree-sha1 = "ac6cb1d8807a05cf1acc9680e09d2294f9d33956"
-uuid = "66fc600b-dfda-50eb-8b99-91cfa97b1301"
-version = "1.1.8"
 
 [[deps.MosaicViews]]
 deps = ["MappedArrays", "OffsetArrays", "PaddedViews", "StackViews"]
@@ -1163,12 +1121,6 @@ deps = ["OffsetArrays"]
 git-tree-sha1 = "0fac6313486baae819364c52b4f483450a9d793f"
 uuid = "5432bcbf-9aad-5242-b902-cca2824c8663"
 version = "0.5.12"
-
-[[deps.Pango_jll]]
-deps = ["Artifacts", "Cairo_jll", "Fontconfig_jll", "FreeType2_jll", "FriBidi_jll", "Glib_jll", "HarfBuzz_jll", "JLLWrappers", "Libdl"]
-git-tree-sha1 = "3b31172c032a1def20c98dae3f2cdc9d10e3b561"
-uuid = "36c8627f-9965-5494-a995-c6b170f724f3"
-version = "1.56.1+0"
 
 [[deps.Parsers]]
 deps = ["Dates", "PrecompileTools", "UUIDs"]
@@ -1608,18 +1560,6 @@ git-tree-sha1 = "db71caa2e1ac6b3f806333c9de32393ed75d60e6"
 uuid = "276b4fcb-3e11-5398-bf8b-a0c2d153d008"
 version = "0.10.17"
 
-[[deps.Wayland_jll]]
-deps = ["Artifacts", "EpollShim_jll", "Expat_jll", "JLLWrappers", "Libdl", "Libffi_jll", "Pkg", "XML2_jll"]
-git-tree-sha1 = "85c7811eddec9e7f22615371c3cc81a504c508ee"
-uuid = "a2964d1f-97da-50d4-b82a-358c7fce9d89"
-version = "1.21.0+2"
-
-[[deps.Wayland_protocols_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
-git-tree-sha1 = "5db3e9d307d32baba7067b13fc7b5aa6edd4a19a"
-uuid = "2381bf8a-dfd0-557d-9999-79630e7b1b91"
-version = "1.36.0+0"
-
 [[deps.WebP]]
 deps = ["CEnum", "ColorTypes", "FileIO", "FixedPointNumbers", "ImageCore", "libwebp_jll"]
 git-tree-sha1 = "aa1ca3c47f119fbdae8770c29820e5e6119b83f2"
@@ -1674,12 +1614,6 @@ git-tree-sha1 = "e9216fdcd8514b7072b43653874fd688e4c6c003"
 uuid = "0c0b7dd1-d40b-584c-a123-a41640f87eec"
 version = "1.0.12+0"
 
-[[deps.Xorg_libXcursor_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "Xorg_libXfixes_jll", "Xorg_libXrender_jll"]
-git-tree-sha1 = "807c226eaf3651e7b2c468f687ac788291f9a89b"
-uuid = "935fb764-8cf2-53bf-bb30-45bb1f8bf724"
-version = "1.2.3+0"
-
 [[deps.Xorg_libXdmcp_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]
 git-tree-sha1 = "89799ae67c17caa5b3b5a19b8469eeee474377db"
@@ -1691,30 +1625,6 @@ deps = ["Artifacts", "JLLWrappers", "Libdl", "Xorg_libX11_jll"]
 git-tree-sha1 = "d7155fea91a4123ef59f42c4afb5ab3b4ca95058"
 uuid = "1082639a-0dae-5f34-9b06-72781eeb8cb3"
 version = "1.3.6+3"
-
-[[deps.Xorg_libXfixes_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "Xorg_libX11_jll"]
-git-tree-sha1 = "6fcc21d5aea1a0b7cce6cab3e62246abd1949b86"
-uuid = "d091e8ba-531a-589c-9de9-94069b037ed8"
-version = "6.0.0+0"
-
-[[deps.Xorg_libXi_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "Xorg_libXext_jll", "Xorg_libXfixes_jll"]
-git-tree-sha1 = "984b313b049c89739075b8e2a94407076de17449"
-uuid = "a51aa0fd-4e3c-5386-b890-e753decda492"
-version = "1.8.2+0"
-
-[[deps.Xorg_libXinerama_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "Xorg_libXext_jll"]
-git-tree-sha1 = "a1a7eaf6c3b5b05cb903e35e8372049b107ac729"
-uuid = "d1454406-59df-5ea1-beac-c340f2130bc3"
-version = "1.1.5+0"
-
-[[deps.Xorg_libXrandr_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "Xorg_libXext_jll", "Xorg_libXrender_jll"]
-git-tree-sha1 = "b6f664b7b2f6a39689d822a6300b14df4668f0f4"
-uuid = "ec84b674-ba8e-5d96-8ba1-2a689ba10484"
-version = "1.5.4+0"
 
 [[deps.Xorg_libXrender_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Xorg_libX11_jll"]
@@ -1733,24 +1643,6 @@ deps = ["Artifacts", "JLLWrappers", "Libdl", "XSLT_jll", "Xorg_libXau_jll", "Xor
 git-tree-sha1 = "1a74296303b6524a0472a8cb12d3d87a78eb3612"
 uuid = "c7cfdc94-dc32-55de-ac96-5a1b8d977c5b"
 version = "1.17.0+3"
-
-[[deps.Xorg_libxkbfile_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "Xorg_libX11_jll"]
-git-tree-sha1 = "dbc53e4cf7701c6c7047c51e17d6e64df55dca94"
-uuid = "cc61e674-0454-545c-8b26-ed2c68acab7a"
-version = "1.1.2+1"
-
-[[deps.Xorg_xkbcomp_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "Xorg_libxkbfile_jll"]
-git-tree-sha1 = "ab2221d309eda71020cdda67a973aa582aa85d69"
-uuid = "35661453-b289-5fab-8a00-3d9160c6a3a4"
-version = "1.4.6+1"
-
-[[deps.Xorg_xkeyboard_config_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "Xorg_xkbcomp_jll"]
-git-tree-sha1 = "691634e5453ad362044e2ad653e79f3ee3bb98c3"
-uuid = "33bec58e-1273-512f-9401-5d533626f822"
-version = "2.39.0+0"
 
 [[deps.Xorg_xtrans_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]
@@ -1791,12 +1683,6 @@ version = "0.15.2+0"
 deps = ["Artifacts", "Libdl"]
 uuid = "8e850b90-86db-534c-a0d3-1478176c7d93"
 version = "5.11.0+0"
-
-[[deps.libdecor_jll]]
-deps = ["Artifacts", "Dbus_jll", "JLLWrappers", "Libdl", "Libglvnd_jll", "Pango_jll", "Wayland_jll", "xkbcommon_jll"]
-git-tree-sha1 = "9bf7903af251d2050b467f76bdbe57ce541f7f4f"
-uuid = "1183f4f0-6f2a-5f1a-908b-139f9cdfea6f"
-version = "0.2.2+0"
 
 [[deps.libfdk_aac_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]
@@ -1855,9 +1741,3 @@ deps = ["Artifacts", "JLLWrappers", "Libdl"]
 git-tree-sha1 = "dcc541bb19ed5b0ede95581fb2e41ecf179527d2"
 uuid = "dfaa095f-4041-5dcd-9319-2fabd8486b76"
 version = "3.6.0+0"
-
-[[deps.xkbcommon_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg", "Wayland_jll", "Wayland_protocols_jll", "Xorg_libxcb_jll", "Xorg_xkeyboard_config_jll"]
-git-tree-sha1 = "63406453ed9b33a0df95d570816d5366c92b7809"
-uuid = "d8fb68d0-12a3-5cfd-a85a-d49703b185fd"
-version = "1.4.1+2"

@@ -8,40 +8,40 @@ function create_cook_grid(nx, ny)
                Tensors.Vec{2}((0.0,  44.0))]
     grid = generate_grid(Quadrilateral, (nx, ny), corners);
     # facesets for boundary conditions
-    addfaceset!(grid, "clamped", x -> norm(x[1]) ≈ 0.0);
-    addfaceset!(grid, "traction", x -> norm(x[1]) ≈ 48.0);
+    addfacetset!(grid, "clamped", x -> norm(x[1]) ≈ 0.0);
+    addfacetset!(grid, "traction", x -> norm(x[1]) ≈ 48.0);
     return grid
 end;
 
 function create_values(interpolation_u, interpolation_p)
     # quadrature rules
-    qr      = QuadratureRule{2,RefCube}(3)
-    face_qr = QuadratureRule{1,RefCube}(3)
+    qr      = QuadratureRule{RefQuadrilateral}(3)
+    face_qr = FacetQuadratureRule{RefQuadrilateral}(3)
 
     # geometric interpolation
-    interpolation_geom = Lagrange{2,RefCube,1}()
+    interpolation_geom = Lagrange{RefQuadrilateral,1}()
 
     # cell and facevalues for u
-    cellvalues_u = CellVectorValues(qr, interpolation_u, interpolation_geom)
-    facevalues_u = FaceVectorValues(face_qr, interpolation_u, interpolation_geom)
+    cellvalues_u = CellValues(qr, interpolation_u, interpolation_geom)
+    facevalues_u = FacetValues(face_qr, interpolation_u, interpolation_geom)
 
     # cellvalues for p
-    cellvalues_p = CellScalarValues(qr, interpolation_p, interpolation_geom)
+    cellvalues_p = CellValues(qr, interpolation_p, interpolation_geom)
 
     return cellvalues_u, cellvalues_p, facevalues_u
 end;
 
 function create_dofhandler(grid, ipu, ipp)
     dh = DofHandler(grid)
-    push!(dh, :u, 2, ipu) # displacement
-    push!(dh, :p, 1, ipp) # pressure
+    add!(dh, :u, ipu) # displacement
+    add!(dh, :p, ipp) # pressure
     close!(dh)
     return dh
 end;
 
 function create_bc(dh)
     dbc = ConstraintHandler(dh)
-    add!(dbc, Dirichlet(:u, getfaceset(dh.grid, "clamped"), (x,t) -> zero(Tensors.Vec{2}), [1,2]))
+    add!(dbc, Dirichlet(:u, getfacetset(dh.grid, "clamped"), (x,t) -> zero(Tensors.Vec{2}), [1,2]))
     close!(dbc)
     t = 0.0
     update!(dbc, t)
@@ -53,28 +53,28 @@ struct LinearElasticity{T}
     K::T
 end
 
-function doassemble(cellvalues_u::CellVectorValues{dim}, cellvalues_p::CellScalarValues{dim},
-                    facevalues_u::FaceVectorValues{dim}, K::SparseMatrixCSC, grid::Grid,
-                    dh::DofHandler, mp::LinearElasticity) where {dim}
+function doassemble(cellvalues_u::CellValues, cellvalues_p::CellValues,
+                    facevalues_u::FacetValues, K::SparseMatrixCSC, grid::Grid{sdim},
+                    dh::DofHandler, mp::LinearElasticity) where {sdim}
 
     f = zeros(ndofs(dh))
     assembler = start_assemble(K, f)
     nu = getnbasefunctions(cellvalues_u)
     np = getnbasefunctions(cellvalues_p)
 
-    fe = PseudoBlockArray(zeros(nu + np), [nu, np]) # local force vector
-    ke = PseudoBlockArray(zeros(nu + np, nu + np), [nu, np], [nu, np]) # local stiffness matrix
+    fe = BlockedArray(zeros(nu + np), [nu, np]) # local force vector
+    ke = BlockedArray(zeros(nu + np, nu + np), [nu, np], [nu, np]) # local stiffness matrix
 
     # traction vector
     t = Tensors.Vec{2}((0.0, 1/16))
     # cache ɛdev outside the element routine to avoid some unnecessary allocations
-    ɛdev = [zero(SymmetricTensor{2, dim}) for i in 1:getnbasefunctions(cellvalues_u)]
+    ɛdev = [zero(SymmetricTensor{2, sdim}) for i in 1:getnbasefunctions(cellvalues_u)]
 
     for cell in CellIterator(dh)
         fill!(ke, 0)
         fill!(fe, 0)
         assemble_up!(ke, fe, cell, cellvalues_u, cellvalues_p, facevalues_u, grid, mp, ɛdev, t)
-        assemble!(assembler, celldofs(cell), fe, ke)
+        assemble!(assembler, celldofs(cell), ke, fe)
     end
 
     return K, f
@@ -121,8 +121,8 @@ function assemble_up!(Ke, fe, cell, cellvalues_u, cellvalues_p, facevalues_u, gr
     # We integrate the Neumann boundary using the facevalues.
     # We loop over all the faces in the cell, then check if the face
     # is in our `"traction"` faceset.
-    @inbounds for face in 1:nfaces(cell)
-        if onboundary(cell, face) && (cellid(cell), face) ∈ getfaceset(grid, "traction")
+    @inbounds for face in 1:nfacets(cell)
+        if (cellid(cell), face) ∈ getfacetset(grid, "traction")
             reinit!(facevalues_u, cell, face)
             for q_point in 1:getnquadpoints(facevalues_u)
                 dΓ = getdetJdV(facevalues_u, q_point)
@@ -154,27 +154,27 @@ function solve(interpolation_u, interpolation_p, mp)
     cellvalues_u, cellvalues_p, facevalues_u = create_values(interpolation_u, interpolation_p)
 
     # assembly and solve
-    K = create_sparsity_pattern(dh);
+    K = allocate_matrix(dh);
     K, f = doassemble(cellvalues_u, cellvalues_p, facevalues_u, K, grid, dh, mp);
     apply!(K, f, dbc)
-    u = Symmetric(K) \ f;
+    u = K \ f;
 
     # export
-    filename = "cook_" * (isa(interpolation_u, Lagrange{2,RefCube,1}) ? "linear" : "quadratic") *
-                         "_linear"
-    vtk_grid(filename, dh) do vtkfile
-        vtk_point_data(vtkfile, dh, u)
-    end
+    # filename = "cook_" * (isa(interpolation_u, Lagrange{RefQuadrilateral,1}) ? "linear" : "quadratic") *
+    #                      "_linear"
+    # vtk_grid(filename, dh) do vtkfile
+    #     vtk_point_data(vtkfile, dh, u)
+    # end
     return u,dh
 end
 
-linear    = Lagrange{2,RefCube,1}()
-quadratic = Lagrange{2,RefCube,2}()
+linear    = Lagrange{RefQuadrilateral,1}()
+quadratic = Lagrange{RefQuadrilateral,2}()
 
 ν = 0.4999999
 Emod = 1.
 Gmod = Emod / 2(1 + ν)
 Kmod = Emod * ν / ((1+ν) * (1-2ν))
 mp = LinearElasticity(Gmod, Kmod)
-u_linear,dh_linear = solve(linear, linear, mp);
-u_quadratic,dh_quadratic = solve(quadratic, linear, mp);
+u_linear,dh_linear = solve(linear^2, linear, mp);
+u_quadratic,dh_quadratic = solve(quadratic^2, linear, mp);

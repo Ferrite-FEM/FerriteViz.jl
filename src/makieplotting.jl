@@ -22,21 +22,17 @@ keyword arguments are:
 - `colormap::Symbol=:cividis`
 - `colorrange::NTuple{2,<:Number}`: Specify (min, max) of the colorscale. If not given, min and max are calculated automatically from the data. 
 - `deformation_scale=1.0`
-- `shading=false`
-- `scale_plot=false`
-- `transparent=false`
+- `shading=Makie.NoShading`
 - `nan_color::Union{Symbol, <:Colorant}=:red`
 """
 @recipe(SolutionPlot) do scene
     Attributes(
-    scale_plot=false,
-    shading=false,
+    shading=Makie.NoShading,
     field=:default,
     deformation_field=:default,
     process=postprocess,
     colormap=:cividis,
     colorrange=Makie.automatic,
-    transparent=false,
     deformation_scale = 1.0,
     nan_color=:red,
     )
@@ -53,11 +49,13 @@ function Makie.plot!(SP::SolutionPlot{<:Tuple{<:MakiePlotter}})
         end
     end
     u_matrix = @lift begin
+        grid = Ferrite.get_grid(plotter.dh)
+        sdim = Ferrite.getspatialdim(grid)
         if $(SP[:deformation_field])===:default
-             Ferrite.getdim(plotter.dh.grid) > 2 ? Point3f[Point3f(0,0,0)] : Point2f[Point2f(0,0)]
+            sdim > 2 ? Point3f[Point3f(0,0,0)] : Point2f[Point2f(0,0)]
         else
             #TODO remove convert
-            convert(Vector{Point{Ferrite.getdim(plotter.dh.grid),Float32}},Makie.to_vertices(transfer_solution(plotter,$(plotter.u); field_name=$(SP[:deformation_field]), process=identity)))
+            convert(Vector{Point{sdim,Float32}},Makie.to_vertices(transfer_solution(plotter,$(plotter.u); field_name=$(SP[:deformation_field]), process=identity)))
         end
     end
     @lift begin
@@ -67,7 +65,7 @@ function Makie.plot!(SP::SolutionPlot{<:Tuple{<:MakiePlotter}})
             plotter.physical_coords_mesh[1:end] = plotter.physical_coords .+ ($(SP[:deformation_scale]) .* $(u_matrix))
         end
     end
-    return Makie.mesh!(SP, plotter.mesh, color=solution, shading=SP[:shading], scale_plot=SP[:scale_plot], colormap=SP[:colormap],colorrange=SP[:colorrange] , transparent=SP[:transparent], nan_color=SP[:nan_color])
+    return Makie.mesh!(SP, plotter.mesh, color=solution, shading=SP[:shading], colormap=SP[:colormap],colorrange=SP[:colorrange], nan_color=SP[:nan_color])
 end
 
 """
@@ -83,20 +81,16 @@ keyword arguments are:
 - `colormap::Symbol=:cividis`
 - `colorrange::NTuple{2,<:Number}`: Specify (min, max) of the colorscale. If not given, min and max are calculated automatically from the data. 
 - `deformation_scale=1.0`
-- `shading=false`
-- `scale_plot=false`
-- `transparent=false`
+- `shading=Makie.NoShading`
 - `nan_color::Union{Symbol, <:Colorant}=:red`
 """
 @recipe(CellPlot) do scene
     Attributes(
-    scale_plot=false,
-    shading=false,
+    shading=Makie.NoShading,
     deformation_field=:default,
     process=identity,
     colormap=:cividis,
     colorrange=Makie.automatic,
-    transparent=false,
     deformation_scale = 1.0,
     nan_color=:red,
     )
@@ -109,7 +103,9 @@ function Makie.plot!(CP::CellPlot{<:Tuple{<:MakiePlotter{dim},Vector}}) where di
         if $(CP[:deformation_field])===:default
             Point3f[Point3f(0,0,0)]
         else
-            convert(Vector{Point{Ferrite.getdim(plotter.dh.grid),Float32}},Makie.to_vertices(transfer_solution(plotter,$(plotter.u); field_name=$(CP[:deformation_field]), process=identity)))
+            grid = Ferrite.get_grid(plotter.dh)
+            sdim = Ferrite.getspatialdim(grid)
+            convert(Vector{Point{sdim,Float32}},Makie.to_vertices(transfer_solution(plotter,$(plotter.u); field_name=$(CP[:deformation_field]), process=identity)))
         end
     end
     coords = @lift begin
@@ -120,7 +116,7 @@ function Makie.plot!(CP::CellPlot{<:Tuple{<:MakiePlotter{dim},Vector}}) where di
         end
     end
     solution =  @lift(reshape(transfer_scalar_celldata(plotter, qp_values; process=$(CP[:process])), num_vertices(plotter)))
-    return Makie.mesh!(CP, plotter.mesh, color=solution, shading=CP[:shading], scale_plot=CP[:scale_plot], colormap=CP[:colormap], transparent=CP[:transparent], colorrange=CP[:colorrange], nan_color=CP[:nan_color])
+    return Makie.mesh!(CP, plotter.mesh, color=solution, shading=CP[:shading], colormap=CP[:colormap], colorrange=CP[:colorrange], nan_color=CP[:nan_color])
 end
 
 """
@@ -133,7 +129,7 @@ end
 Plots the finite element mesh, optionally labels it and transforms it if a suitable `deformation_field` is given.
 
 - `plotnodes::Bool=true` plots the nodes as circles/spheres
-- `strokewidth::Int=2` how thick faces/edges are drawn
+- `linewidth::Int=2` how thick faces/edges are drawn
 - `color::Symbol=theme(scene,:linecolor)` color of the faces/edges and nodes
 - `markersize::Int=30` size of the nodes
 - `deformation_field::Symbol=:default` field that transforms the mesh by the given deformation, defaults to no deformation
@@ -143,19 +139,19 @@ Plots the finite element mesh, optionally labels it and transforms it if a suita
 - `nodelabelcolor=:darkblue`
 - `celllabels=false` global cell id labels
 - `celllabelcolor=:darkred`
-- `textsize::Int=15` size of the label's text
+- `fontsize::Int=15` size of the label's text
 - `visible=true`
 """
 @recipe(Wireframe) do scene
     Attributes(
     plotnodes=true,
     color=theme(scene, :linecolor),
-    strokewidth=theme(scene, :linewidth),
+    linewidth=theme(scene, :linewidth),
     markersize=theme(scene, :markersize),
     deformation_field=:default,
     visible=true,
     deformation_scale=1,
-    textsize=15,
+    fontsize=15,
     offset=(0.0,0.0),
     nodelabels=false,
     nodelabelcolor=:darkblue,
@@ -179,7 +175,10 @@ function Makie.plot!(WF::Wireframe{<:Tuple{<:MakiePlotter{dim}}}) where dim
         if $(WF[:deformation_field])===:default
             pointtype[zero(pointtype)]
         else
-            convert(Vector{Point{Ferrite.getdim(plotter.dh.grid),Float32}},Makie.to_vertices(dof_to_node(plotter.dh, $(WF[1][].u); field_name=$(WF[:deformation_field]))))
+            grid = Ferrite.get_grid(plotter.dh)
+            sdim = Ferrite.getspatialdim(grid)
+            # Float32 to be performant on a larger range of GPUs
+            convert(Vector{Point{sdim,Float32}},Makie.to_vertices(dof_to_node(plotter.dh, $(WF[1][].u); field_name=$(WF[:deformation_field]))))
         end
     end
     gridnodes = @lift begin
@@ -191,21 +190,25 @@ function Makie.plot!(WF::Wireframe{<:Tuple{<:MakiePlotter{dim}}}) where dim
     end
     lines = @lift begin
         dim > 2 ? (lines = Point3f[]) : (lines = Point2f[])
-        for cell in Ferrite.getcells(plotter.dh.grid)
-            boundaryentities = dim < 3 ? Ferrite.faces(cell) : Ferrite.edges(cell)
+        grid = Ferrite.get_grid(plotter.dh)
+        for cell in Ferrite.getcells(grid)
+            boundaryentities = Ferrite.edges(cell)
             append!(lines, [$gridnodes[e] for boundary in boundaryentities for e in boundary])
         end
         lines
     end
     nodes = @lift($(WF[:plotnodes]) ? $(gridnodes) : pointtype[zero(pointtype)])
     #plot cellsets
-    cellsets = plotter.dh.grid.cellsets
+    grid = Ferrite.get_grid(plotter.dh)
+    cellsets = grid.cellsets
     cellset_to_value = Dict{String,Int}()
     for (cellsetidx,(cellsetname,cellset)) in enumerate(cellsets)
         cellset_to_value[cellsetname] = cellsetidx
     end
-    cellset_u = zeros(Ferrite.getncells(plotter.dh.grid))
-    for (cellidx,cell) in enumerate(Ferrite.getcells(plotter.dh.grid))
+    cellset_u = zeros(Ferrite.getncells(grid))
+    allcells = Ferrite.getcells(grid)
+    ncells = Ferrite.getncells(grid)
+    for (cellidx,cell) in enumerate(allcells)
         for (cellsetname,cellsetvalue) in cellset_to_value
             if cellidx in cellsets[cellsetname]
                 cellset_u[cellidx] = cellsetvalue
@@ -228,7 +231,7 @@ function Makie.plot!(WF::Wireframe{<:Tuple{<:MakiePlotter{dim}}}) where dim
     end
     colorrange = isempty(cellset_to_value) ? (0,1) : (0,maximum(values(cellset_to_value)))
     cellset_u =  reshape(transfer_scalar_celldata(plotter, cellset_u; process=identity), num_vertices(plotter))
-    Makie.mesh!(WF, plotter.mesh, color=cellset_u, shading=false, scale_plot=false, colormap=:darktest, visible=WF[:cellsets])
+    Makie.mesh!(WF, plotter.mesh, color=cellset_u, shading=Makie.NoShading, colormap=:darktest, visible=WF[:cellsets])
     #plot the nodes
     shouldplot = @lift ($(WF[:visible]) && $(WF[:plotnodes]))
     Makie.scatter!(WF,gridnodes,markersize=WF[:markersize], color=WF[:color], visible=shouldplot)
@@ -236,22 +239,26 @@ function Makie.plot!(WF::Wireframe{<:Tuple{<:MakiePlotter{dim}}}) where dim
     nodelabels = @lift $(WF[:nodelabels]) ? ["$i" for i in 1:size($gridnodes,1)] : [""]
     nodepositions = @lift $(WF[:nodelabels]) ? $gridnodes : (dim < 3 ? Point2f[Point2f((0,0))] : Point3f[Point3f((0,0,0))])
     #set up celllabels
-    celllabels = @lift $(WF[:celllabels]) ? ["$i" for i in 1:Ferrite.getncells(plotter.dh.grid)] : [""]
-    cellpositions = @lift $(WF[:celllabels]) ? [midpoint(cell,$gridnodes) for cell in Ferrite.getcells(plotter.dh.grid)] : (dim < 3 ? [Point2f((0,0))] : [Point3f((0,0,0))])
-    Makie.text!(WF,nodepositions, text=nodelabels, textsize=WF[:textsize], offset=WF[:offset],color=WF[:nodelabelcolor])
-    Makie.text!(WF,celllabels, position=cellpositions, textsize=WF[:textsize], color=WF[:celllabelcolor], align=(:center,:center))
+    celllabels = @lift $(WF[:celllabels]) ? ["$i" for i in 1:ncells] : [""]
+    cellpositions = @lift $(WF[:celllabels]) ? [midpoint(cell,$gridnodes) for cell in allcells] : (dim < 3 ? [Point2f((0,0))] : [Point3f((0,0,0))])
+    Makie.text!(WF,nodepositions, text=nodelabels, fontsize=WF[:fontsize], offset=WF[:offset],color=WF[:nodelabelcolor])
+    Makie.text!(WF,celllabels, position=cellpositions, fontsize=WF[:fontsize], color=WF[:celllabelcolor], align=(:center,:center))
     #plot edges (3D) /faces (2D) of the mesh
-    Makie.linesegments!(WF,lines,color=WF[:color], linewidth=WF[:strokewidth], visible=WF[:visible], depth_shift=WF[:depth_shift])
+    @show lines, "-----------------------------"
+    Makie.linesegments!(WF,lines,color=WF[:color], linewidth=WF[:linewidth], visible=WF[:visible], depth_shift=WF[:depth_shift])
 end
 
 
 function Makie.plot!(WF::Wireframe{<:Tuple{<:Ferrite.AbstractGrid{dim}}}) where dim
-    grid = WF[1][]
-    coords = [Ferrite.getcoordinates(node)[i] for node in Ferrite.getnodes(grid), i in 1:dim] 
+    @info WF
+    grid   = WF[1][]
+    coords = [Ferrite.get_node_coordinate(node)[i] for node in Ferrite.getnodes(grid), i in 1:dim] 
     coords = Makie.to_vertices(coords)
     dim > 2 ? (lines = Point3f[]) : (lines = Point2f[])
-    for cell in Ferrite.getcells(grid)
-        boundaryentities = dim < 3 ? Ferrite.faces(cell) : Ferrite.edges(cell)
+    allcells = Ferrite.getcells(grid)
+    ncells   = Ferrite.getncells(grid)
+    for cell in allcells
+        boundaryentities = Ferrite.edges(cell)
         append!(lines, [coords[e] for boundary in boundaryentities for e in boundary])
     end
     nodes = @lift($(WF[:plotnodes]) ? coords : Point3f[Point3f(0,0,0)])
@@ -259,21 +266,18 @@ function Makie.plot!(WF::Wireframe{<:Tuple{<:Ferrite.AbstractGrid{dim}}}) where 
     Makie.scatter!(WF,nodes,markersize=WF[:markersize], color=WF[:color], visible=shouldplot)
     nodelabels = @lift $(WF[:nodelabels]) ? ["$i" for i in 1:size(coords,1)] : [""]
     nodepositions = @lift $(WF[:nodelabels]) ? coords : (dim < 3 ? Point2f[Point2f((0,0))] : Point3f[Point3f((0,0,0))])
-    celllabels = @lift $(WF[:celllabels]) ? ["$i" for i in 1:Ferrite.getncells(grid)] : [""]
-    cellpositions = @lift $(WF[:celllabels]) ? [midpoint(cell,coords) for cell in Ferrite.getcells(grid)] : (dim < 3 ? [Point2f((0,0))] : [Point3f((0,0,0))])
+    celllabels = @lift $(WF[:celllabels]) ? ["$i" for i in 1:ncells] : [""]
+    cellpositions = @lift $(WF[:celllabels]) ? [midpoint(cell,coords) for cell in allcells] : (dim < 3 ? [Point2f((0,0))] : [Point3f((0,0,0))])
     #cellsetsplot
-    if isconcretetype(grid.cells)
-        dh = Ferrite.DofHandler(grid)
-    else
-        dh = Ferrite.MixedDofHandler(grid)
-    end
+
+    dh = Ferrite.DofHandler(grid)
     cellsets = grid.cellsets
     cellset_to_value = Dict{String,Int}()
     for (cellsetidx,(cellsetname,cellset)) in enumerate(cellsets)
         cellset_to_value[cellsetname] = cellsetidx
     end
-    cellset_u = zeros(Ferrite.getncells(grid))
-    for (cellidx,cell) in enumerate(Ferrite.getcells(grid))
+    cellset_u = zeros(ncells)
+    for (cellidx,cell) in enumerate(allcells)
         for (cellsetname,cellsetvalue) in cellset_to_value
             if cellidx in cellsets[cellsetname]
                 cellset_u[cellidx] = cellsetvalue
@@ -283,10 +287,10 @@ function Makie.plot!(WF::Wireframe{<:Tuple{<:Ferrite.AbstractGrid{dim}}}) where 
     plotter = MakiePlotter(dh,cellset_u)
     cellset_u =  reshape(transfer_scalar_celldata(plotter, cellset_u; process=identity), num_vertices(plotter))
     colorrange = isempty(cellset_to_value) ? (0,1) : (0,maximum(values(cellset_to_value)))
-    Makie.mesh!(WF, plotter.mesh, color=cellset_u, shading=false, scale_plot=false, colormap=:darktest, visible=WF[:cellsets])
-    Makie.text!(WF,nodelabels, position=nodepositions, textsize=WF[:textsize], offset=WF[:offset],color=WF[:nodelabelcolor])
-    Makie.text!(WF,celllabels, position=cellpositions, textsize=WF[:textsize], color=WF[:celllabelcolor], align=(:center,:center))
-    Makie.linesegments!(WF,lines,color=WF[:color], strokewidth=WF[:strokewidth], visible=WF[:visible])
+    Makie.mesh!(WF, plotter.mesh, color=cellset_u, shading=Makie.NoShading, colormap=:darktest, visible=WF[:cellsets])
+    Makie.text!(WF,nodelabels, position=nodepositions, fontsize=WF[:fontsize], offset=WF[:offset],color=WF[:nodelabelcolor])
+    Makie.text!(WF,celllabels, position=cellpositions, fontsize=WF[:fontsize], color=WF[:celllabelcolor], align=(:center,:center))
+    Makie.linesegments!(WF,lines,color=WF[:color], linewidth=WF[:linewidth], visible=WF[:visible])
 end
 
 """
@@ -299,8 +303,7 @@ values are transformed to a scalar based on `process` which defaults to the magn
 
 - `field = :default`
 - `process = postprocess`
-- `scale_plot = false`
-- `shading = false`
+- `shading = Makie.NoShading`
 - `colormap = :cividis`
 - `colorrange=Makie.automatic`
 - `nan_color::Union{Symbol, <:Colorant}=:red`
@@ -309,8 +312,7 @@ values are transformed to a scalar based on `process` which defaults to the magn
     Attributes(
     field = :default,
     process = postprocess,
-    scale_plot = false,
-    shading = false,
+    shading = Makie.NoShading,
     colormap = :cividis,
     colorrange=Makie.automatic,
     nan_color=:red,
@@ -330,7 +332,7 @@ function Makie.plot!(SF::Surface{<:Tuple{<:MakiePlotter{2}}})
     coords = @lift begin
         Point3f[Point3f(coord[1], coord[2], $(solution)[idx]) for (idx, coord) in enumerate(plotter.physical_coords)]
     end
-    return Makie.mesh!(SF, coords, plotter.vis_triangles, color=solution, scale_plot=SF[:scale_plot], shading=SF[:shading], colormap=SF[:colormap], colorrange=SF[:colorrange], nan_color=SF[:nan_color])
+    return Makie.mesh!(SF, coords, plotter.vis_triangles, color=solution, shading=SF[:shading], colormap=SF[:colormap], colorrange=SF[:colorrange], nan_color=SF[:nan_color])
 end
 
 """
@@ -361,26 +363,29 @@ the arrows are unicolored. Otherwise the color corresponds to the magnitude, or 
     )
 end
 
-function Makie.plot!(AR::Arrows{<:Tuple{<:MakiePlotter{dim}}}) where dim
+function Makie.plot!(AR::Arrows{<:Tuple{<:MakiePlotter{sdim}}}) where sdim
     plotter = AR[1][]
     solution = @lift begin
         if $(AR[:field]) === :default
             field_name = Ferrite.getfieldnames(plotter.dh)[1]
-            @assert Ferrite.getfielddim(plotter.dh,field_name) > 1
+            field_dim = Ferrite.n_components(plotter.dh, field_name)
+            @assert field_dim == sdim "Dimension of field $field_name is $field_dim does not match spatial dimension $sdim"
             transfer_solution(plotter,$(plotter.u); field_name=field_name, process=identity)
         else
-            @assert Ferrite.getfielddim(plotter.dh,$(AR[:field])) > 1
+            field_name = $(AR[:field])
+            field_dim = Ferrite.n_components(plotter.dh, field_name)
+            @assert field_dim == sdim "Dimension of field $field_name is $field_dim does not match spatial dimension $sdim"
             transfer_solution(plotter,$(plotter.u); field_name=$(AR[:field]), process=identity)
         end
     end
-    if dim  == 2
+    if sdim  == 2
         ns = @lift([Vec2f(i) for i in eachrow($(solution))])
         lengths = @lift($(AR[:color])===:default ? $(AR[:process]).($(ns)) : ones(length($(ns)))*$(AR[:color]))
-    elseif dim  == 3
+    elseif sdim  == 3
         ns = @lift([Vec3f(i) for i in eachrow($(solution))])
         lengths = @lift($(AR[:color])===:default ? $(AR[:process]).($(ns)) : ones(length($(ns)))*$(AR[:color]))
     else
-        error("Arrows plots are only available in dim ≥ 2")
+        error("Arrows plots are only available in dimension ≥ 2")
     end
     Makie.arrows!(AR, plotter.physical_coords, ns, arrowsize=AR[:arrowsize], colormap=AR[:colormap], color=lengths, lengthscale=AR[:lengthscale])
 end
@@ -392,10 +397,10 @@ end
     elementinfo(cell::Type{AbstractCell}; kwargs...)
 
 - `plotnodes=true` controls if nodes of element are plotted
-- `strokewidth=2` strokwidth of faces/edges
+- `linewidth=2` strokwidth of faces/edges
 - `color=theme(scene, :linecolor)`
 - `markersize=30` size of the nodes
-- `textsize=60` textsize of node-, edges- and facelabels
+- `fontsize=60` fontsize of node-, edges- and facelabels
 - `nodelabels=true` switch that controls plotting of nodelabels
 - `nodelabelcolor=:darkred`
 - `nodelabeloffset=(0.0,0.0)` offset of the nodelabel text relative to its associated node
@@ -410,13 +415,16 @@ end
 @recipe(Elementinfo) do scene
     Attributes(
     plotnodes=true,
-    strokewidth=theme(scene, :linewidth),
+    linewidth=theme(scene, :linewidth),
     color=theme(scene, :linecolor),
     markersize=theme(scene, :markersize),
-    textsize=60,
+    fontsize=60,
+    vertexlabels=true,
+    vertexlabelcolor=:darkred,
+    vertexlabeloffset=(0.0,0.0),
     nodelabels=true,
     nodelabelcolor=:darkred,
-    nodelabeloffset=(0.0,0.0),
+    nodelabeloffset=(0.0,20.0),
     facelabels=true,
     facelabelcolor=:darkgreen,
     facelabeloffset=(-40,0),
@@ -427,61 +435,136 @@ end
     )
 end
 
-function Makie.plot!(Ele::Elementinfo{<:Tuple{<:Ferrite.Interpolation{dim,refshape}}}) where {dim,refshape}
-    ip = Ele[1][]
-    elenodes = Ferrite.reference_coordinates(ip) |> x->reshape(reinterpret(Float64,x),(dim,length(x)))'
+function Makie.plot!(Ele::Elementinfo{<:Tuple{<:Ferrite.AbstractCell{refshape}}}) where {refshape}
+    cell = Ele[1][]
+    dim = Ferrite.getrefdim(cell)
+
+    # Draw element outline
+    gip = Ferrite.geometric_interpolation(cell)
+    elenodes = Ferrite.reference_coordinates(gip) |> x->reshape(reinterpret(Float64,x),(dim,length(x)))'
     dim > 2 ? (lines = Point3f[]) : (lines = Point2f[])
-    facenodes = Ferrite.faces(ip)
-    if dim == 2
-        append!(lines, [elenodes[e,:] for boundary in facenodes for e in boundary[1:2]]) # 1:2 because higher order node in the middle
-    else
-        edgenodes = Ferrite.edges(ip)
-        order = Ferrite.getorder(ip)
-        #TODO remove the index monstrosity below after edges are defined consistently see https://github.com/Ferrite-FEM/Ferrite.jl/issues/520
-        append!(lines, [elenodes[e,:] for boundary in edgenodes for e in boundary[1:((refshape == Ferrite.RefCube) ? 1 : (order > 1 ? 2 : 1)):((refshape == Ferrite.RefCube) ? 2 : end)]]) # 1:2 because higher order node in the middle
+    for edgenodes in Ferrite.edgedof_indices(gip)
+        append!(lines, [elenodes[edgenodes[1],:], elenodes[edgenodes[2],:]]) # The convention in Ferrite is that the first two edge nodes are always associated to the vertices
     end
-    boundaryentities = dim == 2 ? facenodes : edgenodes
-    #plot element boundary
-    Makie.linesegments!(Ele,lines,color=Ele[:color], linewidth=Ele[:strokewidth])
-    for (id,face) in enumerate(facenodes)
-        idx = 0
-        if refshape == Ferrite.RefCube && dim == 3
-            idx = 4
-        elseif refshape == Ferrite.RefTetrahedron && dim == 3
-            idx = 3
-        else
-            idx = 2
-        end
-        position = zeros(dim)
-        for i in 1:idx
-            position += elenodes[face[i],:]
-        end
-        position ./= idx
-        position = dim == 2 ? Point2f(position) : Point3f(position)
-        Makie.text!(Ele,"$id", position=position, textsize=Ele[:textsize], offset=Ele[:facelabeloffset],color=Ele[:facelabelcolor],visible=Ele[:facelabels],font=Ele[:font])
-    end
-    if dim == 3
-        for (id,edge) in enumerate(edgenodes)
-            position = Point3f((elenodes[edge[1],:] + elenodes[refshape==Ferrite.RefCube ? edge[2] : edge[end],:])*0.5)
-            t = Makie.text!(Ele,"$id", position=position, textsize=Ele[:textsize], offset=Ele[:edgelabeloffset],color=Ele[:edgelabelcolor],visible=Ele[:edgelabels],align=(:center,:center),font=Ele[:font])
-            # Boundingbox can't switch currently from pixelspace to "coordinate" space in recipes
-            #bb = Makie.boundingbox(t)
-            #Makie.wireframe!(Ele,bb,space=:pixel)
-        end
-    end
-    #plot the nodes
+    Makie.linesegments!(Ele,lines,color=Ele[:color], linewidth=Ele[:linewidth])
+
+    # Draw its nodes
     Makie.scatter!(Ele,elenodes,markersize=Ele[:markersize], color=Ele[:color], visible=Ele[:plotnodes])
-    #set up nodelabels
-    nodelabels = @lift $(Ele[:nodelabels]) ? ["$i" for i in 1:size(elenodes,1)] : [""]
+    nodelabels = @lift $(Ele[:nodelabels]) ? ["N$i" for i in 1:size(elenodes,1)] : [""]
     nodepositions = @lift $(Ele[:nodelabels]) ? [dim < 3 ? Point2f(row) : Point3f(row) for row in eachrow(elenodes)] : (dim < 3 ? [Point2f((0,0))] : [Point3f((0,0,0))])
-    #set up celllabels
-    Makie.text!(Ele,nodelabels, position=nodepositions, textsize=Ele[:textsize], offset=Ele[:nodelabeloffset],color=Ele[:nodelabelcolor],font=Ele[:font])
-    #plot edges (3D) /faces (2D) of the mesh
-    Makie.linesegments!(Ele,lines,color=Ele[:color], linewidth=Ele[:strokewidth])
+    Makie.text!(Ele,nodelabels, position=nodepositions, fontsize=Ele[:fontsize], offset=Ele[:nodelabeloffset],color=Ele[:nodelabelcolor],font=Ele[:font])
+
+    # Annotate element vertices
+    if dim ≥ 1 && Ele[:vertexlabels][]
+        for (id,vertexnodes) in enumerate(Ferrite.vertexdof_indices(gip))
+            position = if dim == 3
+                Point3f(elenodes[vertexnodes[1],:])
+            elseif dim == 2
+                Point2f(elenodes[vertexnodes[1],:])
+            end
+            Makie.text!(Ele,"V$id", position=position, fontsize=Ele[:fontsize], offset=Ele[:edgelabeloffset],color=Ele[:edgelabelcolor],visible=Ele[:edgelabels],font=Ele[:font])
+        end
+    end
+
+    # Annotate element edges
+    if dim ≥ 2 && Ele[:edgelabels][]
+        for (id,edgenodes) in enumerate(Ferrite.edgedof_indices(gip))
+            position = if dim == 3
+                Point3f((elenodes[edgenodes[1],:] + elenodes[edgenodes[2],:])*0.5)
+            elseif dim == 2
+                Point2f((elenodes[edgenodes[1],:] + elenodes[edgenodes[2],:])*0.5)
+            end
+            Makie.text!(Ele,"E$id", position=position, fontsize=Ele[:fontsize], offset=Ele[:edgelabeloffset],color=Ele[:edgelabelcolor],visible=Ele[:edgelabels],font=Ele[:font])
+        end
+    end
+
+    # Annotate element faces
+    if dim ≥ 3 && Ele[:facelabels][]
+        for face_index ∈ 1:Ferrite.nfaces(cell)
+            linear_face = linear_face_cell(cell, face_index)
+            gip_face = Ferrite.geometric_interpolation(linear_face)
+            vertexdof_list = Ferrite.vertexdof_indices(gip_face)
+            refpositions   = Ferrite.reference_coordinates(gip_face)
+            facenodes      = [Ferrite.facet_to_element_transformation(refposition, refshape, face_index) for refposition in refpositions] |> x->reshape(reinterpret(Float64,x),(dim,length(x)))'        
+            position = zeros(dim)
+            for i in 1:length(vertexdof_list)
+                position += facenodes[vertexdof_list[i][1],:]
+            end
+            position ./= length(vertexdof_list)
+            position = dim == 2 ? Point2f(position) : Point3f(position)
+            Makie.text!(Ele,"F$face_index", position=position, fontsize=Ele[:fontsize], offset=Ele[:facelabeloffset],color=Ele[:facelabelcolor],visible=Ele[:facelabels],font=Ele[:font])
+        end
+    end
 end
 
-Makie.convert_arguments(P::Type{<:Elementinfo}, cell::C) where C<:Ferrite.AbstractCell = (Ferrite.default_interpolation(typeof(cell)),)
-Makie.convert_arguments(P::Type{<:Elementinfo}, celltype::Type{C}) where C<:Ferrite.AbstractCell = (Ferrite.default_interpolation(celltype),)
+function Makie.plot!(Ele::Elementinfo{<:Tuple{<:Ferrite.Interpolation{refshape}}}) where {refshape}
+    ip = Ele[1][]
+    dim = Ferrite.getrefdim(ip)
+
+    # Draw element boundary
+    gip = Ferrite.default_geometric_interpolation(ip)
+    geonodes = Ferrite.reference_coordinates(gip) |> x->reshape(reinterpret(Float64,x),(dim,length(x)))'
+    dim > 2 ? (lines = Point3f[]) : (lines = Point2f[])
+    for edgenodes in Ferrite.edgedof_indices(gip.ip)
+        append!(lines, [geonodes[edgenodes[1],:], geonodes[edgenodes[2],:]]) 
+    end
+    Makie.linesegments!(Ele,lines,color=Ele[:color], linewidth=Ele[:linewidth])
+
+    # Draw the interpolation nodes and its indices
+    elenodes = Ferrite.reference_coordinates(ip) |> x->reshape(reinterpret(Float64,x),(dim,length(x)))'
+    Makie.scatter!(Ele,elenodes,markersize=Ele[:markersize], color=Ele[:color], visible=Ele[:plotnodes])
+    nodelabels = @lift $(Ele[:nodelabels]) ? ["D$i" for i in 1:size(elenodes,1)] : [""]
+    nodepositions = @lift $(Ele[:nodelabels]) ? [dim < 3 ? Point2f(row) : Point3f(row) for row in eachrow(elenodes)] : (dim < 3 ? [Point2f((0,0))] : [Point3f((0,0,0))])
+    Makie.text!(Ele,nodelabels, position=nodepositions, fontsize=Ele[:fontsize], offset=Ele[:nodelabeloffset],color=Ele[:nodelabelcolor],font=Ele[:font])
+
+    # Annotate element vertices
+    if dim ≥ 1 && Ele[:vertexlabels][]
+        for (id,vertexnodes) in enumerate(Ferrite.vertexdof_indices(gip.ip))
+            position = if dim == 3
+                Point3f(elenodes[vertexnodes[1],:])
+            elseif dim == 2
+                Point2f(elenodes[vertexnodes[1],:])
+            end
+            Makie.text!(Ele,"V$id", position=position, fontsize=Ele[:fontsize], offset=Ele[:edgelabeloffset],color=Ele[:edgelabelcolor],visible=Ele[:edgelabels],font=Ele[:font])
+        end
+    end
+    # Annotate element edges
+    if dim ≥ 2 && Ele[:edgelabels][]
+        for (id,edgenodes) in enumerate(Ferrite.edgedof_indices(gip.ip))
+            position = if dim == 3
+                Point3f((elenodes[edgenodes[1],:] + elenodes[edgenodes[2],:])*0.5)
+            elseif dim == 2
+                Point2f((elenodes[edgenodes[1],:] + elenodes[edgenodes[2],:])*0.5)
+            end
+            Makie.text!(Ele,"E$id", position=position, fontsize=Ele[:fontsize], offset=Ele[:edgelabeloffset],color=Ele[:edgelabelcolor],visible=Ele[:edgelabels],font=Ele[:font])
+        end
+    end
+
+    # Annotate element faces
+    if dim ≥ 3 && Ele[:facelabels][]
+        for face_index ∈ 1:Ferrite.nfaces(ip)
+            linear_face = linear_face_cell(refshape, face_index)
+            gip_face = Lagrange{linear_face,1}()
+            vertexdof_list = Ferrite.vertexdof_indices(gip_face)
+            refpositions   = Ferrite.reference_coordinates(gip_face)
+            facenodes      = [Ferrite.facet_to_element_transformation(refposition, refshape, face_index) for refposition in refpositions] |> x->reshape(reinterpret(Float64,x),(dim,length(x)))'        
+            position = zeros(dim)
+            for i in 1:length(vertexdof_list)
+                position += facenodes[vertexdof_list[i][1],:]
+            end
+            position ./= length(vertexdof_list)
+            position = dim == 2 ? Point2f(position) : Point3f(position)
+            Makie.text!(Ele,"F$face_index", position=position, fontsize=Ele[:fontsize], offset=Ele[:facelabeloffset],color=Ele[:facelabelcolor],visible=Ele[:facelabels],font=Ele[:font])
+        end
+    end
+end
+
+function Makie.convert_arguments(P::Type{<:Elementinfo}, celltype::Type{C}) where C<:Ferrite.AbstractCell 
+    gip = geometric_interpolation(C)
+    nnodes = getnbasefunctions(gip)
+    nodes  = ntuple(x->1,nnodes)
+    return (celltype(nodes),)
+end
 Makie.convert_arguments(P::Type{<:Elementinfo}, iptype::Type{IP}) where IP<:Ferrite.Interpolation = (iptype(),)
 
 """
@@ -504,12 +587,12 @@ function ferriteviewer(plotter::MakiePlotter{dim}) where dim
 
     #setting up various sliders
     markerslider = Slider(fig, range = 0:1:100, startvalue=5)
-    strokewidthslider = Slider(fig, range = 0:1:10, startvalue=1)
+    linewidthslider = Slider(fig, range = 0:1:10, startvalue=1)
     markersize = lift(x->x,markerslider.value)
-    strokewidth = lift(x->x,strokewidthslider.value)
+    linewidth = lift(x->x,linewidthslider.value)
 
     #plot the fe-mesh
-    wireframep = wireframe!(plotter,markersize=markersize,strokewidth=strokewidth,deformation_field= @lift $(toggles[2].active) ? $(deformation_field) : :default)
+    wireframep = wireframe!(plotter,markersize=markersize,linewidth=linewidth,deformation_field= @lift $(toggles[2].active) ? $(deformation_field) : :default)
     #connect fe-mesh plot to the toggle
     connect!(wireframep.visible,toggles[1].active)
     connect!(wireframep.nodelabels,toggles[3].active)
@@ -523,7 +606,7 @@ function ferriteviewer(plotter::MakiePlotter{dim}) where dim
     #align all menus as a vgrid under each other
     fig[1,3] = vgrid!(grid!(hcat(toggles,labels), tellheight=false),
                       Label(fig,"nodesize",width=nothing), markerslider,
-                      Label(fig,"strokewidth",width=nothing), strokewidthslider,
+                      Label(fig,"linewidth",width=nothing), linewidthslider,
                       Label(fig,"processing function",width=nothing), menu_process,
                       Label(fig,"field",width=nothing), menu_field,
                       Label(fig, "deformation field",width=nothing),menu_deformation_field,
@@ -562,7 +645,25 @@ end
 
 ####### One Shot Methods #######
 const FerriteVizPlots = Union{Type{<:Wireframe},Type{<:SolutionPlot},Type{<:Arrows},Type{<:Surface}}
+# We default with our axis choice to the spatial dimension of the problem
+function Makie.args_preferred_axis(a, b::Union{MakiePlotter{sdim},Grid{sdim}}, args...) where {sdim}
+    if sdim ≤ 2
+        return Makie.Axis
+    else
+        return Makie.LScene
+    end
+end
+function Makie.args_preferred_axis(a::Type{<:Elementinfo}, ip_or_cell)
+    dim = Ferrite.getrefdim(ip_or_cell)
+    if dim ≤ 2
+        return Makie.Axis
+    else
+        return Makie.LScene
+    end
+end
+# Surface plots are special, as they are 2D problems which are deformed into the third dimension
+Makie.args_preferred_axis(a::Type{<:Surface}, b::Union{MakiePlotter{sdim},Grid{sdim}}, args...) where {sdim} = Makie.LScene
 
-function Makie.convert_arguments(P::FerriteVizPlots, dh::Ferrite.AbstractDofHandler, u::Vector)
+function Makie.convert_arguments(P::FerriteVizPlots, dh::Ferrite.AbstractDofHandler, u::AbstractVector)
     return (MakiePlotter(dh,u),)
 end

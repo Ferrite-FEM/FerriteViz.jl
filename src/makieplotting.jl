@@ -560,6 +560,148 @@ function ferriteviewer(plotter::MakiePlotter, data::Vector{Vector{T}}) where T
     display(fig)
 end
 
+#function initialize_figure(ip::Ferrite.Interpolation{ref_shape,N}) where {ref_shape<:Union{RefQuadrilateral,RefTriangle},N}
+function initialize_figure(ip::Ferrite.Interpolation{2,ref_shape,N}) where {ref_shape<:Union{Ferrite.RefCube,Ferrite.RefTetrahedron},N}
+    #(ip==CrouzeixRaviart{RefTriangle, 1}()) && error("To-Do: implement")
+    rcs = Ferrite.reference_coordinates(ip)
+    min_val = Int(min(vcat(rcs...)...))
+    rcs = [[c[1]-min_val,c[2]-min_val] for c in rcs]
+    scale = round(inv(min(filter(!iszero,vcat(rcs...))...));digits=15)
+    max_id = Int(round(max(vcat(rcs...)...)*scale))
+    refpos = [Int.([max_id-coord[2]+1, coord[1]+1]) for coord in rcs.*scale]
+
+    fig = Figure()
+    ax = [Axis3(fig[pos...];xlabel=L"ξ_x", ylabel=L"ξ_y", zlabel=L"N(ξ)" ,title="id: $(i), node = "*string(round.(rcs[i];digits=2))) for (i,pos) in enumerate(refpos)]
+    return fig, ax
+end
+
+"""
+    show_basis_function(ip::Interpolation{ref_shape,N})
+
+Plots all basis functions of `ip`. Only implemented for 1D and 2D instances of `ip`.
+"""
+#function show_basis_function(ip::Ferrite.Interpolation{ref_shape,N}) where {ref_shape<:RefTriangle,N}
+function show_basis_function(ip::Ferrite.Interpolation{2,ref_shape,N}; meshsize=20, plotnodes=true, strokewidth=1, markersize=10, fontsize=60, nodelabels=true, nodelabelcolor=:darkred, nodelabeloffset=(2.0,2.0), facelabels=false, facelabelcolor=:darkgreen, facelabeloffset=(-40,0), edgelabels=true, edgelabelcolor=:darkblue, edgelabeloffset=(-40,-40), font="Julia Mono") where {ref_shape<:Ferrite.RefTetrahedron,N}
+    rcs = Ferrite.reference_coordinates(ip)
+    mn = isa(ip,Ferrite.CrouzeixRaviart) ? 0. : min(vcat(collect.(rcs)...)...)
+    mx = isa(ip,Ferrite.CrouzeixRaviart) ? 1. : mx = max(vcat(collect.(rcs)...)...)
+    y = range(mx,mn,length=meshsize)
+    x = range(mn,mx,length=meshsize)
+
+    # initialize axes
+    fig,ax = initialize_figure(ip)
+
+    for i in 1:Ferrite.getnbasefunctions(ip)
+        local z = [(ix>iy) ? NaN : Ferrite.value(ip,i,Ferrite.Vec{2,Float64}((_x,_y))) for (iy,_y) in enumerate(y), (ix,_x) in enumerate(x)]
+        vertices, clist = get_triangulation(ip,x,y,z)
+        !isa(ip,Ferrite.CrouzeixRaviart) && elementinfo!(ax[i],ip;plotnodes, strokewidth, markersize, fontsize, nodelabels, nodelabelcolor, nodelabeloffset, facelabels, facelabelcolor, facelabeloffset, edgelabels, edgelabelcolor, edgelabeloffset, font)
+        mesh!(ax[i],vertices,clist; shading=false, fxaa=true, transparency=false, color=[vertices[i,3] for i in 1:size(vertices)[1]], colormap=:viridis)
+    end
+    current_figure()
+end
+
+#function show_basis_function(ip::Ferrite.Interpolation{ref_shape,N}) where {ref_shape<:RefQuadrilateral,N}
+function show_basis_function(ip::Ferrite.Interpolation{2,ref_shape,N}; meshsize=20, plotnodes=true, strokewidth=1, markersize=10, fontsize=60, nodelabels=true, nodelabelcolor=:darkred, nodelabeloffset=(2.0,2.0), facelabels=false, facelabelcolor=:darkgreen, facelabeloffset=(-40,0), edgelabels=true, edgelabelcolor=:darkblue, edgelabeloffset=(-40,-40), font="Julia Mono") where {ref_shape<:Ferrite.RefCube,N}
+    rcs = Ferrite.reference_coordinates(ip)
+    xy = range(min(vcat(rcs...)...),max(vcat(rcs...)...),length=meshsize)
+
+    # initialize axes
+    fig,ax = initialize_figure(ip)
+
+    for i in 1:Ferrite.getnbasefunctions(ip)
+        z = [Ferrite.value(ip,i,Ferrite.Vec{2,Float64}((x,y))) for x in xy, y in xy]
+        elementinfo!(ax[i],ip;plotnodes, strokewidth, markersize, fontsize, nodelabels, nodelabelcolor, nodelabeloffset, facelabels, facelabelcolor, facelabeloffset, edgelabels, edgelabelcolor, edgelabeloffset, font)
+        Makie.surface!(ax[i],xy,xy,z)
+        #mesh!(ax[i],vertices,clist; shading=false, fxaa=true, transparency=false, color=[vertices[i,3] for i in 1:size(vertices)[1]], colormap=:viridis)
+    end
+    current_figure()
+end
+
+#function show_basis_function(ip::Ferrite.Lagrange{RefLine,N}) where {N}
+function show_basis_function(ip::Ferrite.Lagrange{1,refshape,N}) where {refshape,N}
+    rcs = Ferrite.reference_coordinates(ip)
+    x = range(-1,1,length=100)
+
+    # initialize axes
+    min_val = Int(min(vcat(rcs...)...))
+    rcs = [[c[1]-min_val] for c in rcs]
+    scale = round(inv(min(filter(!iszero,vcat(rcs...))...));digits=15)
+    max_id = Int(round(max(vcat(rcs...)...)*scale))
+    refpos = [Int.([coord[1]+1]) for coord in rcs.*scale]
+
+    fig = Figure()
+    ax = [Axis(fig[1,i];xlabel=L"ξ", ylabel=L"N(ξ)" ,title="id: $(i), node = "*string(round.(rcs[i];digits=2))) for i in 1:Ferrite.getnbasefunctions(ip)]
+    for i in 1:Ferrite.getnbasefunctions(ip)
+        local z = [Ferrite.value(ip,i,Ferrite.Vec{1,Float64}((_x,))) for _x in x]
+        lines!(ax[refpos[i]...],x,z)
+    end
+    current_figure()
+end
+
+#function get_triangulation(ip::Ferrite.Interpolation{ref_shape,N},x,_y,_z::Matrix) where {ref_shape,N}
+function get_triangulation(ip::Ferrite.Interpolation{2,ref_shape,N},x,y,z::Matrix) where {ref_shape,N}
+# ================================
+# ===== compute vertice list =====
+# ================================
+    sz = size(z)
+    nvertices_percol = (.!isnan.(z)')*ones(Int,sz[2])
+    nvertices = sum(nvertices_percol)
+    vertices = zeros(nvertices,3)                           #   vertice numbering according to numbering:
+    cnt = 1                                                 #   ┌                   ┐      ┌                   ┐                ┌                   ┐
+    for col in 1:sz[2], row in 1:sz[1]                      #   │ 1 NaN NaN NaN NaN │      │ 1 NaN NaN NaN NaN │  not allowed:  │ 1 NaN NaN NaN NaN │
+        if !isnan(z[row,col])                               #   │ 2  6  NaN NaN NaN │      │ 2  6  NaN 13  17  │ -connectivity  │ 2  6  NaN 13  16  │
+            vertices[cnt,:] = [x[col], y[row], z[row,col]]  #   │ 3  7  10  NaN NaN │  or  │ 3  7  10  14  18  │  list is not   │ 3  7  10  14  17  │
+            cnt += 1                                        #   │ 4  8  11  13  NaN │      │ 4  8  11  15  19  │  implemented   │ 4  8  11  15  18  │
+        end                                                 #   │ 5  9  12  14  15  │      │ 5  9  12  16  20  │  for this      │ 5  9  12  NaN NaN │
+    end                                                     #   └                          └                                    └                    
+# =====================================
+# ===== compute connectivity list =====
+# =====================================
+    ntriangles = 0 # number of triangles necessary
+    for (i,vertincol) in enumerate(nvertices_percol)
+        if i!=length(nvertices_percol)
+            ntriangles+=(vertincol-1)*2 # if current collum has same length as next one add 2 triangles per "gap" between two nodes
+            if vertincol==nvertices_percol[i+1]-1 # if next col is larger add 1
+                ntriangles+=1
+            elseif vertincol==nvertices_percol[i+1]+1 # if next col is smaller subtract 1
+                ntriangles+=-1
+            else
+                !(vertincol==nvertices_percol[i+1]) ? error("triangulation not possible") : nothing
+            end
+        end
+    end
+    clist = zeros(Int,ntriangles,3)
+
+    cnt = 1
+    lastvertidpercol = [sum(nvertices_percol[1:c]) for c in 1:sz[2]]
+    for vert in 1:lastvertidpercol[end-1]
+        newcol = vert in vcat(1,lastvertidpercol[1:end-1].+1) # vertex first id in a column??
+        col = findfirst(i->vert<=i,lastvertidpercol)
+        if vert==sum(nvertices_percol[1:col]) # if vert is last vert in collumn...
+            if nvertices_percol[col] == 1 # ... check if its the only vertex of the collumn...
+                clist[cnt,:] = [vert, vert+1, vert+2] # ...add triangle if necessary...
+                cnt+=1                
+            end
+            continue # ... skip last vertex per column
+        end
+        # fill clist
+        offset = nvertices_percol[col]==nvertices_percol[col+1]-1 ? nvertices_percol[col]+1 : nvertices_percol[col] #set ofset according to next collumn size
+        clist[cnt,:] = [vert, vert+1, vert+offset]
+        cnt+=1
+        if ((nvertices_percol[col]==nvertices_percol[col+1]+1)&&(!newcol)) || ((nvertices_percol[col]==nvertices_percol[col+1]-1)&&(newcol)) # if next column is shorter && not first vertex of collumn or if next column is longer and first vertex in collumn
+            clist[cnt,:] = [vert, vert+offset-1, vert+offset]
+            cnt+=1
+        end
+        if (nvertices_percol[col]==nvertices_percol[col+1]) || (nvertices_percol[col]==nvertices_percol[col+1]-1) # if next row is longer or shorter
+            clist[cnt,:] = [vert+1, vert+offset+1, vert+offset]
+            cnt+=1
+        end
+    end
+(cnt-1)!=ntriangles && error("triangulations failed. too few triangles added to connectivity list")
+
+    return vertices, clist
+end
+
 ####### One Shot Methods #######
 const FerriteVizPlots = Union{Type{<:Wireframe},Type{<:SolutionPlot},Type{<:Arrows},Type{<:Surface}}
 

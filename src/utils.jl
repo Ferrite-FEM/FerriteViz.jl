@@ -681,7 +681,7 @@ end
 ##################################################
 # MatrixizedInterpolation{<:ScalarInterpolation} #
 ##################################################
-abstract type MatrixInterpolation{vdim1, vdim2, refshape, order} <: Ferrite.Interpolation{refshape, order, Nothing} end
+abstract type MatrixInterpolation{vdim1, vdim2, refshape, order} <: Ferrite.Interpolation{refshape, order} end
 
 struct MatrixizedInterpolation{vdim1, vdim2, refshape, order, SI <: ScalarInterpolation{refshape, order}} <: MatrixInterpolation{vdim1, vdim2, refshape,order}
     ip::SI

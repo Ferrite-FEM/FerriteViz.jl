@@ -758,7 +758,7 @@ end
 
 Ferrite.reference_coordinates(ip::MatrixizedInterpolation) = Ferrite.reference_coordinates(ip.ip)
 
-Ferrite.is_discontinuous(::Type{<:MatrixizedInterpolation{<:Any, <:Any, <:Any, <:Any, ip}}) where {ip} = Ferrite.is_discontinuous(ip)
+Ferrite.conformity(ip::MatrixizedInterpolation) = Ferrite.conformity(ip.ip)
 
 get_gradient_interpolation(::VectorizedInterpolation{vdim, shape, order, <:Lagrange{shape, order}}) where {sdim,vdim,shape<:Ferrite.AbstractRefShape{sdim},order} = MatrixizedInterpolation{vdim, sdim}(DiscontinuousLagrange{shape, order-1}())
 get_gradient_interpolation_type(::Type{VectorizedInterpolation{vdim, shape, order, <:Lagrange{shape, order}}}) where {sdim,vdim,shape<:Ferrite.AbstractRefShape{sdim},order} = MatrixizedInterpolation{vdim, sdim, shape, order-1, DiscontinuousLagrange{shape, order-1}}

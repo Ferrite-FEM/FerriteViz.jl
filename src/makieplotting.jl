@@ -142,7 +142,7 @@ Plots the finite element mesh, optionally labels it and transforms it if a suita
 - `fontsize::Int=15` size of the label's text
 - `visible=true`
 """
-@recipe(Wireframe) do scene
+@recipe(MeshPlot) do scene
     Attributes(
     plotnodes=true,
     color=theme(scene, :linecolor),
@@ -162,7 +162,7 @@ Plots the finite element mesh, optionally labels it and transforms it if a suita
     )
 end
 
-function Makie.plot!(WF::Wireframe{<:Tuple{<:MakiePlotter{dim}}}) where dim
+function Makie.plot!(WF::MeshPlot{<:Tuple{<:MakiePlotter{dim}}}) where dim
     plotter = WF[1][]
     #triangle representation
     # can't use triangle representation, since we don't know by this information which edges to draw
@@ -249,7 +249,7 @@ function Makie.plot!(WF::Wireframe{<:Tuple{<:MakiePlotter{dim}}}) where dim
 end
 
 
-function Makie.plot!(WF::Wireframe{<:Tuple{<:Ferrite.AbstractGrid{dim}}}) where dim
+function Makie.plot!(WF::MeshPlot{<:Tuple{<:Ferrite.AbstractGrid{dim}}}) where dim
     @info WF
     grid   = WF[1][]
     coords = [Ferrite.get_node_coordinate(node)[i] for node in Ferrite.getnodes(grid), i in 1:dim] 
@@ -308,7 +308,7 @@ values are transformed to a scalar based on `process` which defaults to the magn
 - `colorrange=Makie.automatic`
 - `nan_color::Union{Symbol, <:Colorant}=:red`
 """
-@recipe(Surface) do scene
+@recipe(SurfacePlot) do scene
     Attributes(
     field = :default,
     process = postprocess,
@@ -319,7 +319,7 @@ values are transformed to a scalar based on `process` which defaults to the magn
     )
 end
 
-function Makie.plot!(SF::Surface{<:Tuple{<:MakiePlotter{2}}})
+function Makie.plot!(SF::SurfacePlot{<:Tuple{<:MakiePlotter{2}}})
     plotter = SF[1][]
     solution = @lift begin
         if $(SF[:field]) == :default
@@ -644,7 +644,7 @@ function ferriteviewer(plotter::MakiePlotter, data::Vector{Vector{T}}) where T
 end
 
 ####### One Shot Methods #######
-const FerriteVizPlots = Union{Type{<:Wireframe},Type{<:SolutionPlot},Type{<:Arrows},Type{<:Surface}}
+const FerriteVizPlots = Union{Type{<:MeshPlot},Type{<:SolutionPlot},Type{<:Arrows},Type{<:SurfacePlot}}
 # We default with our axis choice to the spatial dimension of the problem
 function Makie.args_preferred_axis(a, b::Union{MakiePlotter{sdim},Grid{sdim}}, args...) where {sdim}
     if sdim ≤ 2
@@ -662,7 +662,7 @@ function Makie.args_preferred_axis(a::Type{<:Elementinfo}, ip_or_cell)
     end
 end
 # Surface plots are special, as they are 2D problems which are deformed into the third dimension
-Makie.args_preferred_axis(a::Type{<:Surface}, b::Union{MakiePlotter{sdim},Grid{sdim}}, args...) where {sdim} = Makie.LScene
+Makie.args_preferred_axis(a::Type{<:SurfacePlot}, b::Union{MakiePlotter{sdim},Grid{sdim}}, args...) where {sdim} = Makie.LScene
 
 function Makie.convert_arguments(P::FerriteVizPlots, dh::Ferrite.AbstractDofHandler, u::AbstractVector)
     return (MakiePlotter(dh,u),)

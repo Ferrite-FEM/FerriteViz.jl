@@ -6,9 +6,9 @@ On this page the docs of the provided functions are listed
 FerriteViz.MakiePlotter
 FerriteViz.solutionplot
 FerriteViz.cellplot
-FerriteViz.wireframe
+FerriteViz.meshplot
 FerriteViz.arrows
-FerriteViz.surface
+FerriteViz.surfaceplot
 FerriteViz.elementinfo
 FerriteViz.ferriteviewer
 FerriteViz.update!

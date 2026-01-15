@@ -667,3 +667,6 @@ Makie.args_preferred_axis(a::Type{<:SurfacePlot}, b::Union{MakiePlotter{sdim},Gr
 function Makie.convert_arguments(P::FerriteVizPlots, dh::Ferrite.AbstractDofHandler, u::AbstractVector)
     return (MakiePlotter(dh,u),)
 end
+
+# FIXME
+const wireframe = FerriteViz.meshplot

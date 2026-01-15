@@ -2,6 +2,8 @@ push!(LOAD_PATH,"../src/")
 using Documenter, FerriteViz, WGLMakie
 
 makedocs(sitename="FerriteViz",
+         doctest = true,
+         warnonly = true,
          modules=[FerriteViz],
          authors="Maximilian Köhler",
          format=Documenter.HTML(
@@ -11,8 +13,8 @@ makedocs(sitename="FerriteViz",
          pages=["Home"=> "index.md",
                 "Tutorial" => "tutorial.md",
                 "Advanced Topics" => "atopics.md",
-                "api.md",
-                "devdocs.md",
+                "API Reference" => "api.md",
+                "Devdocs" => "devdocs.md",
                 ],
 )
 

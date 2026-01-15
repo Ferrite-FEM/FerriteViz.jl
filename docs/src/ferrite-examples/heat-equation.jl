@@ -1,6 +1,6 @@
 using Ferrite, SparseArrays
 
-function assemble_heat_element!(Ke::Matrix, fe::Vector, cellvalues::CellScalarValues, coords::Vector, rhs::Function)
+function assemble_heat_element!(Ke::Matrix, fe::Vector, cellvalues::CellValues, coords::Vector, rhs::Function)
     n_basefuncs = getnbasefunctions(cellvalues)
 
     fill!(Ke, 0)
@@ -25,7 +25,7 @@ function assemble_heat_element!(Ke::Matrix, fe::Vector, cellvalues::CellScalarVa
     return Ke, fe
 end
 
-function assemble_steady_heat_global(cellvalues::CellScalarValues, K::SparseMatrixCSC, dh::DofHandler, rhs::Function)
+function assemble_steady_heat_global(cellvalues::CellValues, K::SparseMatrixCSC, dh::DofHandler, rhs::Function)
     n_basefuncs = getnbasefunctions(cellvalues)
     Ke = zeros(n_basefuncs, n_basefuncs)
     fe = zeros(n_basefuncs)
@@ -43,32 +43,32 @@ function assemble_steady_heat_global(cellvalues::CellScalarValues, K::SparseMatr
 end
 
 function manufactured_heat_problem(element_type, ip, num_elements_per_dim)
-    dim = Ferrite.getdim(ip)
+    dim = Ferrite.getrefdim(ip)
     grid = generate_grid(element_type, ntuple(x->num_elements_per_dim, dim));
-    ip_geo = Ferrite.default_interpolation(typeof(grid.cells[1]))
-    qr = QuadratureRule{dim, Ferrite.getrefshape(ip)}(2*Ferrite.getorder(ip))
-    cellvalues = CellScalarValues(qr, ip, ip_geo);
+    ip_geo = Ferrite.geometric_interpolation(typeof(grid.cells[1]))
+    qr = QuadratureRule{Ferrite.getrefshape(ip)}(2*Ferrite.getorder(ip))
+    cellvalues = CellValues(qr, ip, ip_geo);
 
     ∂Ω = union(
-        getfaceset(grid, "left"),
-        getfaceset(grid, "right"),
-        getfaceset(grid, "top"),
-        getfaceset(grid, "bottom"),
+        getfacetset(grid, "left"),
+        getfacetset(grid, "right"),
+        getfacetset(grid, "top"),
+        getfacetset(grid, "bottom"),
     );
 
     if dim == 3
         ∂Ω = union(
             ∂Ω,
-            getfaceset(grid, "front"),
-            getfaceset(grid, "back")
+            getfacetset(grid, "front"),
+            getfacetset(grid, "back")
         )
     end
 
     dh = DofHandler(grid)
-    push!(dh, :u, 1, ip)
+    add!(dh, :u, ip)
     close!(dh);
 
-    K = create_sparsity_pattern(dh)
+    K = allocate_matrix(dh)
 
     ch = ConstraintHandler(dh);
     dbc = Dirichlet(:u, ∂Ω, (x, t) -> 0)

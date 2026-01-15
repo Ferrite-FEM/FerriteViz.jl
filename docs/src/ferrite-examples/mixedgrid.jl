@@ -1,75 +1,28 @@
-using FerriteGmsh
 using Ferrite
 
-gmsh.initialize()
-gmsh.option.setNumber("General.Terminal", 1)
-gmsh.model.add("demo")
+elements = [Triangle((4, 17, 9)), Triangle((11, 16, 5)), Triangle((5, 16, 12)), Triangle((13, 17, 4)), Triangle((9, 18, 3)), Triangle((3, 18, 11)), Triangle((12, 15, 6)), Triangle((6, 15, 13)), Triangle((17, 18, 9)), Triangle((12, 16, 15)), Triangle((16, 17, 15)), Triangle((11, 18, 16)), Triangle((16, 18, 17)), Triangle((15, 17, 13)), Quadrilateral((1, 7, 14, 10)), Quadrilateral((10, 14, 9, 3)), Quadrilateral((7, 2, 8, 14)), Quadrilateral((14, 8, 4, 9))]
+nodes = Node.(Vec{2, Float64}.([[-0.5, -1.0], [0.5, -1.0], [-0.5, 0.0], [0.5, 0.0], [-0.5, 1.0], [0.5, 1.0], [-1.3751222383007189e-12, -1.0], [0.5, -0.5000000000020595], [1.3751222383007189e-12, 0.0], [-0.5, -0.5000000000020595], [-0.5, 0.4999999999986921], [-1.3751222383007189e-12, 1.0], [0.5, 0.4999999999986921], [-5.664046543035832e-24, -0.5000000000020595], [0.206249999999433, 0.7062499999994473], [-0.12500000000067074, 0.6249999999999999], [0.14375000000014615, 0.35208333333295083], [-0.21874999999926012, 0.28124999999956607]]))
+facesets = Dict{String, Set{FaceIndex}}("bottom" => Set([FaceIndex((15, 1)), FaceIndex((17, 1))]), "top" => Set([FaceIndex((7, 3)), FaceIndex((3, 3))]))
+cellsets = Dict{String, Set{Int64}}("quad" => Set([15, 16, 18, 17]), "triangle" => Set([5, 12, 8, 1, 6, 11, 9, 14, 3, 7, 4, 13, 2, 10]))
 
-lc = 0.2
-gmsh.model.geo.addPoint(-0.5, -1, 0, lc, 1)
-gmsh.model.geo.addPoint(0.5, -1, 0, lc, 2)
-gmsh.model.geo.addPoint(-0.5, 0, 0, lc, 3)
-gmsh.model.geo.addPoint(0.5, 0, 0, lc, 4)
-gmsh.model.geo.addPoint(-0.5, 1, 0, lc, 5)
-gmsh.model.geo.addPoint(0.5, 1, 0, lc, 6)
-
-gmsh.model.geo.addLine(1, 2, 1)
-gmsh.model.geo.addLine(2, 4, 2)
-gmsh.model.geo.addLine(4, 3, 3)
-gmsh.model.geo.addLine(1, 3, 4)
-gmsh.model.geo.addLine(3, 5, 5)
-gmsh.model.geo.addLine(5, 6, 6)
-gmsh.model.geo.addLine(4, 6, 7)
-
-gmsh.model.geo.addCurveLoop([1, 2, 3, -4], 1)
-gmsh.model.geo.addCurveLoop([-3, 7, -6, -5], 2)
-gmsh.model.geo.addPlaneSurface([1], 1)
-gmsh.model.geo.addPlaneSurface([2], 2)
-gmsh.model.geo.mesh.setTransfiniteCurve(1, 3)
-gmsh.model.geo.mesh.setTransfiniteCurve(2, 3)
-gmsh.model.geo.mesh.setTransfiniteCurve(3, 3)
-gmsh.model.geo.mesh.setTransfiniteCurve(4, 3)
-gmsh.model.geo.mesh.setTransfiniteCurve(5, 3)
-gmsh.model.geo.mesh.setTransfiniteCurve(6, 3)
-gmsh.model.geo.mesh.setTransfiniteCurve(7, 3)
-gmsh.model.geo.mesh.setTransfiniteSurface(1)
-gmsh.model.geo.mesh.setRecombine(2, 1)
-
-gmsh.model.addPhysicalGroup(2, [1], 1)
-gmsh.model.setPhysicalName(2, 1, "quad")
-
-gmsh.model.addPhysicalGroup(2, [2], 2)
-gmsh.model.setPhysicalName(2, 2, "triangle")
-
-gmsh.model.addPhysicalGroup(1, [6], 3)
-gmsh.model.setPhysicalName(1, 3, "top")
-
-gmsh.model.addPhysicalGroup(1, [1], 4)
-gmsh.model.setPhysicalName(1, 4, "bottom")
-
-gmsh.model.geo.synchronize()
-gmsh.model.mesh.generate(2)
-
-nodes = tonodes()
-elements, gmsh_eleidx = toelements(2)
-boundarydict = toboundary(1)
-facesets = tofacesets(boundarydict,elements)
-cellsets = tocellsets(2,gmsh_eleidx)
 grid = Grid(elements,nodes,facesets=facesets,cellsets=cellsets)
 
-dh = MixedDofHandler(grid)
-push!(dh,FieldHandler([Field(:p,Lagrange{2,RefTetrahedron,1}(),1),Field(:u,Lagrange{2,RefTetrahedron,1}(),2)], getcellset(grid,"triangle")))
-push!(dh,FieldHandler([Field(:u,Lagrange{2,RefCube,1}(),2)], getcellset(grid,"quad")))
+dh = DofHandler(grid)
+sdh_tri = SubDofHandler(dh, getcellset(grid, "triangle"))
+add!(sdh_tri, :u, Lagrange{RefTriangle,1}()^2)
+add!(sdh_tri, :p, Lagrange{RefTriangle,1}())
+sdh_quad = SubDofHandler(dh, getcellset(grid, "quad"))
+add!(sdh_quad, :u, Lagrange{RefQuadrilateral,1}()^2)
 close!(dh)
 
 u = zeros(ndofs(dh))
 
-for cell in CellIterator(dh,collect(dh.fieldhandlers[1].cellset))
+for cell in CellIterator(dh,collect(dh.subdofhandlers[1].cellset))
     celldofs_ = celldofs(cell)
     u[celldofs_] .= 1
 end
-for cell in CellIterator(dh,collect(dh.fieldhandlers[2].cellset))
+for cell in CellIterator(dh,collect(dh.subdofhandlers[2].cellset))
     celldofs_ = celldofs(cell)
-    dof_range_ = Ferrite.dof_range(dh.fieldhandlers[2],:u)
+    dof_range_ = Ferrite.dof_range(dh.subdofhandlers[2],:u)
     u[celldofs_[dof_range_]] .= 0.5
 end

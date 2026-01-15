@@ -9,14 +9,16 @@ and solution vector because we need to pass those objects to `MakiePlotter`.
 ## Basics
 
 !!! tip "Plotting Functions"
-    Currently, [`FerriteViz.solutionplot`](@ref), [`FerriteViz.wireframe`](@ref), [`FerriteViz.surface`](@ref), [`FerriteViz.arrows`](@ref) and their mutating analogues with `!` are defined for `MakiePlotter`.
+    Currently, [`FerriteViz.solutionplot`](@ref), [`FerriteViz.meshplot`](@ref), [`FerriteViz.surfaceplot`](@ref), [`FerriteViz.arrows`](@ref) and their mutating analogues with `!` are defined for `MakiePlotter`.
     Due to the nature of the documentation we need `WGLMakie`, however, you can simply exchange any `WGLMakie` call by `GLMakie`.
 
 ### Mesh utilities
 
 ```@example 1
-import JSServe # hide
-JSServe.Page() # hide
+import WGLMakie, Bonito # hide
+Bonito.Page() # hide
+WGLMakie.activate!() # hide
+WGLMakie.Makie.inline!(true) # hide
 ```
 
 You can start by plotting your mesh
@@ -25,10 +27,10 @@ You can start by plotting your mesh
 import FerriteViz
 using Ferrite
 import WGLMakie #activating the backend, switch to GLMakie or CairoMakie (for 2D) locally
-WGLMakie.set_theme!(resolution=(800, 400)) # hide
+WGLMakie.set_theme!(size=(800, 400)) # hide
 
 grid = generate_grid(Hexahedron,(3,3,3))
-FerriteViz.wireframe(grid,markersize=10,strokewidth=2)
+FerriteViz.meshplot(grid,markersize=10,linewidth=2)
 ```
 
 FerriteViz.jl also supports showing labels for `Ferrite.AbstractGrid` entities, such as node- and celllabels, as well as plotting cellsets.
@@ -38,7 +40,7 @@ grid = generate_grid(Quadrilateral,(3,3))
 addcellset!(grid,"s1",Set((1,4,7)))
 addcellset!(grid,"s2",Set((2,5,8)))
 addcellset!(grid,"s3",Set((3,6,9)))
-FerriteViz.wireframe(grid,markersize=10,strokewidth=1,nodelabels=true,celllabels=true,cellsets=true)
+FerriteViz.meshplot(grid,markersize=10,linewidth=1,nodelabels=true,celllabels=true,cellsets=true)
 ```
 
 ### Solution field of a boundary value problem
@@ -60,11 +62,11 @@ The next plot will show the pressure instead of the displacement
 FerriteViz.solutionplot(plotter,field=:p)
 ```
 
-For certain 2D problems it makes sense to visualize the result as a `surface` plot. To showcase the combination with the mutating versions of the plotting functions,
-the `solutionplot` function is plotted below the `surface` plot
+For certain 2D problems it makes sense to visualize the result as a `surfaceplot` plot. To showcase the combination with the mutating versions of the plotting functions,
+the `solutionplot` function is plotted below the `surfaceplot` plot
 
 ```@example 1
-FerriteViz.surface(plotter)
+FerriteViz.surfaceplot(plotter)
 FerriteViz.solutionplot!(plotter,colormap=:magma)
 WGLMakie.current_figure()
 ```
@@ -80,7 +82,7 @@ u, dh, uhistory, σ, κ = solve()
 plotter = FerriteViz.MakiePlotter(dh,u)
 
 FerriteViz.solutionplot(plotter,colormap=:thermal,deformation_field=:u)
-FerriteViz.wireframe!(plotter,deformation_field=:u,markersize=10,strokewidth=1)
+FerriteViz.meshplot!(plotter,deformation_field=:u,markersize=10,linewidth=1)
 WGLMakie.current_figure()
 ```
 
@@ -90,7 +92,7 @@ FerriteViz.jl also supports to plot cell data, such as the **averaged** von-Mise
 ```@example 1
 u, dh, uhistory, σ, κ = solve()
 FerriteViz.cellplot(plotter,σ,colormap=:thermal,deformation_field=:u,deformation_scale=2.0)
-FerriteViz.wireframe!(plotter,deformation_field=:u,markersize=10,strokewidth=1,deformation_scale=2.0)
+FerriteViz.meshplot!(plotter,deformation_field=:u,markersize=10,linewidth=1,deformation_scale=2.0)
 WGLMakie.current_figure()
 ```
 For a more granular investigation of the stress field consult the advanced tutorial.

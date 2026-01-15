@@ -21,8 +21,8 @@ the `MakiePlotter` constructor
 plotter = MakiePlotter(dh,u)
 ```
 
-Now, you can use `solutionplot`, `wireframe`, `arrows`, `surface` or the viewer via `ferriteviewer`. 
-Note that the mutating `solutionplot!`, `wireframe!`, `arrows!` and `surface!` are available as well.
+Now, you can use `solutionplot`, `meshplot`, `arrows`, `surfaceplot` or the viewer via `ferriteviewer`. 
+Note that the mutating `solutionplot!`, `meshplot!`, `arrows!` and `surfaceplot!` are available as well.
 
 ## Unique features
 
@@ -30,12 +30,12 @@ This package offers a set of unique features that are not easily reproducible wi
 
 - [`FerriteViz.solutionplot`](@ref) FE solution contour plot on arbitrary finite element mesh (in Makie called `mesh` plots)
 - [`FerriteViz.ferriteviewer`](@ref) viewer with toggles and menus that update the plot
-- [`FerriteViz.wireframe`](@ref) plots the finite element mesh and optionally labels nodes and cells
+- [`FerriteViz.meshplot`](@ref) plots the finite element mesh and optionally labels nodes and cells
 - [`FerriteViz.arrows`](@ref) - also called `quiver` plots, in paraview `glyph` filter
-- [`FerriteViz.surface`](@ref) 2D solutions in 3D space as surface, in paraview `warp by scalar` filter
+- [`FerriteViz.surfaceplot`](@ref) 2D solutions in 3D space as surface, in paraview `warp by scalar` filter
 - synchronous plotting while your simulation runs with any of the above listed options
 - mutating versions of the above listed functions (except for the viewer)
-- deformed plots available for `solutionplot` and `wireframe` with linear geometry
+- deformed plots available for `solutionplot` and `meshplot` with linear geometry
 - full integration into the Makie ecosystem, e.g. themes, layouts etc. 
 - GPU powered plotting with GLMakie.jl, jupyter/pluto notebook plotting with WGLMakie.jl and vector graphics with CairoMakie.jl
 - visualization of high order solutions via first order refinement

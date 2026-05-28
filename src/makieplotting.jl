@@ -332,8 +332,8 @@ function Makie.plot!(SF::SurfacePlot{<:Tuple{<:MakiePlotter{2}}})
     coords = @lift begin
         Point3f[Point3f(coord[1], coord[2], $(solution)[idx]) for (idx, coord) in enumerate(plotter.physical_coords)]
     end
-    return Makie.mesh!(SF, coords, plotter.vis_triangles, color=solution, shading=SF[:shading], colormap=SF[:colormap], colorrange=SF[:colorrange], nan_color=SF[:nan_color])
 end
+return Makie.mesh!(SF, coords, plotter.vis_triangles, color=solution, shading=SF[:shading], colormap=SF[:colormap], colorrange=SF[:colorrange], nan_color=SF[:nan_color])
 
 """
     arrows(plotter::MakiePlotter; kwargs...)

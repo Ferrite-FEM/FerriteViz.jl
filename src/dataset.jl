@@ -305,18 +305,17 @@ function transfer_solution(ds::FEData, u::Vector; field_name::Symbol=:u)
         ip_field = Ferrite.getfieldinterpolation(sdh, field_name)
         ip_geo = Ferrite.geometric_interpolation(Ferrite.getcelltype(sdh))
         pv = Ferrite.PointValues(ip_field, ip_geo; update_gradients=false)
-        _transfer_solution!(data, pv, sdh, field_name, ds, u) # function barrier for pv
+        # function barrier for pv and the reference dimension
+        _transfer_solution!(data, pv, sdh, field_name, ds, u, Val(Ferrite.getrefdim(ip_field)))
     end
     return data
 end
 
-function _transfer_solution!(data, pv, sdh, field_name::Symbol, ds::FEData, u::Vector)
+function _transfer_solution!(data, pv, sdh, field_name::Symbol, ds::FEData, u::Vector, ::Val{refdim}) where {refdim}
     dh = ds.dh
     grid = Ferrite.get_grid(dh)
     cellset = collect(sdh.cellset)
     local_dof_range = Ferrite.dof_range(sdh, field_name)
-    ip_field = Ferrite.getfieldinterpolation(sdh, field_name)
-    refdim = Ferrite.getrefdim(ip_field)
     ncomps = size(data, 2)
 
     local_coords = Ferrite.getcoordinates(grid, first(cellset))

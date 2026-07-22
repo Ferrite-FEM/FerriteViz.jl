@@ -15,27 +15,38 @@ pkg> add FerriteViz
 ```
 
 Do your computation with Ferrite.jl and save the used `DofHandler` and solution vector into a variable. Pass those two variables into
-the `MakiePlotter` constructor
+the `FEData` constructor
 
 ```julia
-plotter = MakiePlotter(dh,u)
+ds = FEData(dh,u)
 ```
 
-Now, you can use `solutionplot`, `meshplot`, `arrows`, `surfaceplot` or the viewer via `ferriteviewer`. 
-Note that the mutating `solutionplot!`, `meshplot!`, `arrows!` and `surfaceplot!` are available as well.
+Now, you can use `solutionplot`, `meshplot`, `arrowplot`, `surfaceplot` or the viewer via `ferriteviewer` —
+and compose transformations ParaView-style by piping the data through filters:
+
+```julia
+solutionplot(ds |> WarpByVector(:u, 2.0) |> Gradient(:u) |> VonMises(); color=:vonMises)
+```
+
+Note that the mutating `solutionplot!`, `meshplot!`, `arrowplot!` and `surfaceplot!` are available as well.
 
 ## Unique features
 
 This package offers a set of unique features that are not easily reproducible with other export options of Ferrite.jl:
 
+- a composable, reactive filter pipeline (ParaView's Source → Filter → Representation model):
+  [`FerriteViz.WarpByVector`](@ref), [`FerriteViz.Gradient`](@ref), [`FerriteViz.CrinkleClip`](@ref),
+  [`FerriteViz.Refine`](@ref), [`FerriteViz.FirstOrderRefinement`](@ref), [`FerriteViz.VonMises`](@ref),
+  [`FerriteViz.Deviator`](@ref), [`FerriteViz.Threshold`](@ref), [`FerriteViz.Derive`](@ref), ...
 - [`FerriteViz.solutionplot`](@ref) FE solution contour plot on arbitrary finite element mesh (in Makie called `mesh` plots)
 - [`FerriteViz.ferriteviewer`](@ref) viewer with toggles and menus that update the plot
 - [`FerriteViz.meshplot`](@ref) plots the finite element mesh and optionally labels nodes and cells
-- [`FerriteViz.arrows`](@ref) - also called `quiver` plots, in paraview `glyph` filter
+- [`FerriteViz.arrowplot`](@ref) - also called `quiver` plots, in paraview `glyph` filter
 - [`FerriteViz.surfaceplot`](@ref) 2D solutions in 3D space as surface, in paraview `warp by scalar` filter
 - synchronous plotting while your simulation runs with any of the above listed options
 - mutating versions of the above listed functions (except for the viewer)
-- deformed plots available for `solutionplot` and `meshplot` with linear geometry
+- deformed plots for any representation via the [`FerriteViz.WarpByVector`](@ref) filter
+- support for custom cell types by implementing a single method (see the devdocs)
 - full integration into the Makie ecosystem, e.g. themes, layouts etc. 
 - GPU powered plotting with GLMakie.jl, jupyter/pluto notebook plotting with WGLMakie.jl and vector graphics with CairoMakie.jl
 - visualization of high order solutions via first order refinement

@@ -3,7 +3,6 @@ using Documenter, FerriteViz, WGLMakie
 
 makedocs(sitename="FerriteViz",
          doctest = true,
-         warnonly = true,
          modules=[FerriteViz],
          authors="Maximilian Köhler",
          format=Documenter.HTML(

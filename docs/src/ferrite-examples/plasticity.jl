@@ -47,11 +47,6 @@ function update_state!(state::MaterialState)
     state.k = state.temp_k
 end;
 
-function vonMises(σ)
-    s = dev(σ)
-    return sqrt(3.0/2.0 * s ⊡ s)
-end;
-
 function compute_stress_tangent(ϵ::SymmetricTensor{2, 3}, material::J2Plasticity, state::MaterialState)
     # unpack some material parameters
     G = material.G
@@ -61,8 +56,7 @@ function compute_stress_tangent(ϵ::SymmetricTensor{2, 3}, material::J2Plasticit
     # We use (•)ᵗ to denote *trial*-values
     σᵗ = material.Dᵉ ⊡ (ϵ - state.ϵᵖ) # trial-stress
     sᵗ = dev(σᵗ)         # deviatoric part of trial-stress
-    J₂ = 0.5 * sᵗ ⊡ sᵗ   # second invariant of sᵗ
-    σᵗₑ = sqrt(3.0*J₂)   # effetive trial-stress (von Mises stress)
+    σᵗₑ = vonmises(σᵗ)   # effective trial-stress (von Mises stress)
     σʸ = material.σ₀ + H * state.k # Previous yield limit
 
     φᵗ  = σᵗₑ - σʸ # Trial-value of the yield surface
@@ -233,8 +227,8 @@ function solve(liveplotting=false)
     u  = zeros(n_dofs)  # solution vector
     u_history = Vector{Vector{Float64}}()
     if liveplotting
-        plotter = MakiePlotter(dh,u)
-        fig = ferriteviewer(plotter)
+        ds = FEData(dh,u)
+        fig = ferriteviewer(ds)
         display(fig)
     end
     Δu = zeros(n_dofs)  # displacement correction
@@ -278,7 +272,7 @@ function solve(liveplotting=false)
             u -= Δu
         end
         if liveplotting
-            FerriteViz.update!(plotter,u)
+            FerriteViz.update!(ds,u)
             sleep(0.1)
         end
         push!(u_history,u)
@@ -298,7 +292,7 @@ function solve(liveplotting=false)
     κ_values = zeros(getncells(grid))
     for (el, cell_states) in enumerate(states)
         for state in cell_states
-            mises_values[el] += vonMises(state.σ)
+            mises_values[el] += vonmises(state.σ)
             κ_values[el] += state.k*material.H
         end
         mises_values[el] /= length(cell_states) # average von Mises stress

@@ -12,38 +12,42 @@ WGLMakie.Makie.inline!(true) # hide
 FerriteViz also makes it easy to visualize gradient fields, like for example strain or stress fields.
 A common approach to visualize stresses and strains is to compute the L2 projection onto a H1 field and plot this.
 However, a big downside is that we loose the ability to investigate the jumps between elements, as they get smoothed out, hiding possible issues in the solution.
-Therefore, we provide the ability to interpolate the gradient into a piecewise discontinuous field via `FerriteViz.interpolate_gradient_field`.
-This function may be moved to Ferrite in the future.
+Therefore, we provide the ability to interpolate the gradient into a piecewise discontinuous field via the [`Gradient`](@ref) filter.
+Named data arrays are derived from the gradient with further filters: [`Derive`](@ref) applies an
+arbitrary function (here the constitutive law), [`FerriteViz.vonmises`](@ref) and `Tensors.dev` do the standard reductions.
 
 In this quick example we show how to visualize strains and stresses side-by-side
 ```@example 1
 using Ferrite
 import FerriteViz
+using FerriteViz: FEData, WarpByVector, Gradient, Derive, Refine, FirstOrderRefinement, CrinkleClip, ClipPlane
 ε(∇u) = (∇u+transpose(∇u))/2
 import WGLMakie #activating the backend, switch to GLMakie or CairoMakie (for 2D) locally
 
 include("ferrite-examples/incompressible-elasticity.jl") #defines dh_linear, dh_quadratic, u_linear, u_quadratic and mp
 
-(dh_linear_grad, u_linear_grad) = FerriteViz.interpolate_gradient_field(dh_linear, u_linear, :u)
-(dh_quadratic_grad, u_quadratic_grad) = FerriteViz.interpolate_gradient_field(dh_quadratic, u_quadratic, :u)
-plotter_linear = FerriteViz.MakiePlotter(dh_linear_grad, u_linear_grad)
-plotter_quadratic = FerriteViz.MakiePlotter(dh_quadratic_grad, u_quadratic_grad)
 σ(∇u) = 2*mp.G*dev(ε(∇u)) + mp.K*tr(ε(∇u))*ones(ε(∇u)) #helper function to map gradient to stress
 cmap = :jet
+
+# pipelines: gradient field + named derived arrays
+pipeline_linear    = FEData(dh_linear, u_linear)       |> Gradient(:u) |> Derive(∇u->norm(ε(∇u)), output=:εnorm) |> Derive(∇u->norm(σ(∇u)), output=:σnorm)
+pipeline_quadratic = FEData(dh_quadratic, u_quadratic) |> Gradient(:u) |> Derive(∇u->norm(ε(∇u)), output=:εnorm) |> Derive(∇u->norm(σ(∇u)), output=:σnorm)
+deformed_linear    = FEData(dh_linear, u_linear)       |> WarpByVector(:u)
+deformed_quadratic = FEData(dh_quadratic, u_quadratic) |> WarpByVector(:u)
 
 f = WGLMakie.Figure()
 axs = [WGLMakie.Axis(f[1, 1], title="Strain norm (linear)"),WGLMakie.Axis(f[1, 2], title="Stress norm (linear)"),WGLMakie.Axis(f[1, 3], title="Pressure (deformed, linear)"),
        WGLMakie.Axis(f[3, 1], title="Strain norm (quadratic)"),WGLMakie.Axis(f[3, 2], title="Stress norm (quadratic)"),WGLMakie.Axis(f[3, 3], title="Pressure (deformed, quadratic)")]
-p1 = FerriteViz.solutionplot!(axs[1], plotter_linear, process=∇u->norm(ε(∇u)), colormap=cmap, field=:gradient)
-p2 = FerriteViz.solutionplot!(axs[2], plotter_linear, process=∇u->norm(σ(∇u)), colormap=cmap, field=:gradient)
-p3 = FerriteViz.solutionplot!(axs[3], dh_linear, u_linear, field=:p, deformation_field=:u, colormap=cmap)
+p1 = FerriteViz.solutionplot!(axs[1], pipeline_linear, color=:εnorm, colormap=cmap)
+p2 = FerriteViz.solutionplot!(axs[2], pipeline_linear, color=:σnorm, colormap=cmap)
+p3 = FerriteViz.solutionplot!(axs[3], deformed_linear, color=:p, colormap=cmap)
 f[2,1] = WGLMakie.Colorbar(f[1,1], p1, vertical=false)
 f[2,2] = WGLMakie.Colorbar(f[1,2], p2, vertical=false)
 f[2,3] = WGLMakie.Colorbar(f[1,3], p3, vertical=false)
 
-p4 = FerriteViz.solutionplot!(axs[4], plotter_quadratic, process=∇u->norm(ε(∇u)), colormap=cmap, field=:gradient)
-p5 = FerriteViz.solutionplot!(axs[5], plotter_quadratic, process=∇u->norm(σ(∇u)), colormap=cmap, field=:gradient)
-p6 = FerriteViz.solutionplot!(axs[6], dh_quadratic, u_quadratic, field=:p, deformation_field=:u, colormap=cmap)
+p4 = FerriteViz.solutionplot!(axs[4], pipeline_quadratic, color=:εnorm, colormap=cmap)
+p5 = FerriteViz.solutionplot!(axs[5], pipeline_quadratic, color=:σnorm, colormap=cmap)
+p6 = FerriteViz.solutionplot!(axs[6], deformed_quadratic, color=:p, colormap=cmap)
 f[4,1] = WGLMakie.Colorbar(f[3,1], p1, vertical=false)
 f[4,2] = WGLMakie.Colorbar(f[3,2], p2, vertical=false)
 f[4,3] = WGLMakie.Colorbar(f[3,3], p3, vertical=false)
@@ -51,13 +55,17 @@ f[4,3] = WGLMakie.Colorbar(f[3,3], p3, vertical=false)
 f
 ```
 
-An alternative to this approach is to compute gradient quantities at samples points and plot these via `arrows`.
+For genuinely stress-valued arrays (e.g. registered per-cell data from quadrature-point states, see
+[`FerriteViz.set_cell_data!`](@ref)), the [`VonMises`](@ref) and [`Deviator`](@ref) filters apply
+those reductions directly.
+
+An alternative to this approach is to compute gradient quantities at sample points and plot these via `arrowplot`.
 
 ## High-order fields
 
-The investigation of high-order fields is currently only supported via a first-order refinment of the problem.
+The investigation of high-order fields is currently only supported via a first-order refinement of the problem.
 Here, the high-order approximation is replaced by a first order approximation of the field, which is
-spanned by the nodes of the high-order approximation. For example, the first order refinement of a
+spanned by the nodes of the high-order approximation — the [`FirstOrderRefinement`](@ref) filter. For example, the first order refinement of a
 heat problem on a square domain for Lagrange polynomials of order 4 looks like this:
 ```@example 1
 include("ferrite-examples/heat-equation.jl"); #defines manufactured_heat_problem
@@ -66,55 +74,61 @@ f = WGLMakie.Figure()
 axs = [WGLMakie.Axis3(f[1, 1], title="Coarse"), WGLMakie.Axis3(f[1, 2], title="Fine")]
 
 dh,u = manufactured_heat_problem(Triangle, Lagrange{RefTriangle,4}(), 1)
-dh_for,u_for = FerriteViz.for_discretization(dh, u)
-plotter_for = FerriteViz.MakiePlotter(dh_for, u_for)
-FerriteViz.surfaceplot!(axs[1], plotter_for)
+FerriteViz.surfaceplot!(axs[1], FEData(dh, u) |> FirstOrderRefinement())
 
 dh,u = manufactured_heat_problem(Triangle, Lagrange{RefTriangle,4}(), 3)
-dh_for,u_for = FerriteViz.for_discretization(dh, u)
-plotter_for = FerriteViz.MakiePlotter(dh_for, u_for)
-FerriteViz.surfaceplot!(axs[2], plotter_for)
+FerriteViz.surfaceplot!(axs[2], FEData(dh, u) |> FirstOrderRefinement())
 
 f
 ```
 Note that this method produces small artifacts due to the flattening of the nonlinearities of the high order ansatz.
 However, it is still sufficient to investigate important features of the solution.
-If users want to have higher resolution than the crude estimate given by the first order refinenement (as well as enough RAM), then we also provide a uniform tessellation algorithm which can be used instead
+If users want to have higher resolution than the crude estimate given by the first order refinement (as well as enough RAM), then we also provide a uniform tessellation algorithm, the [`Refine`](@ref) filter:
 ```@example 1
-include("ferrite-examples/heat-equation.jl"); #defines manufactured_heat_problem
-
 f = WGLMakie.Figure()
-axs = [WGLMakie.Axis3(f[1, 1], title="Coarse"), WGLMakie.Axis3(f[1, 2], title="Fine")]
+axs = [WGLMakie.LScene(f[1, 1]), WGLMakie.LScene(f[1, 2])]
 
 dh, u = manufactured_heat_problem(Hexahedron, Lagrange{RefHexahedron,2}(), 2);
-plotter = FerriteViz.MakiePlotter(dh,u);
-clip_plane = FerriteViz.ClipPlane(Ferrite.Vec((0.0,0.5,0.5)), 0.1);
-clipped_plotter = FerriteViz.crinkle_clip(plotter, clip_plane);
+clipped = FEData(dh,u) |> CrinkleClip(ClipPlane(Ferrite.Vec((0.0,0.5,0.5)), 0.1));
 
-FerriteViz.solutionplot!(axs[1], clipped_plotter)
-
-fine_clipped_plotter = FerriteViz.uniform_refinement(clipped_plotter, 4);
-FerriteViz.solutionplot!(axs[2], fine_clipped_plotter)
+FerriteViz.solutionplot!(axs[1], clipped)
+FerriteViz.solutionplot!(axs[2], clipped |> Refine(4))
 
 f
 ```
 
 In future we will also provide an adaptive tessellation algorithm to resolve the high-order fields with full detail.
 
+## Composing pipelines
+
+Filters compose with `|>` (or explicitly via [`FerriteViz.apply`](@ref)), so scenes are built ParaView-style
+from Source → Filter → Representation:
+
+```julia
+ds = FEData(dh, u)
+pipe = ds |> WarpByVector(:u, 2.0) |> Gradient(:u) |> VonMises()
+solutionplot(pipe; color = :vonMises)
+```
+
+The whole chain stays reactive: a [`FerriteViz.update!`](@ref) on any dataset of the pipeline
+updates the root solution and propagates through every filter into all open plots.
+Geometry-rebuilding filters ([`Refine`](@ref), [`FirstOrderRefinement`](@ref), [`CrinkleClip`](@ref))
+rebuild from the base geometry, so apply [`WarpByVector`](@ref) after them
+([`Gradient`](@ref) is the designed exception: it shares the — possibly warped — geometry of its input).
+
 ## Live plotting
 
-Plotting while a computational heavy simulation is performed can be easily achieved with FerriteViz.jl.
-Every plotter object of type `MakiePlotter` holds a property called `u` which is a so called `Observable`.
-If an `Observable` changes, all its dependencies are triggered to change as well. So, all we need to do is to update
-the observable `plotter.u`.
-For this purpose the function [`FerriteViz.update!`](@ref) is provided. It takes a `plotter:MakiePlotter`
-and a new solutiuon vector `u_new` and updates `plotter.u`, thereby all open plots called with `plotter` are updated.
+Plotting while a computationally heavy simulation is performed can be easily achieved with FerriteViz.jl.
+Every [`FEData`](@ref) holds the solution vector as an `Observable`.
+If an `Observable` changes, all its dependencies are triggered to change as well — through the whole filter pipeline into the open plots.
+For this purpose the function [`FerriteViz.update!`](@ref) is provided. It takes a `ds::FEData`
+and a new solution vector `u_new` and updates the solution observable, thereby all open plots called with datasets of the pipeline are updated.
 
 A summary of the needed steps for live plotting:
-1. Create a plotter before your time stepping begins
+1. Create a `FEData` before your time stepping begins
 2. Call a plot or the `ferriteviewer` and save the return in a variable, e.g. `fig`
 3. `display(fig)` in order to force the plot/viewer to pop up, even if its called inside a function body
-4. `FerriteViz.update!(plotter,u_new)` where `u_new` corresponds to your new solution of the time step
+4. `FerriteViz.update!(ds,u_new)` where `u_new` corresponds to your new solution of the time step
 
 As an illustrative example, let's consider a slightly modified [plasticity example of Ferrite.jl](https://github.com/Ferrite-FEM/FerriteViz.jl/blob/master/docs/src/ferrite-examples/plasticity-live.jl).
 For the full source code, please refer to the link. In the following code we only highlight the necessary changes.
@@ -129,15 +143,15 @@ function solve(liveplotting=false)
 
     if liveplotting
         ####### Here we take care of the conceptual steps 1, 2 and 3 #######
-        plotter = MakiePlotter(dh,u)
-        fig = ferriteviewer(plotter)
+        ds = FEData(dh,u)
+        fig = ferriteviewer(ds)
         display(fig)
         ####################################################################
     end
 
     Δu = zeros(n_dofs)  # displacement correction
     r = zeros(n_dofs)   # residual
-    K = create_sparsity_pattern(dh); # tangent stiffness matrix
+    K = allocate_matrix(dh); # tangent stiffness matrix
 
     nqp = getnquadpoints(cellvalues)
     states = [[MaterialState() for _ in 1:nqp] for _ in 1:getncells(grid)]
@@ -166,9 +180,9 @@ function solve(liveplotting=false)
         end
 
         if liveplotting
-            ####### Step 4 updating the current solution vector in plotter #######
-            FerriteViz.update!(plotter,u)
-            ######################################################################
+            ####### Step 4 updating the current solution vector in ds #######
+            FerriteViz.update!(ds,u)
+            #################################################################
             sleep(0.1)
         end
 
@@ -187,9 +201,9 @@ end
 u, dh, traction_magnitude = solve();
 ```
 
-Note that we create `plotter::MakiePlotter` object before the time stepping begins, as well as calling `ferriteviewer` on the `plotter`.
+Note that we create the `ds::FEData` object before the time stepping begins, as well as calling `ferriteviewer` on it.
 The next function call is crucial to get the live plotting working. `display(fig)` forces the viewer to pop up, even if it's inside a function body.
-Now, the only missing piece is the `FerriteViz.update!` of the plotter, which happens directly after the Newton iteration. The result for this code looks like this:
+Now, the only missing piece is the `FerriteViz.update!` of the dataset, which happens directly after the Newton iteration. The result for this code looks like this:
 
 ![liveplot](https://github.com/Ferrite-FEM/FerriteViz.jl/blob/master/docs/src/assets/liveplotting.gif?raw=true)
 

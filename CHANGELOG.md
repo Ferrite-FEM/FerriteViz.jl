@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-22
+
+Full rewrite of the internals around a ParaView-style pipeline:
+Source (`FEData`) → Filters → Representations. Breaking release.
+
+### Added
+ - `FEData` data source with named point-/cell-data arrays
+   (`point_data`/`cell_data`/`set_point_data!`/`set_cell_data!`)
+ - composable, reactive filters (applied with `|>`): `WarpByVector`,
+   `Gradient`, `CrinkleClip`, `Refine`, `FirstOrderRefinement`, `Component`,
+   `Magnitude`, `Norm1`, `VonMises`, `Deviator`, `Threshold`, `Derive`
+ - one-method extension point for custom cell types:
+   `reference_tessellation(::Type{<:AbstractRefShape})`
+   (with `facet_based_tessellation` for 3D shapes)
+ - out-of-the-box support for `Wedge` (`RefPrism`) and `Pyramid`
+   (`RefPyramid`) cells
+ - curved (higher-order geometry) cells now tessellate through the geometric
+   interpolation; `Refine` improves geometry resolution, not just the solution
+ - `vonmises(σ)` helper (previously only in doc examples)
+
+### Modified (breaking)
+ - `MakiePlotter(dh, u)` → `FEData(dh, u)` (which copies `u`; `update!`
+   no longer mutates the caller's vector)
+ - recipe `field`/`process`/`deformation_field`/`deformation_scale` keyword
+   arguments are replaced by upstream filters and the `color` attribute:
+   `solutionplot(plotter, field=:p)` → `solutionplot(ds, color=:p)`,
+   `solutionplot(plotter, deformation_field=:u)` →
+   `solutionplot(ds |> WarpByVector(:u))`,
+   `solutionplot(plotter, field=:gradient, process=f)` →
+   `solutionplot(ds |> Gradient(:u) |> Derive(f, output=:name), color=:name)`
+ - `arrows` → `arrowplot` (Makie 0.24 owns the `Arrows` recipe name);
+   its `normalize` attribute works now
+ - `crinkle_clip(!)` → `CrinkleClip` filter, `uniform_refinement` → `Refine`,
+   `for_discretization` → `FirstOrderRefinement` (which now also supports
+   vector fields)
+ - `wireframe` alias removed; the recipe is `meshplot` (now exported, along
+   with the other recipe functions and the filters)
+ - `for_nodes`/`for_base_geometry_type`/`for_interpolation` →
+   `first_order_subcells`/`linear_celltype`
+
+### Removed
+ - `transfer_solution`'s `process` keyword, `postprocess`, `x₁`/`x₂`/`x₃`,
+   `l1`/`l2` (use the data-derivation filters)
+ - unused `StaticArrays` dependency
+
 ## [0.2.3] - 2026-06-22
 ### Added
  - `colorrange` attribute for `FerriteViz.surface` ([#122][github-122])

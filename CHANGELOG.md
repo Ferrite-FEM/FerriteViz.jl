@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+ - composable, `Makie.SpecApi`-based `ferriteviewer`: a `layout(ds, state)` hook
+   returns a `GridLayoutSpec`, pluggable `Control`s (`FieldMenu`, `ProcessMenu`,
+   `ColormapMenu`, `LabelsToggle`, `DeformationToggle`, `TimeSlider`) feed the
+   view state, and spec helpers (`panelspec`, `solutionplotspec`, …) build the
+   panels. The defaults reproduce the previous single-panel view; everything is
+   overridable.
+
+### Changed
+ - `ferriteviewer` internals fully rewritten around `PlotSpec`. The
+   `ferriteviewer(ds)` / `ferriteviewer(ds, u_history)` signatures are preserved.
+ - CairoMakie is supported again: representations unwrap the shared
+   `ShaderAbstractions.Buffer`s to plain arrays when CairoMakie is the active
+   backend (GL/WGLMakie keep the buffer-backed, live-updating path).
+
 ## [0.3.0] - 2026-07-22
 
 Full rewrite of the internals around a ParaView-style pipeline:

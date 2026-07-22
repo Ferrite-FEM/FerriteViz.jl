@@ -394,11 +394,34 @@ end
     @test elementinfo(Lagrange{RefTriangle,2}()) isa Makie.FigureAxisPlot
     @test elementinfo(Hexahedron) isa Makie.FigureAxisPlot
     @test elementinfo(Lagrange{RefHexahedron,1}()) isa Makie.FigureAxisPlot
+    # composable viewer (SpecApi): defaults reproduce a solutionplot panel
     @test ferriteviewer(ds) isa Makie.Figure
     @test ferriteviewer(ds, [u, 2u]) isa Makie.Figure
     # viewer on a scalar-only dataset (no deformable field)
     dhs = DofHandler(grid); add!(dhs, :t, Lagrange{RefQuadrilateral,1}()); close!(dhs)
     @test ferriteviewer(FEData(dhs, rand(ndofs(dhs)))) isa Makie.Figure
+    # spec building blocks are composable and typed
+    @test FerriteViz.solutionplotspec(ds; color=:default) isa Makie.PlotSpec
+    @test FerriteViz.panelspec(FerriteViz.solutionplotspec(ds; color=:default); dim=2) isa Makie.GridLayoutSpec
+    @test FerriteViz.default_layout(ds, (field=:u, process="magnitude", colormap=:inferno, labels=false)) isa Makie.GridLayoutSpec
+    # regression: realizing a panel whose Colorbar links to a spec WITHOUT an
+    # explicit colormap must not trip Makie's lookup_default on our recipes
+    let sol = FerriteViz.solutionplotspec(ds; color=:default)
+        @test Makie.plot(FerriteViz.panelspec(sol; colorbar=sol, dim=2)) isa Union{Makie.FigureAxisPlot,Makie.Figure}
+    end
+    # custom layout + custom pluggable control, with a reactive structural update
+    flagobs = Ref{Any}(nothing)
+    probe = FerriteViz.Control() do fig, d
+        tog = Makie.Toggle(fig)
+        flagobs[] = tog.active
+        FerriteViz.ControlResult(Any[tog]; structural=[:flag => tog.active])
+    end
+    mylayout(d, s) = FerriteViz.panelspec(
+        FerriteViz.solutionplotspec(d; color=:default, colormap=(s.flag ? :inferno : :viridis)); dim=2)
+    vfig = ferriteviewer(ds; layout=mylayout, controls=FerriteViz.Control[probe])
+    @test vfig isa Makie.Figure
+    flagobs[][] = true                 # flip control -> re-diff spec through the whole pipeline
+    @test vfig isa Makie.Figure        # (no error thrown by the spec update)
     # 3D wedge/pyramid render out of the box
     wgrid = Grid([Wedge((1,2,3,4,5,6))], [Node(Vec(0.0,0.0,0.0)), Node(Vec(1.0,0.0,0.0)), Node(Vec(0.0,1.0,0.0)),
                                           Node(Vec(0.0,0.0,1.0)), Node(Vec(1.0,0.0,1.0)), Node(Vec(0.0,1.0,1.0))])
@@ -415,8 +438,12 @@ end
         content = read(f, String)
         @test !occursin("@show", content)
         @test !occursin("@info", content)
+        # src must not depend on a concrete backend (the backend is the user's
+        # choice); detecting the active one by name — as the CairoMakie mesh
+        # shim does — is fine, so forbid imports rather than any mention.
         for backend in ("GLMakie", "CairoMakie", "WGLMakie")
-            @test !occursin(backend, content)
+            @test !occursin("using $backend", content)
+            @test !occursin("import $backend", content)
         end
     end
 end

@@ -116,6 +116,52 @@ Geometry-rebuilding filters ([`Refine`](@ref), [`FirstOrderRefinement`](@ref))
 rebuild from the base geometry, so apply [`WarpByVector`](@ref) after them
 ([`CrinkleClip`](@ref) and [`Gradient`](@ref) share the — possibly warped — geometry of their input).
 
+## Composable viewer
+
+The interactive viewer is assembled from the same pipeline with `Makie.SpecApi`, so it
+is fully composable rather than one hard-wired layout: a `layout(ds, state)` hook returns
+a `GridLayoutSpec`, and pluggable [`FerriteViz.Control`](@ref)s feed the view state. The
+spec helpers ([`panelspec`](@ref), [`solutionplotspec`](@ref), …) build the panels
+declaratively.
+
+As a static example (no widgets), we compose a solutionplot panel next to an arrowplot
+panel and render the resulting spec directly:
+
+```@example 1
+using FerriteViz: FEData, panelspec, solutionplotspec, arrowplotspec, S
+import WGLMakie
+
+ds = FEData(dh_linear, u_linear)
+sol = solutionplotspec(ds; color = :default)
+twopanel = S.GridLayout([
+    panelspec(sol; colorbar = sol, dim = 2, axis = (; title = "magnitude"))
+    panelspec(arrowplotspec(ds; field = :u); dim = 2, axis = (; title = "field"))
+])
+WGLMakie.Makie.plot(twopanel)
+```
+
+The full [`ferriteviewer`](@ref) wraps such a layout with controls. Its defaults reproduce
+a single solutionplot panel with field/process/colormap menus and deformation/labels
+toggles, and both the `layout` and the `controls` are overridable:
+
+```julia
+ferriteviewer(ds)               # default controls + layout
+ferriteviewer(ds, u_history)    # + a TimeSlider stepping through a solution history
+
+# a custom control contributes view-state that a matching layout consumes:
+using FerriteViz: Control, ControlResult
+cmap_control = Control() do fig, ds
+    menu = WGLMakie.Menu(fig, options = ["cividis", "inferno", "viridis"])
+    ControlResult(Any[menu]; structural = [:cmap => WGLMakie.Makie.lift(Symbol, menu.selection)])
+end
+mylayout(ds, state) = panelspec(solutionplotspec(ds; color = :default, colormap = state.cmap); dim = 2)
+ferriteviewer(ds; layout = mylayout, controls = [cmap_control])
+```
+
+Structural state (field, colormap, which panels) re-diffs the spec — Makie updates only the
+changed attributes on the reused plots — while [`FerriteViz.update!`](@ref) and the
+deformation slider stream through the shared GPU buffers without rebuilding.
+
 ## Live plotting
 
 Plotting while a computationally heavy simulation is performed can be easily achieved with FerriteViz.jl.

@@ -115,5 +115,7 @@ the grid and a cell index as input and returns a boolean which decides whether a
 ### What's next?
 
 Further, this package provides an interactive viewer that you can call with `ferriteviewer(ds)` and
-`ferriteviewer(ds,u_history)` for time dependent views, respectively.
+`ferriteviewer(ds,u_history)` for time dependent views, respectively. The viewer is composable —
+its layout and controls are built from `Makie.SpecApi` and can be fully customized (see the
+[composable viewer](atopics.md#Composable-viewer) section).
 If you want to live plot your solution while solving some finite element system, consider to take a look at the advanced topics page.

@@ -155,8 +155,9 @@ end
 function Makie.plot!(WF::MeshPlot{<:Tuple{<:FEData{dim}}}) where {dim}
     ds = WF[1][]
     grid = Ferrite.get_grid(ds.dh)
-    pointtype = GeometryBasics.Point{dim,Float32}
-    gridnodes = ds.gridnodes
+    # Makie only draws 2D/3D points; pad 1D grids with a zero y-coordinate
+    pointtype = GeometryBasics.Point{max(dim, 2),Float32}
+    gridnodes = dim == 1 ? Makie.lift(ns -> [pointtype(n[1], 0) for n in ns], ds.gridnodes) : ds.gridnodes
     lines = Makie.lift(gridnodes) do nodes
         out = pointtype[]
         for cell in Ferrite.getcells(grid)

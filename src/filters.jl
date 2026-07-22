@@ -222,7 +222,7 @@ function _refine_once(ds::FEData{dim}) where {dim}
         end
     end
 
-    all_triangles = Makie.to_triangles(refined_triangles)
+    all_triangles = convert(Vector{GeometryBasics.GLTriangleFace}, Makie.to_triangles(refined_triangles))
     vis_triangles = ShaderAbstractions.Buffer(Makie.Observable(_visibility_triangles(all_triangles, ds.visible, refined_triangle_cell_map)))
     coords = Makie.Observable(refined_physical_coords)
     coords_buffer = ShaderAbstractions.Buffer(coords)

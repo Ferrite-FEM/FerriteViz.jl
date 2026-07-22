@@ -314,6 +314,10 @@ end
     warped = src |> WarpByVector(:d)
     @test warped.coords[] ≈ [c .+ Float32.((1, 1)) for c in src.coords[]]
     @test warped.gridnodes[] == src.gridnodes[]
+
+    # named data cannot shadow dof fields
+    @test_throws ErrorException set_point_data!(src, :u, disp)
+    @test_throws ErrorException set_cell_data!(src, :u, zeros(getncells(grid)))
 end
 
 @testset "subdomain restrictions error clearly" begin
@@ -400,6 +404,9 @@ end
                                           Node(Vec(0.0,0.0,1.0)), Node(Vec(1.0,0.0,1.0)), Node(Vec(0.0,1.0,1.0))])
     wdh = DofHandler(wgrid); add!(wdh, :u, Lagrange{RefPrism,1}()); close!(wdh)
     @test solutionplot(wdh, rand(ndofs(wdh))) isa Makie.FigureAxisPlot
+    # 1D grids: meshplot pads coordinates to 2D
+    lgrid = generate_grid(Line, (3,))
+    @test meshplot(lgrid; nodelabels=true, celllabels=true) isa Makie.FigureAxisPlot
 end
 
 @testset "source hygiene" begin

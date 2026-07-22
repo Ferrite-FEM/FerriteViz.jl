@@ -108,7 +108,8 @@ function FEData(dh::Ferrite.AbstractDofHandler, u::Makie.Observable;
         end
     end
 
-    all_triangles = Makie.to_triangles(triangles)
+    # convert: to_triangles yields an untyped empty vector for 0 triangles
+    all_triangles = convert(Vector{GeometryBasics.GLTriangleFace}, Makie.to_triangles(triangles))
     vis_triangles = ShaderAbstractions.Buffer(Makie.Observable(_visibility_triangles(all_triangles, visible, triangle_cell_map)))
     coords = Makie.Observable(physical_coords)
     coords_buffer = ShaderAbstractions.Buffer(coords)
@@ -210,19 +211,30 @@ end
 _canonical_point_data(A::AbstractVector) = reshape(convert(Vector{Float64}, A), :, 1)
 _canonical_point_data(A::AbstractMatrix) = convert(Matrix{Float64}, A)
 
+# Named data may not shadow a dof field: field names always resolve to the
+# dof-backed arrays (e.g. WarpByVector's grid-node path relies on this).
+function _check_no_field_shadow(ds::FEData, name::Symbol)
+    name in Ferrite.getfieldnames(ds.dh) &&
+        error("cannot register data named :$name, it would shadow the dof field of the same name; pick another name")
+    return nothing
+end
+
 """
     set_point_data!(ds::FEData, name::Symbol, data)
 
 Register a named per-vertex data array. `data` may be a `Vector`/`Matrix`
 (nvertices rows) or an `Observable` of one — updates to a registered Observable
-propagate into plots. Existing names are overwritten.
+propagate into plots. Existing names are overwritten; dof field names cannot
+be shadowed.
 """
 function set_point_data!(ds::FEData, name::Symbol, data::AbstractVecOrMat)
+    _check_no_field_shadow(ds, name)
     size(data, 1) == num_vertices(ds) || error("point data must have $(num_vertices(ds)) rows, got $(size(data, 1))")
     ds.point_data[name] = Makie.Observable(_canonical_point_data(data))
     return ds
 end
 function set_point_data!(ds::FEData, name::Symbol, data::Makie.Observable)
+    _check_no_field_shadow(ds, name)
     ds.point_data[name] = Makie.lift(data) do A
         size(A, 1) == num_vertices(ds) || error("point data must have $(num_vertices(ds)) rows, got $(size(A, 1))")
         _canonical_point_data(A)
@@ -235,15 +247,18 @@ end
 
 Register a named per-cell data array (length ncells, any element type — e.g.
 stress tensors, to be reduced by filters like [`VonMises`](@ref)). `data` may
-be a `Vector` or an `Observable` of one. Existing names are overwritten.
+be a `Vector` or an `Observable` of one. Existing names are overwritten; dof
+field names cannot be shadowed.
 """
 function set_cell_data!(ds::FEData, name::Symbol, data::AbstractVector)
+    _check_no_field_shadow(ds, name)
     ncells = Ferrite.getncells(Ferrite.get_grid(ds.dh))
     length(data) == ncells || error("cell data must have $ncells entries, got $(length(data))")
     ds.cell_data[name] = Makie.Observable(collect(data))
     return ds
 end
 function set_cell_data!(ds::FEData, name::Symbol, data::Makie.Observable)
+    _check_no_field_shadow(ds, name)
     ncells = Ferrite.getncells(Ferrite.get_grid(ds.dh))
     ds.cell_data[name] = Makie.lift(data) do v
         length(v) == ncells || error("cell data must have $ncells entries, got $(length(v))")

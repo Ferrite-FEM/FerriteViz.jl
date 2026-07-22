@@ -181,14 +181,16 @@ end
     @test FerriteViz.ntriangles(Wedge(ntuple(identity,6))) == 2*1 + 3*4
     @test FerriteViz.ntriangles(Pyramid(ntuple(identity,5))) == 1*4 + 4*1
     @test FerriteViz.ntriangles(Line((1,2))) == 0
-    # the facet-based construction maps face tessellations exactly onto the
-    # reference faces
+    # the facet-based construction maps each face's corners exactly onto the
+    # reference-face vertices, preserving orientation
     for RS in (RefTetrahedron, RefHexahedron, RefPrism, RefPyramid)
         tess = FerriteViz.reference_tessellation(RS)
         refc = Ferrite.reference_coordinates(Lagrange{RS,1}())
-        for ξ in tess.coords
-            # every face-corner tessellation vertex coincides with a reference vertex
-            @test any(c -> isapprox(c, ξ; atol=1e-12), refc) || true
+        for (fi, face) in enumerate(Ferrite.reference_faces(RS))
+            face2d = Ferrite.reference_coordinates(length(face) == 3 ? Lagrange{RefTriangle,1}() : Lagrange{RefQuadrilateral,1}())
+            for (k, v) in enumerate(face)
+                @test Ferrite.facet_to_element_transformation(face2d[k], RS, fi) ≈ refc[v] atol=1e-12
+            end
         end
         @test FerriteViz.nvertices(tess) == sum(length(f) == 3 ? 3 : 5 for f in Ferrite.reference_faces(RS))
     end
@@ -303,6 +305,28 @@ end
     @test FerriteViz.cell_data(devds, :deviator)[] == Tensors.dev.(σs)
     @test FerriteViz.cell_data(devds, :vonMises)[] ≈ FerriteViz.vonmises.(σs)
     fig2 = solutionplot(devds; color=:vonMises)
+    fig3 = cellplot(devds; color=:vonMises) # named cell-data variant
+
+    # warp by a registered (non-dof) point-data array: tessellation vertices
+    # move, grid nodes stay
+    disp = ones(FerriteViz.num_vertices(src), 2)
+    set_point_data!(src, :d, disp)
+    warped = src |> WarpByVector(:d)
+    @test warped.coords[] ≈ [c .+ Float32.((1, 1)) for c in src.coords[]]
+    @test warped.gridnodes[] == src.gridnodes[]
+end
+
+@testset "subdomain restrictions error clearly" begin
+    grid = generate_grid(Quadrilateral, (2,2))
+    dh = DofHandler(grid)
+    sdh = SubDofHandler(dh, Set(1:2)) # partial coverage
+    add!(sdh, :u, Lagrange{RefQuadrilateral,1}())
+    close!(dh)
+    u = zeros(ndofs(dh))
+    ds = FEData(dh, u)
+    @test_throws ErrorException ds |> Gradient(:u)
+    @test_throws ErrorException ds |> FirstOrderRefinement()
+    @test_throws ErrorException FerriteViz.interpolate_gradient_field(dh, u, :u)
 end
 
 @testset "filters: crinkle clip, refine, first-order refinement" begin
@@ -368,6 +392,9 @@ end
     @test elementinfo(Lagrange{RefHexahedron,1}()) isa Makie.FigureAxisPlot
     @test ferriteviewer(ds) isa Makie.Figure
     @test ferriteviewer(ds, [u, 2u]) isa Makie.Figure
+    # viewer on a scalar-only dataset (no deformable field)
+    dhs = DofHandler(grid); add!(dhs, :t, Lagrange{RefQuadrilateral,1}()); close!(dhs)
+    @test ferriteviewer(FEData(dhs, rand(ndofs(dhs)))) isa Makie.Figure
     # 3D wedge/pyramid render out of the box
     wgrid = Grid([Wedge((1,2,3,4,5,6))], [Node(Vec(0.0,0.0,0.0)), Node(Vec(1.0,0.0,0.0)), Node(Vec(0.0,1.0,0.0)),
                                           Node(Vec(0.0,0.0,1.0)), Node(Vec(1.0,0.0,1.0)), Node(Vec(0.0,1.0,1.0))])

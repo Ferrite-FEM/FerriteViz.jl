@@ -80,8 +80,16 @@ Compute the piecewise discontinuous gradient field for `field_name`. Returns the
 If the additional keyword argument `copy_fields` is provided with a non empty `Vector{Symbol}`, the corresponding fields of `dh` will be
 copied into the returned flux dof handler and flux dof value vector.
 """
+function _check_full_domain(dh, what::String)
+    length(dh.subdofhandlers) == 1 ||
+        error("$what supports only DofHandlers with a single subdofhandler (single subdomain)")
+    length(dh.subdofhandlers[1].cellset) == Ferrite.getncells(Ferrite.get_grid(dh)) ||
+        error("$what supports only DofHandlers covering the full grid (the subdofhandler covers a subset of the cells)")
+    return nothing
+end
+
 function interpolate_gradient_field(dh::DofHandler, u::AbstractVector, field_name::Symbol; copy_fields::Vector{Symbol}=Symbol[])
-    length(dh.subdofhandlers) == 1 || error("interpolate_gradient_field supports only DofHandlers with a single subdofhandler (single subdomain)")
+    _check_full_domain(dh, "interpolate_gradient_field")
     dh_gradient = _gradient_dofhandler(dh, field_name, copy_fields)
     return dh_gradient, _compute_gradient_values(dh, dh_gradient, u, field_name, copy_fields)
 end

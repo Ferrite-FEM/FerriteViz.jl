@@ -223,8 +223,10 @@ function set_point_data!(ds::FEData, name::Symbol, data::AbstractVecOrMat)
     return ds
 end
 function set_point_data!(ds::FEData, name::Symbol, data::Makie.Observable)
-    size(data[], 1) == num_vertices(ds) || error("point data must have $(num_vertices(ds)) rows, got $(size(data[], 1))")
-    ds.point_data[name] = Makie.lift(_canonical_point_data, data)
+    ds.point_data[name] = Makie.lift(data) do A
+        size(A, 1) == num_vertices(ds) || error("point data must have $(num_vertices(ds)) rows, got $(size(A, 1))")
+        _canonical_point_data(A)
+    end
     return ds
 end
 
@@ -243,8 +245,10 @@ function set_cell_data!(ds::FEData, name::Symbol, data::AbstractVector)
 end
 function set_cell_data!(ds::FEData, name::Symbol, data::Makie.Observable)
     ncells = Ferrite.getncells(Ferrite.get_grid(ds.dh))
-    length(data[]) == ncells || error("cell data must have $ncells entries, got $(length(data[]))")
-    ds.cell_data[name] = data
+    ds.cell_data[name] = Makie.lift(data) do v
+        length(v) == ncells || error("cell data must have $ncells entries, got $(length(v))")
+        v
+    end
     return ds
 end
 

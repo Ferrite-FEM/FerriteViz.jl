@@ -30,7 +30,8 @@ using FerriteViz
 dh, u = solve_problem()
 ds = FEData(dh, u)
 FerriteViz.solutionplot(ds)
-# or composed, e.g. von Mises stress on the deformed mesh:
+# or composed, e.g. the von Mises invariant of the displacement gradient on
+# the deformed mesh (apply a constitutive law with Derive to get a stress):
 FerriteViz.solutionplot(ds |> WarpByVector(:u) |> Gradient(:u) |> VonMises(), color=:vonMises)
 ```
 

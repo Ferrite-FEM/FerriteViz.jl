@@ -112,9 +112,9 @@ solutionplot(pipe; color = :vonMises)
 
 The whole chain stays reactive: a [`FerriteViz.update!`](@ref) on any dataset of the pipeline
 updates the root solution and propagates through every filter into all open plots.
-Geometry-rebuilding filters ([`Refine`](@ref), [`FirstOrderRefinement`](@ref), [`CrinkleClip`](@ref))
+Geometry-rebuilding filters ([`Refine`](@ref), [`FirstOrderRefinement`](@ref))
 rebuild from the base geometry, so apply [`WarpByVector`](@ref) after them
-([`Gradient`](@ref) is the designed exception: it shares the — possibly warped — geometry of its input).
+([`CrinkleClip`](@ref) and [`Gradient`](@ref) share the — possibly warped — geometry of their input).
 
 ## Live plotting
 

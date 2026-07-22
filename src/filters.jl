@@ -4,8 +4,12 @@
 # with |>:  ds |> WarpByVector(:u, 2.0) |> Gradient(:u) |> VonMises().
 # Every apply returns a new FEData sharing the source solution observable, so
 # pipelines stay live under FerriteViz.update! and fork without clobbering each
-# other. Geometry-rebuilding filters (Refine, FirstOrderRefinement, CrinkleClip)
-# rebuild from the base geometry — apply WarpByVector after them.
+# other. Geometry-rebuilding filters (Refine, FirstOrderRefinement) rebuild
+# from the base geometry — apply WarpByVector after them (CrinkleClip and
+# Gradient share their input's coordinates, so warps survive them).
+#
+# Derived datasets are wired to the source observable and are kept alive by it;
+# there is no explicit disposal — drop the source to release a pipeline.
 
 """
     apply(f::AbstractFilter, ds::FEData) -> FEData
@@ -36,6 +40,10 @@ Filter displacing the geometry (tessellation vertices and grid nodes) by
 `scale` times the vector-valued `field`. `scale` may be a number or an
 `Observable` (e.g. driven by a slider). Warps compose: the displacement is
 added to the input dataset's current coordinates.
+
+`field` may name any vector-valued point-data array; the original grid nodes
+(drawn by `meshplot`) can only be displaced when it is a dof-backed field of
+the dof handler and stay put otherwise.
 """
 struct WarpByVector{F<:Union{Symbol,Makie.Observable{Symbol}},S} <: AbstractFilter
     field::F
@@ -53,7 +61,10 @@ function apply(w::WarpByVector, ds::FEData{dim}) where {dim}
         [base[i] .+ Float32(s) .* GeometryBasics.Point{dim,Float32}(view(d, i, :)...) for i in eachindex(base)]
     end
     gridnodes = Makie.lift(ds.gridnodes, ds.u, scale, fname) do nodes, u, s, fn
-        vals = Ferrite.evaluate_at_grid_nodes(ds.dh, u, _resolve_name(ds, fn))
+        fn = _resolve_name(ds, fn)
+        # named (non-dof) arrays live on the tessellation vertices only
+        fn in Ferrite.getfieldnames(ds.dh) || return nodes
+        vals = Ferrite.evaluate_at_grid_nodes(ds.dh, u, fn)
         [nodes[i] .+ Float32(s) .* GeometryBasics.Point{dim,Float32}(vals[i]...) for i in eachindex(nodes)]
     end
     coords_buffer = ShaderAbstractions.Buffer(coords)
@@ -64,18 +75,23 @@ function apply(w::WarpByVector, ds::FEData{dim}) where {dim}
         ds.cell_vertex_offsets, ds.reference_coords, mesh, copy(ds.point_data), copy(ds.cell_data))
 end
 
+# Register a listener for cleanup when `owner` (a plot) is deleted; without an
+# owner the listener lives as long as the observed observable.
+_register_listener!(::Nothing, obsfunc) = obsfunc
+_register_listener!(owner, obsfunc) = (push!(owner.deregister_callbacks, obsfunc); obsfunc)
+
 # Flatten an observable name -> Observable of the named point-data array,
 # rewiring the inner listener when the name changes.
-function _switching_point_data(ds::FEData, name_obs)
+function _switching_point_data(ds::FEData, name_obs; owner=nothing)
     inner = point_data(ds, name_obs[])
     out = Makie.Observable(inner[])
-    listener = Ref(Makie.on(v -> out[] = v, inner))
-    Makie.on(name_obs) do name
-        Makie.Observables.off(listener[])
+    listener = Ref(_register_listener!(owner, Makie.on(v -> out[] = v, inner)))
+    _register_listener!(owner, Makie.on(name_obs) do name
+        Makie.Observables.off(listener[]) # double-off at plot deletion is harmless
         new_inner = point_data(ds, name)
-        listener[] = Makie.on(v -> out[] = v, new_inner)
+        listener[] = _register_listener!(owner, Makie.on(v -> out[] = v, new_inner))
         out[] = new_inner[]
-    end
+    end)
     return out
 end
 
@@ -165,6 +181,13 @@ function apply(r::Refine, ds::FEData)
     return out
 end
 
+# The reference dimension is the interpolation's, not the spatial one (padded
+# reference-coordinate rows may be wider, e.g. surface cells in a 3D grid).
+function _map_refined_vertex(ip_geo::Ferrite.ScalarInterpolation, node_coords, refc)
+    ξ = Tensors.Vec{Ferrite.getrefdim(ip_geo)}(d -> refc[d])
+    return geometric_map(ip_geo, node_coords, ξ)
+end
+
 function _refine_once(ds::FEData{dim}) where {dim}
     grid = Ferrite.get_grid(ds.dh)
     total_triangles = length(ds.all_triangles)
@@ -188,8 +211,7 @@ function _refine_once(ds::FEData{dim}) where {dim}
             # 4 sub-triangles, orientation preserving
             for (k, refc) in enumerate((v1, m12, m31, v2, m23, m12, v3, m31, m23, m12, m23, m31))
                 refined_reference_coords[voff+k, :] = refc
-                ξ = Tensors.Vec{dim}(d -> refc[d])
-                x = geometric_map(ip_geo, node_coords, ξ)
+                x = _map_refined_vertex(ip_geo, node_coords, refc)
                 refined_physical_coords[voff+k] = GeometryBasics.Point{dim,Float32}(x...)
             end
             toff = 4 * (triangle_index - 1)
@@ -227,7 +249,7 @@ struct FirstOrderRefinement <: AbstractFilter end
 
 function apply(::FirstOrderRefinement, ds::FEData)
     dh = ds.dh
-    length(dh.subdofhandlers) == 1 || error("FirstOrderRefinement supports only a single subdofhandler (single subdomain)")
+    _check_full_domain(dh, "FirstOrderRefinement")
     length(Ferrite.getfieldnames(dh)) == 1 || error("FirstOrderRefinement supports only a single field")
     dh_new, transfer = _first_order_discretization(dh)
     u_new = Makie.lift(transfer, ds.u)
@@ -314,7 +336,7 @@ Gradient(field::Symbol=:default; copy_fields::Vector{Symbol}=Symbol[]) = Gradien
 function apply(g::Gradient, ds::FEData)
     fname = _resolve_name(ds, g.field)
     dh = ds.dh
-    length(dh.subdofhandlers) == 1 || error("Gradient supports only DofHandlers with a single subdofhandler (single subdomain)")
+    _check_full_domain(dh, "Gradient")
     dh_grad = _gradient_dofhandler(dh, fname, g.copy_fields)
     u_grad = Makie.lift(u -> _compute_gradient_values(dh, dh_grad, u, fname, g.copy_fields), ds.u)
     return _rebind(ds, dh_grad, u_grad)

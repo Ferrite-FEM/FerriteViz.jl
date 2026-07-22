@@ -17,25 +17,26 @@ end
 # anything else passes through as a plain Makie color. Handles dynamic
 # switching (the attribute changing to another name) by rewiring the inner
 # listener; `colorattr` may be an Observable or a recipe-attribute Computed.
-function resolve_color(ds::FEData, colorattr)
+# All listeners are registered to `plot` for cleanup on plot deletion.
+function resolve_color(plot, ds::FEData, colorattr)
     out = Makie.Observable{Any}()
     listener = Ref{Any}(nothing)
     cache = Dict{Symbol,Makie.Observable}() # avoid re-lifting on repeated switches
     function connect(val)
         if listener[] !== nothing
-            Makie.Observables.off(listener[])
+            Makie.Observables.off(listener[]) # double-off at plot deletion is harmless
             listener[] = nothing
         end
         if val isa Symbol && (val === :default || _data_association(ds, val) !== :none)
             # :default falls back to the magnitude for vector-valued fields
             inner = get!(() -> _scalar_data(ds, val; reduce_default=val === :default), cache, val)
-            listener[] = Makie.on(v -> out[] = v, inner)
+            listener[] = _register_listener!(plot, Makie.on(v -> out[] = v, inner))
             out[] = inner[]
         else
             out[] = val
         end
     end
-    Makie.on(connect, colorattr)
+    _register_listener!(plot, Makie.on(connect, colorattr))
     connect(colorattr[])
     return out
 end
@@ -77,28 +78,38 @@ end
 
 function Makie.plot!(SP::SolutionPlot{<:Tuple{<:FEData}})
     ds = SP[1][]
-    solution = resolve_color(ds, SP[:color])
+    solution = resolve_color(SP, ds, SP[:color])
     return Makie.mesh!(SP, ds.mesh, color=solution, shading=SP[:shading], colormap=SP[:colormap],
                        colorrange=SP[:colorrange], nan_color=SP[:nan_color])
 end
 
 """
     cellplot(ds::FEData, values::Vector{<:Real}; kwargs...)
-    cellplot!(ds::FEData, values::Vector{<:Real}; kwargs...)
+    cellplot(ds::FEData; color=:name, kwargs...)
+    cellplot!(...)
 
-Plot one scalar per cell as constant color on the cells. For non-scalar
-per-cell data (e.g. stress tensors), register it with
-[`set_cell_data!`](@ref), reduce with a filter (e.g. [`VonMises`](@ref)) and
-use `solutionplot(ds; color=...)` instead. Shares the solutionplot kwargs.
+Plot one scalar per cell as constant color on the cells, either passed
+directly as a vector or by naming a registered cell-data array (see
+[`set_cell_data!`](@ref)). Non-scalar per-cell data (e.g. stress tensors) is
+reduced with a filter first (e.g. [`VonMises`](@ref)). Shares the
+solutionplot kwargs.
 """
 @recipe(CellPlot) do scene
     attrs = base_fe_attributes()
+    attrs[:color] = :default
     attrs
 end
 
 function Makie.plot!(CP::CellPlot{<:Tuple{<:FEData,<:AbstractVector}})
     ds = CP[1][]
     solution = Makie.lift(v -> transfer_scalar_celldata(ds, v), CP[2])
+    return Makie.mesh!(CP, ds.mesh, color=solution, shading=CP[:shading], colormap=CP[:colormap],
+                       colorrange=CP[:colorrange], nan_color=CP[:nan_color])
+end
+
+function Makie.plot!(CP::CellPlot{<:Tuple{<:FEData}})
+    ds = CP[1][]
+    solution = resolve_color(CP, ds, CP[:color])
     return Makie.mesh!(CP, ds.mesh, color=solution, shading=CP[:shading], colormap=CP[:colormap],
                        colorrange=CP[:colorrange], nan_color=CP[:nan_color])
 end
@@ -144,7 +155,7 @@ end
 function Makie.plot!(WF::MeshPlot{<:Tuple{<:FEData{dim}}}) where {dim}
     ds = WF[1][]
     grid = Ferrite.get_grid(ds.dh)
-    pointtype = dim > 2 ? Point3f : Point2f
+    pointtype = GeometryBasics.Point{dim,Float32}
     gridnodes = ds.gridnodes
     lines = Makie.lift(gridnodes) do nodes
         out = pointtype[]
@@ -157,7 +168,7 @@ function Makie.plot!(WF::MeshPlot{<:Tuple{<:FEData{dim}}}) where {dim}
     end
     # cellset coloring
     cellset_u = cellset_data(grid)
-    colorrange = (0, max(1, maximum(cellset_u)))
+    colorrange = (0, max(1, isempty(cellset_u) ? 1 : maximum(cellset_u)))
     Makie.mesh!(WF, ds.mesh, color=transfer_scalar_celldata(ds, cellset_u), shading=Makie.NoShading,
                 colormap=:darktest, colorrange=colorrange, visible=WF[:cellsets])
     # nodes
@@ -192,7 +203,7 @@ end
 
 function Makie.plot!(SF::SurfacePlot{<:Tuple{<:FEData{2}}})
     ds = SF[1][]
-    solution = resolve_color(ds, SF[:color])
+    solution = resolve_color(SF, ds, SF[:color])
     solution[] isa AbstractVector || error("surfaceplot needs a data array as `color`, got $(solution[])")
     positions = Makie.lift(ds.coords, solution) do coords, sol
         [Point3f(coords[i][1], coords[i][2], sol[i]) for i in eachindex(coords)]
@@ -229,7 +240,7 @@ function Makie.plot!(AR::ArrowPlot{<:Tuple{<:FEData{dim}}}) where {dim}
     dim >= 2 || error("arrowplot is only available for spatial dim ≥ 2")
     ds = AR[1][]
     fname = Makie.lift(f -> _resolve_name(ds, f), AR[:field])
-    vecdata = _switching_point_data(ds, fname)
+    vecdata = _switching_point_data(ds, fname; owner=AR)
     directions = Makie.lift(vecdata) do A
         size(A, 2) == dim || error("arrowplot needs a $dim-component vector array, :$(fname[]) has $(size(A, 2))")
         [Makie.Vec{dim,Float32}(view(A, i, :)...) for i in 1:size(A, 1)]
@@ -244,17 +255,17 @@ function Makie.plot!(AR::ArrowPlot{<:Tuple{<:FEData{dim}}}) where {dim}
             listener[] = nothing
         end
         if c === :default
-            listener[] = Makie.on(v -> arrowcolor[] = v, magnitude)
+            listener[] = _register_listener!(AR, Makie.on(v -> arrowcolor[] = v, magnitude))
             arrowcolor[] = magnitude[]
         elseif c isa Symbol && _data_association(ds, c) !== :none
             inner = get!(() -> _scalar_data(ds, c), cache, c)
-            listener[] = Makie.on(v -> arrowcolor[] = v, inner)
+            listener[] = _register_listener!(AR, Makie.on(v -> arrowcolor[] = v, inner))
             arrowcolor[] = inner[]
         else
             arrowcolor[] = c
         end
     end
-    Makie.on(connect_color, AR[:color])
+    _register_listener!(AR, Makie.on(connect_color, AR[:color]))
     connect_color(AR[:color][])
     arrows! = dim == 2 ? Makie.arrows2d! : Makie.arrows3d!
     return arrows!(AR, ds.coords, directions, color=arrowcolor, colormap=AR[:colormap],
@@ -393,10 +404,17 @@ function ferriteviewer(ds::FEData{dim}) where {dim}
     labels = [Label(fig, label) for label in ["mesh", "deformation", "labels"]]
 
     fieldnames = collect(Ferrite.getfieldnames(ds.dh))
-    # deformation as an upstream warp with toggle-driven scale
-    deformation_field = Makie.Observable(first(fieldnames))
+    # deformation as an upstream warp with toggle-driven scale; only fields
+    # with spatial-dimension components can deform the mesh
+    deformable = filter(f -> Ferrite.n_components(ds.dh, f) == dim, fieldnames)
     deformation_scale = Makie.lift(active -> active ? 1.0 : 0.0, toggles[2].active)
-    warped = _warpable(ds, deformation_field, deformation_scale)
+    if isempty(deformable)
+        warped = ds
+        deformation_field = nothing
+    else
+        deformation_field = Makie.Observable(first(deformable))
+        warped = apply(WarpByVector(deformation_field, deformation_scale), ds)
+    end
 
     # colored array: field + processing menu, mapped to a named derived array
     menu_field = Menu(fig, options=fieldnames)
@@ -412,14 +430,18 @@ function ferriteviewer(ds::FEData{dim}) where {dim}
     on(active -> (wireframep.nodelabels = active; wireframep.celllabels = active), toggles[3].active)
 
     menu_cm = Menu(fig, options=["cividis", "inferno", "thermal"], direction=:up)
-    menu_deformation_field = Menu(fig, options=fieldnames)
-    fig[1, 3] = vgrid!(grid!(hcat(toggles, labels), tellheight=false),
-                       Label(fig, "nodesize", width=nothing), markerslider,
-                       Label(fig, "linewidth", width=nothing), linewidthslider,
-                       Label(fig, "processing function", width=nothing), menu_process,
-                       Label(fig, "field", width=nothing), menu_field,
-                       Label(fig, "deformation field", width=nothing), menu_deformation_field,
-                       Label(fig, "colormap", width=nothing), menu_cm)
+    controls = Any[grid!(hcat(toggles, labels), tellheight=false),
+                   Label(fig, "nodesize", width=nothing), markerslider,
+                   Label(fig, "linewidth", width=nothing), linewidthslider,
+                   Label(fig, "processing function", width=nothing), menu_process,
+                   Label(fig, "field", width=nothing), menu_field]
+    if deformation_field !== nothing
+        menu_deformation_field = Menu(fig, options=deformable)
+        push!(controls, Label(fig, "deformation field", width=nothing), menu_deformation_field)
+        on(field -> deformation_field[] = field, menu_deformation_field.selection)
+    end
+    push!(controls, Label(fig, "colormap", width=nothing), menu_cm)
+    fig[1, 3] = vgrid!(controls...)
     cb = Colorbar(fig[1, 2], solutionp)
 
     on(menu_cm.selection) do s
@@ -431,12 +453,9 @@ function ferriteviewer(ds::FEData{dim}) where {dim}
     end
     on(field -> update_color(field, menu_process.selection[]), menu_field.selection)
     on(process -> update_color(menu_field.selection[], process), menu_process.selection)
-    on(field -> deformation_field[] = field, menu_deformation_field.selection)
 
     return fig
 end
-
-_warpable(ds, field, scale) = apply(WarpByVector(field, scale), ds)
 
 # Register (once) the derived scalar array for a field/process combination and
 # return its name.

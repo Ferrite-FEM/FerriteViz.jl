@@ -27,7 +27,8 @@ function resolve_color(ds::FEData, colorattr)
             listener[] = nothing
         end
         if val isa Symbol && (val === :default || _data_association(ds, val) !== :none)
-            inner = get!(() -> _scalar_data(ds, val), cache, val)
+            # :default falls back to the magnitude for vector-valued fields
+            inner = get!(() -> _scalar_data(ds, val; reduce_default=val === :default), cache, val)
             listener[] = Makie.on(v -> out[] = v, inner)
             out[] = inner[]
         else
@@ -57,9 +58,10 @@ end
 Contour plot of a scalar data array on the finite element mesh.
 
 - `color=:default`: name of the field / point-data / cell-data array to color
-  by (`:default` is the first field of the dof handler; the array must be
-  scalar — reduce with e.g. `Magnitude()` first). Anything that is not a data
-  name is passed through to Makie as a plain color.
+  by. `:default` is the first field of the dof handler, reduced to its
+  magnitude if vector-valued; an explicitly named array must be scalar —
+  reduce with e.g. `Magnitude()` first. Anything that is not a data name is
+  passed through to Makie as a plain color.
 - `colormap=:cividis`
 - `colorrange`: (min, max) of the colorscale, automatic by default.
 - `shading=Makie.NoShading`
@@ -406,9 +408,8 @@ function ferriteviewer(ds::FEData{dim}) where {dim}
     markerslider = Slider(fig, range=0:1:100, startvalue=5)
     linewidthslider = Slider(fig, range=0:1:10, startvalue=1)
     wireframep = meshplot!(ax, warped, markersize=markerslider.value, linewidth=linewidthslider.value)
-    connect!(wireframep.visible, toggles[1].active)
-    connect!(wireframep.nodelabels, toggles[3].active)
-    connect!(wireframep.celllabels, toggles[3].active)
+    on(active -> wireframep.visible = active, toggles[1].active)
+    on(active -> (wireframep.nodelabels = active; wireframep.celllabels = active), toggles[3].active)
 
     menu_cm = Menu(fig, options=["cividis", "inferno", "thermal"], direction=:up)
     menu_deformation_field = Menu(fig, options=fieldnames)

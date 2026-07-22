@@ -3,3 +3,6 @@
 **.vtk
 **.pvd
 docs/build/*
+Ferrite.jl/
+plan-fable.md
+rewrite-plan.md

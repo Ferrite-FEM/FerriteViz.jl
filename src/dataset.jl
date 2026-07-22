@@ -248,9 +248,10 @@ function set_cell_data!(ds::FEData, name::Symbol, data::Makie.Observable)
     return ds
 end
 
-# Scalar per-vertex Observable for coloring: point data must have one component,
-# cell data (scalar) is expanded to the tessellation vertices.
-function _scalar_data(ds::FEData, name::Symbol)
+# Scalar per-vertex Observable for coloring: point data must have one component
+# (except when resolving :default, where a vector field falls back to its
+# magnitude), cell data (scalar) is expanded to the tessellation vertices.
+function _scalar_data(ds::FEData, name::Symbol; reduce_default::Bool=false)
     name = _resolve_name(ds, name)
     assoc = _data_association(ds, name)
     assoc === :none && error("no data named :$name; available: $(_available_data(ds))")
@@ -258,8 +259,13 @@ function _scalar_data(ds::FEData, name::Symbol)
         return Makie.lift(v -> transfer_scalar_celldata(ds, v), cell_data(ds, name))
     end
     return Makie.lift(point_data(ds, name)) do A
-        size(A, 2) == 1 || error("point data :$name has $(size(A, 2)) components; reduce it to a scalar first, e.g. with Magnitude(input=:$name) or Component(i; input=:$name)")
-        vec(A)
+        if size(A, 2) == 1
+            vec(A)
+        elseif reduce_default
+            [LinearAlgebra.norm(view(A, i, :)) for i in 1:size(A, 1)]
+        else
+            error("point data :$name has $(size(A, 2)) components; reduce it to a scalar first, e.g. with Magnitude(input=:$name) or Component(i; input=:$name)")
+        end
     end
 end
 

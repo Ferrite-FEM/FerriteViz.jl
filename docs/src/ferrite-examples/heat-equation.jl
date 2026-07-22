@@ -75,7 +75,7 @@ function manufactured_heat_problem(element_type, ip, num_elements_per_dim)
     add!(ch, dbc);
 
     close!(ch)
-    update!(ch, 0.0);
+    Ferrite.update!(ch, 0.0);
 
     K, f = assemble_steady_heat_global(cellvalues, K, dh, x->(π/2)^2 * dim * prod(cos, x*π/2));
     apply!(K, f, ch)

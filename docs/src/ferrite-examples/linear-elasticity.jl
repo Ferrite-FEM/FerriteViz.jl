@@ -80,7 +80,7 @@ function manufactured_linear_elastic_problem(element_type, ip, num_elements_per_
     add!(ch, dbc);
 
     close!(ch)
-    update!(ch, 0.0);
+    Ferrite.update!(ch, 0.0);
 
     function analytical_rhs(x_eval)
         E = 200e3 # Young's modulus [MPa]

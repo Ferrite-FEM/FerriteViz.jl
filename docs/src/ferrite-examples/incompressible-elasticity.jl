@@ -44,7 +44,7 @@ function create_bc(dh)
     add!(dbc, Dirichlet(:u, getfacetset(dh.grid, "clamped"), (x,t) -> zero(Tensors.Vec{2}), [1,2]))
     close!(dbc)
     t = 0.0
-    update!(dbc, t)
+    Ferrite.update!(dbc, t)
     return dbc
 end;
 

@@ -250,7 +250,7 @@ function solve(liveplotting=false)
         t = timestep # actual time (used for evaluating d-bndc)
         traction = Tensors.Vec((0.0, 0.0, traction_magnitude[timestep]))
         newton_itr = -1
-        update!(dbcs, t) # evaluates the D-bndc at time t
+        Ferrite.update!(dbcs, t) # evaluates the D-bndc at time t
         apply!(u, dbcs)  # set the prescribed values in the solution vector
 
         while true; newton_itr += 1

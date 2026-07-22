@@ -92,7 +92,6 @@ reference_tessellation(::Type{Ferrite.RefPyramid}) = facet_based_tessellation(Fe
 Number of triangles a cell tessellates into.
 """
 ntriangles(cell::Ferrite.AbstractCell) = ntriangles(reference_tessellation(Ferrite.getrefshape(cell)))
-nvertices_tess(cell::Ferrite.AbstractCell) = nvertices(reference_tessellation(Ferrite.getrefshape(cell)))
 
 # Map a reference coordinate through the cell's geometric interpolation.
 function geometric_map(ip_geo::Ferrite.ScalarInterpolation, node_coords, ξ)

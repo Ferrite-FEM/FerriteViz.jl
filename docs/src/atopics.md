@@ -5,6 +5,7 @@ import WGLMakie, Bonito # hide
 Bonito.Page() # hide
 WGLMakie.activate!() # hide
 WGLMakie.Makie.inline!(true) # hide
+nothing # hide
 ```
 
 ## Why the gradient field is discontinuous

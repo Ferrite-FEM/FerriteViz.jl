@@ -17,6 +17,7 @@ import WGLMakie, Bonito # hide
 Bonito.Page() # hide
 WGLMakie.activate!() # hide
 WGLMakie.Makie.inline!(true) # hide
+nothing # hide
 ```
 
 !!! tip "Plotting functions"
@@ -185,13 +186,19 @@ dissipation = ds_p |>
     WarpByVector(:u, 2.0)
 
 FerriteViz.solutionplot(dissipation; color = :wᵖ, colormap = :inferno)
+FerriteViz.meshplot!(ds_p |> WarpByVector(:u, 2.0); plotnodes = false, linewidth = 1)
 WGLMakie.current_figure()
 ```
 
-`extract` pulls the quantity out of Ferrite's material state structs, so `states` can be
-handed over as it comes out of the solver. The two `QuadraturePointData` filters share the
+The element outlines come from the plain warped dataset and make the resolution visible:
+each element is filled by several flat patches, one per quadrature point, rather than a
+single averaged colour.
+
+`extract` pulls the quantity out of the material state struct, so `states` can be
+handed over as it comes out of your solver. The two `QuadraturePointData` filters share the
 same quadrature rule and therefore the same vertex layout, which is what allows their
-arrays to be combined afterwards.
+arrays to be combined afterwards — and you can chain as many of them as you have
+quantities, then take them all into one `Derive`.
 
 !!! note
     We use `celltype = Hexahedron` above on purpose: linear tetrahedra are constant strain

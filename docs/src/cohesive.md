@@ -22,6 +22,7 @@ import WGLMakie, Bonito # hide
 Bonito.Page() # hide
 WGLMakie.activate!() # hide
 WGLMakie.Makie.inline!(true) # hide
+nothing # hide
 ```
 
 ## Defining the cell

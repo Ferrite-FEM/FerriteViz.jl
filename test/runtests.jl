@@ -420,6 +420,18 @@ end
     obs[] = [[3v for v in cell] for cell in vals]
     @test FerriteViz.point_data(pr, :iv)[] ≈ 3 .* before
 
+    # two rules with the same quadrature rule share a vertex layout, so their
+    # arrays survive and can be combined in one Derive
+    both = ds |> QuadraturePointData(qr, vals; output=:a) |>
+                 QuadraturePointData(qr, [[2v for v in c] for c in vals]; output=:b) |>
+                 Derive((x, y) -> x + y; input=[:a, :b], output=:s)
+    @test sort(collect(keys(both.point_data))) == [:a, :b, :s]
+    @test vec(FerriteViz.point_data(both, :s)[]) ≈ 3 .* vec(FerriteViz.point_data(both, :a)[])
+    # ... but a genuine geometry change upstream still invalidates them
+    stale = ds |> Refine(1)
+    set_point_data!(stale, :old, ones(FerriteViz.num_vertices(stale)))
+    @test !haskey((stale |> QuadraturePointData(qr, vals; output=:a)).point_data, :old)
+
     # mixed cell types via a per-reference-shape rule mapping
     mnodes = [Node((0.0, 0.0)), Node((1.0, 0.0)), Node((1.0, 1.0)), Node((0.0, 1.0)), Node((2.0, 0.0)), Node((2.0, 1.0))]
     mcells = Ferrite.AbstractCell[Quadrilateral((1, 2, 3, 4)), Triangle((2, 5, 3)), Triangle((5, 6, 3))]
@@ -517,9 +529,17 @@ end
     @test FerriteViz.panelspec(FerriteViz.solutionplotspec(ds; color=:default); dim=2) isa Makie.GridLayoutSpec
     @test FerriteViz.default_layout(ds, (field=:u, process="magnitude", colormap=:inferno, labels=false)) isa Makie.GridLayoutSpec
     # regression: realizing a panel whose Colorbar links to a spec WITHOUT an
-    # explicit colormap must not trip Makie's lookup_default on our recipes
+    # explicit colormap must not trip Makie's lookup_default on our recipes,
+    # and the bar must take its range from the named data instead of (0, 1)
     let sol = FerriteViz.solutionplotspec(ds; color=:default)
         @test Makie.plot(FerriteViz.panelspec(sol; colorbar=sol, dim=2)) isa Union{Makie.FigureAxisPlot,Makie.Figure}
+        vals = FerriteViz._scalar_data(ds, :default; reduce_default=true)[]
+        @test FerriteViz._spec_colorrange(sol) == (minimum(vals), maximum(vals))
+        # an explicit colorrange wins (PlotSpec stores it converted), and a
+        # plain colour yields no range at all
+        explicit = FerriteViz.solutionplotspec(ds; color=:default, colorrange=(0, 2))
+        @test FerriteViz._colorbar_kw(explicit, (;))[:colorrange] == explicit.kwargs[:colorrange]
+        @test FerriteViz._spec_colorrange(FerriteViz.solutionplotspec(ds; color=:red)) === nothing
     end
     # custom layout + custom pluggable control, with a reactive structural update
     flagobs = Ref{Any}(nothing)

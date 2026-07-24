@@ -447,11 +447,18 @@ function apply(f::QuadraturePointData, ds::FEData{dim}) where {dim}
     coords = Makie.Observable(physical_coords)
     coords_buffer = ShaderAbstractions.Buffer(coords)
     mesh = GeometryBasics.Mesh(coords_buffer, vis_triangles)
+    # Rebuilding the geometry normally invalidates the upstream point data. A
+    # second QuadraturePointData with the same rule, however, lays out exactly
+    # the same vertices, so those arrays stay valid — which is what lets several
+    # quadrature point quantities be combined (e.g. σ and εᵖ in one Derive).
+    same_layout = size(ds.reference_coords) == size(reference_coords) &&
+                  ds.cell_vertex_offsets == cell_vertex_offsets &&
+                  ds.reference_coords == reference_coords
     out = FEData{dim,typeof(ds.dh),eltype(ds.u[]),typeof(ds.topology),typeof(ds.source_u),typeof(mesh),eltype(all_triangles)}(
         ds.dh, ds.u, ds.source_u, ds.topology, ds.visible, ds.gridnodes, coords, coords_buffer,
         all_triangles, vis_triangles, triangle_cell_map, cell_triangle_offsets,
         cell_vertex_offsets, reference_coords, mesh,
-        Dict{Symbol,Makie.Observable}(), copy(ds.cell_data))
+        same_layout ? copy(ds.point_data) : Dict{Symbol,Makie.Observable}(), copy(ds.cell_data))
 
     ncomponents = length(_qp_components(f.extract(_qp_at(values, 1, 1))))
     data = Makie.lift(f.values) do vals

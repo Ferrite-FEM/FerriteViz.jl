@@ -93,7 +93,10 @@ function compute_stress_tangent(ϵ::SymmetricTensor{2, 3}, material::J2Plasticit
     end
 end
 
-function create_values(interpolation, refshape)
+# `refshape` is annotated so this coexists with the two-interpolation
+# `create_values` of the incompressible elasticity example when both are
+# included into the same module (as the tutorial does)
+function create_values(interpolation, refshape::Type)
     # setup quadrature rules
     qr      = QuadratureRule{refshape}(2)
     face_qr = FacetQuadratureRule{refshape}(3)

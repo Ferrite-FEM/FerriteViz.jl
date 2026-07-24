@@ -7,16 +7,18 @@ WGLMakie.activate!() # hide
 WGLMakie.Makie.inline!(true) # hide
 ```
 
-## Gradient field visualization
+## Why the gradient field is discontinuous
 
-FerriteViz also makes it easy to visualize gradient fields, like for example strain or stress fields.
-A common approach to visualize stresses and strains is to compute the L2 projection onto a H1 field and plot this.
-However, a big downside is that we loose the ability to investigate the jumps between elements, as they get smoothed out, hiding possible issues in the solution.
-Therefore, we provide the ability to interpolate the gradient into a piecewise discontinuous field via the [`Gradient`](@ref) filter.
-Named data arrays are derived from the gradient with further filters: [`Derive`](@ref) applies an
-arbitrary function (here the constitutive law), [`FerriteViz.vonmises`](@ref) and `Tensors.dev` do the standard reductions.
+The [tutorial](tutorial.md) shows how `Gradient |> Derive` turns a displacement field into
+stresses. What it does not explain is *why* [`Gradient`](@ref) interpolates into a
+piecewise **discontinuous** field instead of doing what most codes do, an L2 projection
+onto an H1 field.
 
-In this quick example we show how to visualize strains and stresses side-by-side
+The projection smooths the inter-element jumps away — and those jumps are one of the best
+indicators of an under-resolved discretization. Keeping them makes the difference between
+a linear and a quadratic discretization of the same problem immediately visible: the
+linear one shows pronounced facets between elements, the quadratic one is nearly smooth.
+
 ```@example 1
 using Ferrite
 import FerriteViz
@@ -26,7 +28,7 @@ import WGLMakie #activating the backend, switch to GLMakie or CairoMakie (for 2D
 
 include("ferrite-examples/incompressible-elasticity.jl") #defines dh_linear, dh_quadratic, u_linear, u_quadratic and mp
 
-σ(∇u) = 2*mp.G*dev(ε(∇u)) + mp.K*tr(ε(∇u))*ones(ε(∇u)) #helper function to map gradient to stress
+σ(∇u) = 2*mp.G*dev(ε(∇u)) + mp.K*tr(ε(∇u))*one(ε(∇u)) #helper function to map gradient to stress
 cmap = :jet
 
 # pipelines: gradient field + named derived arrays
@@ -61,14 +63,16 @@ those reductions directly.
 
 An alternative to this approach is to compute gradient quantities at sample points and plot these via `arrowplot`.
 
-## Internal variables (quadrature point data)
+## What the quadrature point partition buys you
 
-Internal variables — plastic strain, damage, hardening — are L2 functions that are only
-known at the quadrature points. Averaging them per cell throws away the sub-element
-variation, and projecting them onto a nodal field invents smoothness that smears exactly
-the localization one wants to see. The [`QuadraturePointData`](@ref) filter instead
-partitions every cell into the **Voronoi regions of its quadrature points** and fills each
-region with that point's value, so nothing is averaged or smoothed:
+The [tutorial](tutorial.md) uses [`QuadraturePointData`](@ref) to plot internal variables.
+The reason it exists is that the two usual alternatives both destroy information: averaging
+per cell throws away the sub-element variation, and projecting onto a nodal field invents
+smoothness that smears exactly the localization one wants to see.
+
+The filter instead partitions every cell into the **Voronoi regions of its quadrature
+points** and fills each region with that point's value. A localisation band makes the
+difference obvious — the cell average clips the peak, the partition resolves it:
 
 ```@example 1
 using FerriteViz: QuadraturePointData
@@ -106,17 +110,9 @@ WGLMakie.Colorbar(f[1, 3], p)
 f
 ```
 
-Values may be a `Vector` of per-cell vectors (`values[cell][qp]`), a `Matrix`
-(`values[cell, qp]`), or an `Observable` of either for live updating. Ferrite's material
-states can be passed straight through with `extract`, and because the result is ordinary
-point data every derivation filter composes with it — which is what makes tensor-valued
-internal variables usable:
-
-```julia
-ds |> QuadraturePointData(qr, states; extract = s -> s.σ, output = :σ) |> VonMises(input = :σ)
-```
-
-Grids with mixed cell types take one rule per reference shape, e.g.
+Beyond the `Vector` of per-cell vectors used above, values may be given as a `Matrix`
+(`values[cell, qp]`) or as an `Observable` of either for live updating. Grids with mixed
+cell types take one rule per reference shape, e.g.
 `QuadraturePointData(Dict(RefTriangle => qr_tri, RefQuadrilateral => qr_quad), values)`.
 Since the filter rebuilds the geometry, apply [`WarpByVector`](@ref) *after* it.
 
@@ -164,68 +160,89 @@ f
 
 In future we will also provide an adaptive tessellation algorithm to resolve the high-order fields with full detail.
 
-## Composing pipelines
+## Pipeline semantics
 
-Filters compose with `|>` (or explicitly via [`FerriteViz.apply`](@ref)), so scenes are built ParaView-style
-from Source → Filter → Representation:
+Chaining itself is covered in the [tutorial](tutorial.md); two rules matter once pipelines
+get longer.
 
-```julia
-ds = FEData(dh, u)
-pipe = ds |> WarpByVector(:u, 2.0) |> Gradient(:u) |> VonMises()
-solutionplot(pipe; color = :vonMises)
-```
+**Ordering.** Geometry-rebuilding filters ([`Refine`](@ref),
+[`FirstOrderRefinement`](@ref), [`QuadraturePointData`](@ref)) rebuild from the base
+geometry, so apply [`WarpByVector`](@ref) *after* them. They also drop the point data
+registered upstream, since it refers to vertices that no longer exist — the one exception
+is a rebuild that reproduces the very same vertex layout, as when two
+[`QuadraturePointData`](@ref) share a quadrature rule, which is what lets their arrays be
+combined in a later [`Derive`](@ref). [`CrinkleClip`](@ref) and [`Gradient`](@ref) share
+the — possibly warped — geometry of their input, so a warp survives those.
 
-The whole chain stays reactive: a [`FerriteViz.update!`](@ref) on any dataset of the pipeline
-updates the root solution and propagates through every filter into all open plots.
-Geometry-rebuilding filters ([`Refine`](@ref), [`FirstOrderRefinement`](@ref))
-rebuild from the base geometry, so apply [`WarpByVector`](@ref) after them
-([`CrinkleClip`](@ref) and [`Gradient`](@ref) share the — possibly warped — geometry of their input).
+**Reactivity.** A [`FerriteViz.update!`](@ref) on *any* dataset of a pipeline updates the
+root solution and propagates through every filter into all open plots, which is what makes
+live plotting work. Filters can also be applied explicitly with
+[`FerriteViz.apply`](@ref) instead of `|>`.
 
 ## Composable viewer
 
-The interactive viewer is assembled from the same pipeline with `Makie.SpecApi`, so it
-is fully composable rather than one hard-wired layout: a `layout(ds, state)` hook returns
-a `GridLayoutSpec`, and pluggable [`FerriteViz.Control`](@ref)s feed the view state. The
-spec helpers ([`panelspec`](@ref), [`solutionplotspec`](@ref), …) build the panels
-declaratively.
+`ferriteviewer(ds)` gives a single panel with the usual menus and toggles, and
+`ferriteviewer(ds, u_history)` adds a slider stepping through a solution history. Neither
+is hard-wired though — the whole viewer is described declaratively with `Makie.SpecApi`,
+so you can replace the layout and the controls.
 
-As a static example (no widgets), we compose a solutionplot panel next to an arrowplot
-panel and render the resulting spec directly:
+### How SpecApi fits in
+
+`Makie.SpecApi` describes a figure as **data** rather than by mutating a scene: a
+`PlotSpec` is "this plot type, with these arguments and attributes", a `BlockSpec` an axis
+or colorbar, and a `GridLayoutSpec` says how they are arranged. Building a spec draws
+nothing. When Makie is handed a *new* spec it diffs it against the previous one and
+updates only what actually changed, instead of rebuilding the scene. See
+[Makie's documentation](https://docs.makie.org) for the full `SpecApi` reference.
+
+FerriteViz plugs into that with three pieces:
+
+* `layout(ds, state) -> GridLayoutSpec` — called again whenever the view state changes,
+* [`FerriteViz.Control`](@ref)s — the widgets that feed `state`,
+* spec helpers — [`solutionplotspec`](@ref) and friends wrap a representation into a
+  `PlotSpec`, [`panelspec`](@ref) puts plots into an axis (or `LScene` for 3D) with an
+  optional linked colorbar.
+
+### A two-panel viewer
+
+The mixed formulation solves for a displacement *and* a pressure, so a natural viewer
+shows both at once. `state.colormap` comes from the colormap menu and drives both panels;
+the deformation toggle feeds the pipeline, so it warps both as well:
 
 ```@example 1
-using FerriteViz: FEData, panelspec, solutionplotspec, arrowplotspec, S
+using FerriteViz: FEData, ferriteviewer, panelspec, solutionplotspec, S,
+                  ColormapMenu, DeformationToggle
 import WGLMakie
 
-ds = FEData(dh_linear, u_linear)
-sol = solutionplotspec(ds; color = :default)
-twopanel = S.GridLayout([
-    panelspec(sol; colorbar = sol, dim = 2, axis = (; title = "magnitude"))
-    panelspec(arrowplotspec(ds; field = :u); dim = 2, axis = (; title = "field"))
-])
-WGLMakie.Makie.plot(twopanel)
+function twopanels(ds, state)
+    disp = solutionplotspec(ds; color = :default, colormap = state.colormap)
+    pres = solutionplotspec(ds; color = :p,       colormap = state.colormap)
+    return S.GridLayout([
+        panelspec(disp; colorbar = disp, dim = 2, axis = (; title = "displacement magnitude"))
+        panelspec(pres; colorbar = pres, dim = 2, axis = (; title = "pressure"))
+    ])
+end
+
+ferriteviewer(FEData(dh_quadratic, u_quadratic);
+              layout = twopanels, controls = [ColormapMenu(), DeformationToggle()])
 ```
 
-The full [`ferriteviewer`](@ref) wraps such a layout with controls. Its defaults reproduce
-a single solutionplot panel with field/process/colormap menus and deformation/labels
-toggles, and both the `layout` and the `controls` are overridable:
+Only the controls a layout actually consumes need to be listed — the default set is just
+one such list. Writing your own control means returning the widgets together with the
+state they contribute:
 
 ```julia
-ferriteviewer(ds)               # default controls + layout
-ferriteviewer(ds, u_history)    # + a TimeSlider stepping through a solution history
-
-# a custom control contributes view-state that a matching layout consumes:
 using FerriteViz: Control, ControlResult
-cmap_control = Control() do fig, ds
-    menu = WGLMakie.Menu(fig, options = ["cividis", "inferno", "viridis"])
-    ControlResult(Any[menu]; structural = [:cmap => WGLMakie.Makie.lift(Symbol, menu.selection)])
+scale = Control() do fig, ds
+    slider = WGLMakie.Slider(fig, range = 0:0.5:5)
+    ControlResult(Any[slider]; structural = [:scale => slider.value])
 end
-mylayout(ds, state) = panelspec(solutionplotspec(ds; color = :default, colormap = state.cmap); dim = 2)
-ferriteviewer(ds; layout = mylayout, controls = [cmap_control])
 ```
 
-Structural state (field, colormap, which panels) re-diffs the spec — Makie updates only the
-changed attributes on the reused plots — while [`FerriteViz.update!`](@ref) and the
-deformation slider stream through the shared GPU buffers without rebuilding.
+Structural state (colormap, which panels, anything the layout reads) re-diffs the spec, so
+Makie updates only the changed attributes of the plots it reuses. Data streaming —
+[`FerriteViz.update!`](@ref) and the deformation scale — bypasses the spec entirely and
+mutates the shared GPU buffers instead, which is why live plotting stays cheap.
 
 ## Live plotting
 

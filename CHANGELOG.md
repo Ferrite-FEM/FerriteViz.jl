@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+ - the tutorial is restructured around the pipeline: the plotting recipes first, then
+   chaining filters, with `Gradient |> Derive` shown on the mixed displacement/pressure
+   formulation and `QuadraturePointData |> Derive` on the plastic work density of the
+   plasticity example. The advanced topics page no longer repeats that material and
+   focuses on the reasoning behind the discontinuous gradient and the quadrature point
+   partition.
+
+### Fixed
+ - chaining two `QuadraturePointData` filters that share a quadrature rule no longer
+   discards the first array: a rebuild that reproduces the same vertex layout keeps the
+   upstream point data, which is what allows several quadrature point quantities to be
+   combined in one `Derive`.
+ - the constitutive law in the gradient example used `ones` (a tensor of ones) instead of
+   `one` (the identity) for the volumetric term.
+ - a `Colorbar` linked to a plot spec that colors by *name* showed the range `(0, 1)`
+   instead of the data range, because Makie finds no numeric colors to take extrema of.
+   `panelspec` now resolves the named array and passes the matching `colorrange`.
+
 ### Added
  - `Derive` accepts several inputs: `input` may be a vector of names and the
    function then takes one argument per name, taken from the same tessellation

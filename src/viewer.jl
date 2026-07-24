@@ -60,9 +60,37 @@ function _colorbar_kw(colorbar, user_attributes)
     kw = Dict{Symbol,Any}(pairs(user_attributes))
     if colorbar isa Makie.PlotSpec
         get!(kw, :colormap, get(colorbar.kwargs, :colormap, :cividis))
-        haskey(colorbar.kwargs, :colorrange) && get!(kw, :colorrange, colorbar.kwargs[:colorrange])
+        if haskey(colorbar.kwargs, :colorrange)
+            get!(kw, :colorrange, colorbar.kwargs[:colorrange])
+        else
+            range = _spec_colorrange(colorbar)
+            range === nothing || get!(kw, :colorrange, range)
+        end
     end
     return kw
+end
+
+# The plot scales itself to the data it is colored by, but a Colorbar linked to
+# the spec cannot see that: the color is a *name*, so Makie finds no numeric
+# colors to take the extrema of and silently falls back to (0, 1). Resolve the
+# named array here so the bar matches what is drawn.
+function _spec_colorrange(spec::Makie.PlotSpec)
+    isempty(spec.args) && return nothing
+    ds = first(spec.args)
+    ds isa FEData || return nothing
+    name = get(spec.kwargs, :color, :default)
+    name isa Symbol || return nothing
+    values = try
+        _scalar_data(ds, name; reduce_default=name === :default)[]
+    catch
+        return nothing   # not a data name (a plain color, say) -> leave it to Makie
+    end
+    lo, hi = Inf, -Inf
+    for v in values
+        isfinite(v) || continue     # NaNs are drawn with nan_color
+        lo = min(lo, v); hi = max(hi, v)
+    end
+    return lo < hi ? (lo, hi) : nothing
 end
 
 ###########

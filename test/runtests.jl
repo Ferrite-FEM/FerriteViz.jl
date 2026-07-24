@@ -298,6 +298,31 @@ end
     th = FerriteViz.point_data(pipe2, :threshold)[]
     @test all(isnan.(th[vec(vm2) .< 1.0]))
 
+    # Derive over several inputs: one argument per name, each wrapped on its own
+    nv = FerriteViz.num_vertices(src)
+    set_point_data!(src, :a, reshape(collect(1.0:nv), nv, 1))
+    set_point_data!(src, :b, reshape(collect(1.0:nv) .* 10, nv, 1))
+    multi = src |> Derive((x, y) -> x + y; input=[:a, :b], output=:sum)
+    @test vec(FerriteViz.point_data(multi, :sum)[]) ≈ collect(1.0:nv) .* 11
+    # a single Symbol keeps working and is equivalent to a one-element vector
+    @test vec(FerriteViz.point_data(src |> Derive(x -> 2x; input=:a, output=:d), :d)[]) ≈
+          vec(FerriteViz.point_data(src |> Derive(x -> 2x; input=[:a], output=:d), :d)[])
+    # inputs of different component counts are wrapped independently
+    mixed = src |> Gradient(:u; copy_fields=[:u]) |>
+            Derive((∇u, uu) -> norm(∇u) * norm(uu); input=[:gradient, :u], output=:mix)
+    G = FerriteViz.point_data(mixed, :gradient)[]; U = FerriteViz.point_data(mixed, :u)[]
+    @test vec(FerriteViz.point_data(mixed, :mix)[]) ≈
+          [norm(FerriteViz._wrap_row(view(G, i, :), 2)) *
+           norm(FerriteViz._wrap_row(view(U, i, :), 2)) for i in axes(G, 1)]
+    # multiple cell-data inputs
+    ncell = getncells(grid)
+    set_cell_data!(src, :ca, collect(1.0:ncell))
+    set_cell_data!(src, :cb, collect(1.0:ncell) .* 5)
+    @test FerriteViz.cell_data(src |> Derive((x, y) -> x * y; input=[:ca, :cb], output=:cp), :cp)[] ≈
+          collect(1.0:ncell) .^ 2 .* 5
+    @test_throws ErrorException src |> Derive((x, y) -> x + y; input=[:a, :nope], output=:z)
+    @test_throws ErrorException src |> Derive((x, y) -> x + y; input=[:a, :ca], output=:z) # point/cell mix
+
     # deviator on registered per-cell tensor data
     σs = [Tensors.rand(SymmetricTensor{2,2}) for _ in 1:getncells(grid)]
     set_cell_data!(src, :σ, σs)

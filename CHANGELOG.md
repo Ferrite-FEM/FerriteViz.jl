@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+ - `Derive` accepts several inputs: `input` may be a vector of names and the
+   function then takes one argument per name, taken from the same tessellation
+   vertex (point data) or cell (cell data), e.g.
+   `Derive((σ, εᵖ) -> σ ⊡ εᵖ; input = [:σ, :εᵖ])`. A single `Symbol` keeps
+   working. All inputs must be of the same kind (all point or all cell data).
  - `QuadraturePointData` filter for internal variables (L2 data known only at the
    quadrature points): every cell is partitioned into the exact Voronoi regions of
    its quadrature points and each region is filled with that point's value, so the

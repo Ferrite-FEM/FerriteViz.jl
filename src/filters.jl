@@ -578,23 +578,34 @@ _valfun(::Deviator) = Tensors.dev
 """
     Derive(f; input=:default, output=:derived)
 
-Generic derivation filter mapping each entry of a data array through `f`.
+Generic derivation filter mapping the entries of one or more data arrays through `f`.
+
+`input` is a single name or a vector of names. `f` receives one argument per input,
+taken from the same tessellation vertex (point data) or the same cell (cell data),
+so `Derive(g; input=[:a, :b])` calls `g(a_i, b_i)`. All inputs must be of the same
+kind, either all point data or all cell data.
+
 Point-data rows are passed to `f` as a scalar (1 component), `Vec` (spatial-dim
 components) or `Tensor{2}` (spatial-dim² components); cell-data entries are
 passed as-is. `f` may return a scalar, `Vec`, `Tensor` or `Tuple`.
 
-# Example
+# Examples
 ```julia
 σ(∇u) = 2G*dev(symmetric(∇u)) + K*tr(∇u)*one(∇u)
 ds |> Gradient(:u) |> Derive(∇u -> vonmises(σ(∇u)); output=:σvM)
+
+# several inputs -> one argument each
+ds |> Derive((σ, εᵖ) -> σ ⊡ εᵖ; input=[:σ, :εᵖ], output=:dissipation)
 ```
 """
 struct Derive{F} <: AbstractFilter
     f::F
-    input::Symbol
+    input::Vector{Symbol}
     output::Symbol
 end
-Derive(f; input::Symbol=:default, output::Symbol=:derived) = Derive(f, input, output)
+Derive(f; input=:default, output::Symbol=:derived) = Derive(f, _derive_inputs(input), output)
+_derive_inputs(name::Symbol) = [name]
+_derive_inputs(names) = collect(Symbol, names)
 _valfun(d::Derive) = d.f
 
 for T in (:Component, :Magnitude, :Norm1, :VonMises, :Deviator, :Derive)
@@ -612,29 +623,47 @@ end
 _components(v::Number) = (v,)
 _components(v) = Tuple(v)
 
-function _rows_to_matrix(vf, A::AbstractMatrix, sdim::Int)
-    n = size(A, 1)
+_rows_to_matrix(vf, A::AbstractMatrix, sdim::Int) = _rows_to_matrix(vf, (A,), sdim)
+
+# `As` holds one point-data array per input; row `i` of each is wrapped and
+# handed to `vf` as a separate argument.
+function _rows_to_matrix(vf, As::Tuple, sdim::Int)
+    n = size(first(As), 1)
+    all(A -> size(A, 1) == n, As) ||
+        error("derivation inputs must have the same number of rows, got $(map(A -> size(A, 1), As))")
     n == 0 && return Matrix{Float64}(undef, 0, 1)
-    first_val = _components(vf(_wrap_row(view(A, 1, :), sdim)))
+    wrap(i) = map(A -> _wrap_row(view(A, i, :), sdim), As)
+    first_val = _components(vf(wrap(1)...))
     out = Matrix{Float64}(undef, n, length(first_val))
     out[1, :] .= first_val
     for i in 2:n
-        out[i, :] .= _components(vf(_wrap_row(view(A, i, :), sdim)))
+        out[i, :] .= _components(vf(wrap(i)...))
     end
     return out
 end
 
+# The unary reductions carry a single input name, Derive a vector of them.
+_inputs(f) = (f.input,)
+_inputs(d::Derive) = Tuple(d.input)
+
 function _apply_derivation(f, ds::FEData{dim}) where {dim}
-    input = _resolve_name(ds, f.input)
-    assoc = _data_association(ds, input)
-    assoc === :none && error("no data named :$input; available: $(_available_data(ds))")
+    names = map(n -> _resolve_name(ds, n), _inputs(f))
+    assocs = map(n -> _data_association(ds, n), names)
+    for (name, assoc) in zip(names, assocs)
+        assoc === :none && error("no data named :$name; available: $(_available_data(ds))")
+    end
+    all(a -> a === first(assocs), assocs) ||
+        error("cannot derive from a mix of point and cell data: " *
+              join(("$n => $a" for (n, a) in zip(names, assocs)), ", "))
     pd = copy(ds.point_data)
     cd = copy(ds.cell_data)
     vf = _valfun(f)
-    if assoc === :point
-        pd[f.output] = Makie.lift(A -> _rows_to_matrix(vf, A, dim), point_data(ds, input))
+    if first(assocs) === :point
+        pd[f.output] = Makie.lift((As...) -> _rows_to_matrix(vf, As, dim),
+                                  map(n -> point_data(ds, n), names)...)
     else
-        cd[f.output] = Makie.lift(v -> map(vf, v), cell_data(ds, input))
+        cd[f.output] = Makie.lift((vs...) -> map(vf, vs...),
+                                  map(n -> cell_data(ds, n), names)...)
     end
     return _rebind(ds, ds.dh, ds.u; point_data=pd, cell_data=cd)
 end

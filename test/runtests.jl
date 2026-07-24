@@ -382,6 +382,14 @@ end
           3 * 0.5 + sqrt(3) / 2 atol = 1e-10
     qr1 = QuadratureRule{RefTriangle}(1)                  # single point -> whole cell
     @test sum(region_areas(FerriteViz.qp_voronoi_tessellation(RefTriangle, qr1), 1)) ≈ 0.5 atol = 1e-12
+    # prism/pyramid: the regions tile exactly the boundary surface drawn by the
+    # reference tessellation
+    for RS in (RefPrism, RefPyramid)
+        qrv = QuadratureRule{RS}(2)
+        surf = FerriteViz.reference_tessellation(RS)
+        expected = sum(_triarea(surf.coords[tri[1]], surf.coords[tri[2]], surf.coords[tri[3]]) for tri in surf.triangles)
+        @test sum(region_areas(FerriteViz.qp_voronoi_tessellation(RS, qrv), getnquadpoints(qrv))) ≈ expected atol = 1e-10
+    end
 
     grid = generate_grid(Quadrilateral, (3, 3))
     dh = DofHandler(grid); add!(dh, :u, Lagrange{RefQuadrilateral,1}()^2); close!(dh)
@@ -500,6 +508,116 @@ end
     for i in 1:FerriteViz.num_vertices(lor3)
         @test all(isapprox.(Vec{2}(data3[i,:]), v_ana(Vec{2}(Float64.(lor3.coords[][i]))); atol=1e-6))
     end
+
+    # first-order refinement requires a single field
+    dhm = DofHandler(grid2)
+    add!(dhm, :u, Lagrange{RefQuadrilateral,1}())
+    add!(dhm, :p, Lagrange{RefQuadrilateral,1}())
+    close!(dhm)
+    @test_throws ErrorException FEData(dhm, zeros(ndofs(dhm))) |> FirstOrderRefinement()
+end
+
+@testset "derivation filters: Norm1, point-data Deviator, tuple output, Threshold bounds" begin
+    grid = generate_grid(Quadrilateral, (3,3))
+    dh = DofHandler(grid); add!(dh, :u, Lagrange{RefQuadrilateral,1}()^2); close!(dh)
+    src = FEData(dh, rand(ndofs(dh)))
+    nv = FerriteViz.num_vertices(src)
+    U = FerriteViz.point_data(src, :u)[]
+
+    # Norm1: rowwise 1-norm
+    N1 = FerriteViz.point_data(src |> Norm1(input=:u), :norm1)[]
+    @test size(N1, 2) == 1
+    @test vec(N1) ≈ [sum(abs, view(U, i, :)) for i in 1:nv]
+
+    # Deviator on point data: tensor-valued output written back componentwise
+    devp = src |> Gradient(:u) |> Deviator(input=:gradient)
+    G = FerriteViz.point_data(devp, :gradient)[]
+    D = FerriteViz.point_data(devp, :deviator)[]
+    @test size(D, 2) == 4
+    for i in 1:size(D, 1)
+        any(isnan, view(G, i, :)) && continue
+        @test all(isapprox.(Tuple(view(D, i, :)),
+                            FerriteViz._components(Tensors.dev(FerriteViz._wrap_row(view(G, i, :), 2))); atol=1e-12))
+    end
+
+    # Derive may return a Tuple -> one column per entry
+    set_point_data!(src, :a, collect(1.0:nv))
+    T = FerriteViz.point_data(src |> Derive(x -> (x, 2x); input=:a, output=:t), :t)[]
+    @test size(T, 2) == 2
+    @test T[:, 2] ≈ 2 .* T[:, 1]
+
+    # Threshold on cell data honours both bounds
+    ncells = getncells(grid)
+    set_cell_data!(src, :cv, collect(1.0:ncells))
+    th = FerriteViz.cell_data(src |> Threshold(input=:cv, min=2.0, max=5.0), :threshold)[]
+    @test isnan(th[1]) && all(isnan, th[6:end])
+    @test th[2:5] == collect(2.0:5.0)
+
+    # the unary derivations work on cell data too
+    @test FerriteViz.cell_data(src |> Component(1; input=:cv, output=:c1), :c1)[] == collect(1.0:ncells)
+end
+
+@testset "dataset validation and reactivity" begin
+    grid = generate_grid(Quadrilateral, (2,2))
+    dh = DofHandler(grid); add!(dh, :u, Lagrange{RefQuadrilateral,1}()^2); close!(dh)
+    ds = FEData(dh, rand(ndofs(dh)))
+    nv = FerriteViz.num_vertices(ds)
+    ncells = getncells(grid)
+
+    # update! validates against the root solution length
+    @test_throws ErrorException FerriteViz.update!(ds, zeros(ndofs(dh) + 1))
+
+    # registered data is validated against the tessellation/grid size
+    @test_throws ErrorException set_point_data!(ds, :p, ones(nv + 1))
+    @test_throws ErrorException set_cell_data!(ds, :c, ones(ncells + 1))
+
+    # Observable-backed registration stays live
+    obs = Makie.Observable(ones(nv))
+    set_point_data!(ds, :p, obs)
+    @test vec(FerriteViz.point_data(ds, :p)[]) == ones(nv)
+    obs[] = fill(2.0, nv)
+    @test vec(FerriteViz.point_data(ds, :p)[]) == fill(2.0, nv)
+    cobs = Makie.Observable(ones(ncells))
+    set_cell_data!(ds, :c, cobs)
+    cobs[] = fill(3.0, ncells)
+    @test FerriteViz.cell_data(ds, :c)[] == fill(3.0, ncells)
+
+    # unknown names and unreduced data error informatively
+    @test_throws ErrorException FerriteViz.point_data(ds, :nope)
+    @test_throws ErrorException FerriteViz.cell_data(ds, :nope)
+    @test_throws ErrorException FerriteViz._scalar_data(ds, :u) # 2 components, not reduced
+    set_cell_data!(ds, :σ, [Tensors.rand(SymmetricTensor{2,2}) for _ in 1:ncells])
+    @test_throws ErrorException FerriteViz._scalar_data(ds, :σ) # non-scalar cell data
+
+    # a dof handler without fields has no default field to resolve
+    @test_throws ErrorException FerriteViz.point_data(FEData(DofHandler(grid), Float64[]), :default)
+end
+
+@testset "warp reactivity" begin
+    grid = generate_grid(Quadrilateral, (2,2))
+    dh = DofHandler(grid); add!(dh, :u, Lagrange{RefQuadrilateral,1}()^2); close!(dh)
+    ds = FEData(dh, rand(ndofs(dh)))
+    nv = FerriteViz.num_vertices(ds)
+    set_point_data!(ds, :d1, [ones(nv) zeros(nv)])
+    set_point_data!(ds, :d2, [zeros(nv) ones(nv)])
+
+    # an Observable scale streams into the coordinates
+    scale = Makie.Observable(1.0)
+    w = ds |> WarpByVector(:d1, scale)
+    @test w.coords[] ≈ [c .+ Float32.((1, 0)) for c in ds.coords[]]
+    scale[] = 3.0
+    @test w.coords[] ≈ [c .+ Float32.((3, 0)) for c in ds.coords[]]
+
+    # an Observable field name rewires the displacement source
+    fname = Makie.Observable(:d1)
+    wf = ds |> WarpByVector(fname, 1.0)
+    @test wf.coords[] ≈ [c .+ Float32.((1, 0)) for c in ds.coords[]]
+    fname[] = :d2
+    @test wf.coords[] ≈ [c .+ Float32.((0, 1)) for c in ds.coords[]]
+
+    # the deformation field's component count is validated
+    dhs = DofHandler(grid); add!(dhs, :t, Lagrange{RefQuadrilateral,1}()); close!(dhs)
+    @test_throws ErrorException FEData(dhs, rand(ndofs(dhs))) |> WarpByVector(:t)
 end
 
 @testset "representation smoke tests" begin
@@ -562,6 +680,91 @@ end
     # 1D grids: meshplot pads coordinates to 2D
     lgrid = generate_grid(Line, (3,))
     @test meshplot(lgrid; nodelabels=true, celllabels=true) isa Makie.FigureAxisPlot
+end
+
+@testset "viewer building blocks" begin
+    grid = generate_grid(Quadrilateral, (2,2))
+    dh = DofHandler(grid); add!(dh, :u, Lagrange{RefQuadrilateral,1}()^2); close!(dh)
+    u = rand(ndofs(dh))
+    ds = FEData(dh, u)
+
+    # every spec helper returns a PlotSpec
+    for spec in (meshplotspec(ds), cellplotspec(ds), surfaceplotspec(ds), arrowplotspec(ds))
+        @test spec isa Makie.PlotSpec
+    end
+
+    @test_throws ErrorException FerriteViz.ControlResult(Any[]; placement=:left)
+
+    # the default pipeline warps by the observable deformation scale ...
+    scale = Makie.Observable(0.0)
+    p = default_pipeline(ds, Dict{Symbol,Makie.Observable}(:deform_scale => scale))
+    @test p.coords[] ≈ ds.coords[]
+    scale[] = 1.0
+    @test !(p.coords[] ≈ ds.coords[])
+    # ... and passes a dataset without deformable field through untouched
+    dhs = DofHandler(grid); add!(dhs, :t, Lagrange{RefQuadrilateral,1}()); close!(dhs)
+    dss = FEData(dhs, rand(ndofs(dhs)))
+    @test default_pipeline(dss, Dict{Symbol,Makie.Observable}(:deform_scale => Makie.Observable(1.0))) === dss
+    @test length(default_controls(ds)) == length(default_controls(dss)) + 1 # DeformationToggle
+
+    # process reductions register derived point-data arrays under stable names
+    U = FerriteViz.point_data(ds, :u)[]
+    n1 = FerriteViz._viewer_color_array!(ds, :u, "x₁")
+    @test n1 === Symbol("u_x₁")
+    @test vec(FerriteViz.point_data(ds, n1)[]) ≈ U[:, 1]
+    nm = FerriteViz._viewer_color_array!(ds, :u, "magnitude")
+    @test vec(FerriteViz.point_data(ds, nm)[]) ≈ [norm(view(U, i, :)) for i in 1:FerriteViz.num_vertices(ds)]
+    @test FerriteViz._viewer_color_array!(dss, :t, "magnitude") === :t # scalar short-circuit
+    @test FerriteViz.default_layout(ds, (field=:u, process="x₂", colormap=:viridis, labels=true, wireframe=false)) isa Makie.GridLayoutSpec
+
+    # the TimeSlider streams solutions through update!
+    fig = Makie.Figure()
+    r = TimeSlider([u, 2u]).make(fig, ds)
+    @test r.placement === :below
+    Makie.set_close_to!(r.content[1].sliders[1], 2)
+    @test ds.u[] ≈ 2 .* u
+
+    # a 3D dataset builds its panel on an LScene
+    grid3 = generate_grid(Hexahedron, (2,2,2))
+    dh3 = DofHandler(grid3); add!(dh3, :u, Lagrange{RefHexahedron,1}()^3); close!(dh3)
+    @test ferriteviewer(FEData(dh3, rand(ndofs(dh3)))) isa Makie.Figure
+end
+
+@testset "representation color resolution" begin
+    grid = generate_grid(Quadrilateral, (2,2))
+    dh = DofHandler(grid); add!(dh, :u, Lagrange{RefQuadrilateral,1}()^2); close!(dh)
+    ds = FEData(dh, rand(ndofs(dh)))
+    nv = FerriteViz.num_vertices(ds)
+    set_point_data!(ds, :s1, collect(1.0:nv))
+    set_point_data!(ds, :s2, 2 .* collect(1.0:nv))
+
+    fig, ax, plt = solutionplot(ds; color=:s1)
+    mesh = plt.plots[1]
+    @test mesh.color[] ≈ collect(1.0:nv)
+    plt.color = :s2                          # switch to another named array
+    @test mesh.color[] ≈ 2 .* collect(1.0:nv)
+    plt.color = :s1                          # and back to the first one
+    @test mesh.color[] ≈ collect(1.0:nv)
+    ds.point_data[:s1][] = fill(7.0, nv, 1)  # updating the array flows into the plot
+    @test mesh.color[] ≈ fill(7.0, nv)
+    # a plain (non-data-name) color passes through at construction; switching a
+    # live plot from a data array to a plain color is not supported, since the
+    # mesh's color input is typed by its initial value
+    figc, axc, pltc = solutionplot(ds; color=:red)
+    @test !(pltc.plots[1].color[] isa AbstractVector)
+
+    # arrowplot accepts named scalar arrays and plain colors ...
+    @test arrowplot(ds; color=:s1) isa Makie.FigureAxisPlot
+    @test arrowplot(ds; color=:orange) isa Makie.FigureAxisPlot
+    # ... but the arrow field itself must be vector-valued
+    dhs = DofHandler(grid); add!(dhs, :t, Lagrange{RefQuadrilateral,1}()); close!(dhs)
+    @test_throws ErrorException arrowplot(FEData(dhs, rand(ndofs(dhs))))
+    # surfaceplot needs a data array, not a plain color
+    @test_throws ErrorException surfaceplot(ds; color=:red)
+
+    # CairoMakie shim units: Buffers unwrap to their vectors, plain data passes through
+    @test FerriteViz._buffer_data(ds.coords_buffer) isa Vector
+    @test FerriteViz._buffer_data([1, 2]) == [1, 2]
 end
 
 @testset "source hygiene" begin

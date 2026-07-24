@@ -315,6 +315,161 @@ function _first_order_discretization(dh)
     return dh_new, transfer
 end
 
+#######################
+# QuadraturePointData #
+#######################
+
+"""
+    QuadraturePointData(qr, values; output=:qpdata, extract=identity)
+
+Filter for internal variables, i.e. L2 data known only at the quadrature points.
+Every cell is partitioned into the Voronoi regions of its quadrature points (see
+[`FerriteViz.qp_voronoi_tessellation`](@ref)) and each region is filled with its
+quadrature point's value, giving a piecewise constant ("flat") rendering that
+neither averages over the cell nor smooths the data onto a nodal field.
+
+`qr` is a `Ferrite.QuadratureRule`, or a `Dict` mapping reference shapes to rules
+for grids with mixed cell types.
+
+`values` may be
+
+  * a `Vector` of per-cell vectors (`values[cell][qp]`; `nqp` may differ per cell),
+  * a `Matrix` (`values[cell, qp]`, requiring a uniform `nqp`), or
+  * an `Observable` of either — updating it refreshes all open plots.
+
+`extract` maps a stored entry to the plotted value, so Ferrite material states can
+be handed over directly (`extract = s -> s.εₚ`). Scalars, `Vec`s and (symmetric)
+second order tensors are supported. The result is registered as point data named
+`output` and can be reduced further with [`VonMises`](@ref), [`Derive`](@ref), ...
+
+Rebuilds the geometry, so apply [`WarpByVector`](@ref) *after* this filter.
+
+# Example
+```julia
+FEData(dh, u) |> QuadraturePointData(qr, states; extract = s -> s.σ) |> VonMises(input = :qpdata)
+```
+"""
+struct QuadraturePointData{Q,V,F} <: AbstractFilter
+    qr::Q
+    values::V
+    output::Symbol
+    extract::F
+end
+
+function QuadraturePointData(qr, values; output::Symbol=:qpdata, extract=identity)
+    values_obs = values isa Makie.Observable ? values : Makie.Observable(values)
+    return QuadraturePointData(qr, values_obs, output, extract)
+end
+
+_qr_for(qr::Ferrite.QuadratureRule, ::Type) = qr
+function _qr_for(qrs::AbstractDict, ::Type{RS}) where {RS}
+    haskey(qrs, RS) ||
+        error("no quadrature rule for reference shape $RS; add it to the `qr` mapping (have $(collect(keys(qrs))))")
+    return qrs[RS]
+end
+
+# values[cell][qp] (ragged) or values[cell, qp] (uniform nqp)
+_qp_ncells(values::AbstractMatrix) = size(values, 1)
+_qp_ncells(values::AbstractVector) = length(values)
+_qp_nqp(values::AbstractMatrix, ::Int) = size(values, 2)
+_qp_nqp(values::AbstractVector, cell::Int) = length(values[cell])
+_qp_at(values::AbstractMatrix, cell::Int, qp::Int) = values[cell, qp]
+_qp_at(values::AbstractVector, cell::Int, qp::Int) = values[cell][qp]
+
+# Symmetric tensors are expanded to the full component order, so that the stored
+# row has spatial-dim² entries and `_wrap_row` hands a `Tensor{2}` back to the
+# derivation filters (VonMises, Deviator, ...).
+_qp_components(v) = _components(v)
+_qp_components(v::Tensors.SymmetricTensor{2,dim}) where {dim} = _components(convert(Tensors.Tensor{2,dim}, v))
+
+function apply(f::QuadraturePointData, ds::FEData{dim}) where {dim}
+    grid = Ferrite.get_grid(ds.dh)
+    cells = Ferrite.getcells(grid)
+    ncells = length(cells)
+    values = f.values[]
+    _qp_ncells(values) == ncells ||
+        error("quadrature point data must have one entry per cell ($ncells), got $(_qp_ncells(values))")
+
+    tess_cache = Dict{Type,QPTessellation}()
+    function tess_for(cell)
+        RS = Ferrite.getrefshape(cell)
+        return get!(() -> qp_voronoi_tessellation(RS, _qr_for(f.qr, RS)), tess_cache, RS)
+    end
+
+    cell_triangle_offsets = Vector{Int}(undef, ncells + 1)
+    cell_vertex_offsets = Vector{Int}(undef, ncells + 1)
+    cell_triangle_offsets[1] = 0
+    cell_vertex_offsets[1] = 0
+    for (cell_id, cell) in enumerate(cells)
+        tess = tess_for(cell)
+        nqp = length(Ferrite.getpoints(_qr_for(f.qr, Ferrite.getrefshape(cell))))
+        _qp_nqp(values, cell_id) == nqp ||
+            error("cell $cell_id carries $(_qp_nqp(values, cell_id)) quadrature values, but its rule has $nqp points")
+        cell_triangle_offsets[cell_id+1] = cell_triangle_offsets[cell_id] + ntriangles(tess)
+        cell_vertex_offsets[cell_id+1] = cell_vertex_offsets[cell_id] + nvertices(tess)
+    end
+    num_triangles = cell_triangle_offsets[end]
+    num_verts = cell_vertex_offsets[end]
+
+    triangles = Matrix{Int}(undef, num_triangles, 3)
+    triangle_cell_map = Vector{Int}(undef, num_triangles)
+    physical_coords = Vector{GeometryBasics.Point{dim,Float32}}(undef, num_verts)
+    reference_coords = zeros(Float64, num_verts, dim)
+    # static vertex -> (cell, quadrature point) map; the value lift is a gather
+    vertex_cell = Vector{Int}(undef, num_verts)
+    vertex_qp = Vector{Int}(undef, num_verts)
+
+    for (cell_id, cell) in enumerate(cells)
+        tess = tess_for(cell)
+        ip_geo = Ferrite.geometric_interpolation(typeof(cell))
+        node_coords = Ferrite.getcoordinates(grid, cell_id)
+        coff = cell_vertex_offsets[cell_id]
+        for (k, ξ) in enumerate(tess.coords)
+            x = geometric_map(ip_geo, node_coords, ξ)
+            physical_coords[coff+k] = GeometryBasics.Point{dim,Float32}(x...)
+            for d in 1:length(ξ)
+                reference_coords[coff+k, d] = ξ[d]
+            end
+            vertex_cell[coff+k] = cell_id
+            vertex_qp[coff+k] = tess.vertex_qp[k]
+        end
+        toff = cell_triangle_offsets[cell_id]
+        for (t, tri) in enumerate(tess.triangles)
+            for j in 1:3
+                triangles[toff+t, j] = tri[j] + coff
+            end
+            triangle_cell_map[toff+t] = cell_id
+        end
+    end
+
+    all_triangles = convert(Vector{GeometryBasics.GLTriangleFace}, Makie.to_triangles(triangles))
+    vis_triangles = ShaderAbstractions.Buffer(Makie.Observable(_visibility_triangles(all_triangles, ds.visible, triangle_cell_map)))
+    coords = Makie.Observable(physical_coords)
+    coords_buffer = ShaderAbstractions.Buffer(coords)
+    mesh = GeometryBasics.Mesh(coords_buffer, vis_triangles)
+    out = FEData{dim,typeof(ds.dh),eltype(ds.u[]),typeof(ds.topology),typeof(ds.source_u),typeof(mesh),eltype(all_triangles)}(
+        ds.dh, ds.u, ds.source_u, ds.topology, ds.visible, ds.gridnodes, coords, coords_buffer,
+        all_triangles, vis_triangles, triangle_cell_map, cell_triangle_offsets,
+        cell_vertex_offsets, reference_coords, mesh,
+        Dict{Symbol,Makie.Observable}(), copy(ds.cell_data))
+
+    ncomponents = length(_qp_components(f.extract(_qp_at(values, 1, 1))))
+    data = Makie.lift(f.values) do vals
+        _qp_ncells(vals) == ncells ||
+            error("quadrature point data must have one entry per cell ($ncells), got $(_qp_ncells(vals))")
+        A = Matrix{Float64}(undef, num_verts, ncomponents)
+        for v in 1:num_verts
+            components = _qp_components(f.extract(_qp_at(vals, vertex_cell[v], vertex_qp[v])))
+            for d in 1:ncomponents
+                A[v, d] = components[d]
+            end
+        end
+        return A
+    end
+    set_point_data!(out, f.output, data)
+    return out
+end
+
 ############
 # Gradient #
 ############

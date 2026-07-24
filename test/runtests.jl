@@ -320,6 +320,93 @@ end
     @test_throws ErrorException set_cell_data!(src, :u, zeros(getncells(grid)))
 end
 
+@testset "quadrature point data (Voronoi)" begin
+    # area of a triangle given in reference space (2D or 3D)
+    function _triarea(p, q, r)
+        u = q - p; v = r - p
+        length(p) == 2 && return abs(u[1] * v[2] - u[2] * v[1]) / 2
+        c = (u[2] * v[3] - u[3] * v[2], u[3] * v[1] - u[1] * v[3], u[1] * v[2] - u[2] * v[1])
+        return sqrt(sum(abs2, c)) / 2
+    end
+    function region_areas(t, nqp)
+        a = zeros(nqp)
+        for tri in t.triangles
+            qp = t.vertex_qp[tri[1]]
+            @test t.vertex_qp[tri[2]] == qp && t.vertex_qp[tri[3]] == qp # regions never mix
+            a[qp] += _triarea(t.coords[tri[1]], t.coords[tri[2]], t.coords[tri[3]])
+        end
+        return a
+    end
+
+    # the reference partition is exact: it tiles the shape without gaps/overlaps
+    qr = QuadratureRule{RefQuadrilateral}(2)
+    tq = FerriteViz.qp_voronoi_tessellation(RefQuadrilateral, qr)
+    @test length(tq.triangles) == 8                       # 4 quadrants, 2 triangles each
+    @test all(a -> isapprox(a, 1.0; atol=1e-10), region_areas(tq, getnquadpoints(qr)))
+    # each region stays on its quadrature point's side of the mid-lines
+    for (i, ξ) in enumerate(Ferrite.getpoints(qr)), v in eachindex(tq.coords)
+        tq.vertex_qp[v] == i || continue
+        @test sign(tq.coords[v][1]) == sign(ξ[1]) || abs(tq.coords[v][1]) < 1e-12
+        @test sign(tq.coords[v][2]) == sign(ξ[2]) || abs(tq.coords[v][2]) < 1e-12
+    end
+    qrh = QuadratureRule{RefHexahedron}(2)
+    @test all(a -> isapprox(a, 3.0; atol=1e-10),
+              region_areas(FerriteViz.qp_voronoi_tessellation(RefHexahedron, qrh), getnquadpoints(qrh)))
+    qrt = QuadratureRule{RefTetrahedron}(2)
+    @test sum(region_areas(FerriteViz.qp_voronoi_tessellation(RefTetrahedron, qrt), getnquadpoints(qrt))) ≈
+          3 * 0.5 + sqrt(3) / 2 atol = 1e-10
+    qr1 = QuadratureRule{RefTriangle}(1)                  # single point -> whole cell
+    @test sum(region_areas(FerriteViz.qp_voronoi_tessellation(RefTriangle, qr1), 1)) ≈ 0.5 atol = 1e-12
+
+    grid = generate_grid(Quadrilateral, (3, 3))
+    dh = DofHandler(grid); add!(dh, :u, Lagrange{RefQuadrilateral,1}()^2); close!(dh)
+    u = rand(ndofs(dh)); ds = FEData(dh, u)
+    nqp = getnquadpoints(qr); ncells = getncells(grid)
+    vals = [[Float64(10c + q) for q in 1:nqp] for c in 1:ncells]
+
+    pipe = ds |> QuadraturePointData(qr, vals; output=:iv)
+    A = FerriteViz.point_data(pipe, :iv)[]
+    @test size(A) == (FerriteViz.num_vertices(pipe), 1)
+    # piecewise constant: a cell shows exactly its quadrature point values
+    for c in 1:ncells
+        @test sort(unique(vec(A[collect(FerriteViz.vertices_on_cell(pipe, c)), 1]))) ≈ sort(vals[c])
+    end
+    # Matrix input is equivalent to the ragged Vector{Vector} form
+    M = [Float64(10c + q) for c in 1:ncells, q in 1:nqp]
+    @test FerriteViz.point_data(ds |> QuadraturePointData(qr, M; output=:iv), :iv)[] ≈ A
+
+    # symmetric tensors expand to full components so VonMises composes
+    symv = [[SymmetricTensor{2,2}((1.0c, 0.5q, 2.0)) for q in 1:nqp] for c in 1:ncells]
+    pσ = ds |> QuadraturePointData(qr, symv; output=:σ) |> VonMises(input=:σ, output=:σvM)
+    @test size(FerriteViz.point_data(pσ, :σ)[], 2) == 4
+    @test all(isfinite, FerriteViz._scalar_data(pσ, :σvM)[])
+    # extract pulls the value out of a state-like struct
+    states = [[(a=v, b=0.0) for v in cell] for cell in vals]
+    @test FerriteViz.point_data(ds |> QuadraturePointData(qr, states; output=:iv, extract=s -> s.a), :iv)[] ≈ A
+
+    # geometry is rebuilt but dof fields stay usable, so warping still works after
+    @test size(FerriteViz.point_data(pipe |> WarpByVector(:u, 2.0), :u)[], 2) == 2
+    @test solutionplot(pipe; color=:iv) isa Makie.FigureAxisPlot
+
+    # values are reactive
+    obs = Makie.Observable(vals)
+    pr = ds |> QuadraturePointData(qr, obs; output=:iv)
+    before = copy(FerriteViz.point_data(pr, :iv)[])
+    obs[] = [[3v for v in cell] for cell in vals]
+    @test FerriteViz.point_data(pr, :iv)[] ≈ 3 .* before
+
+    # mixed cell types via a per-reference-shape rule mapping
+    mnodes = [Node((0.0, 0.0)), Node((1.0, 0.0)), Node((1.0, 1.0)), Node((0.0, 1.0)), Node((2.0, 0.0)), Node((2.0, 1.0))]
+    mcells = Ferrite.AbstractCell[Quadrilateral((1, 2, 3, 4)), Triangle((2, 5, 3)), Triangle((5, 6, 3))]
+    mds = FEData(DofHandler(Grid(mcells, mnodes)), Float64[])
+    qrs = Dict(RefQuadrilateral => qr, RefTriangle => QuadratureRule{RefTriangle}(2))
+    mvals = [[Float64(10c + q) for q in 1:getnquadpoints(qrs[Ferrite.getrefshape(mcells[c])])] for c in 1:3]
+    @test cellplot(mds |> QuadraturePointData(qrs, mvals; output=:iv); color=:iv) isa Makie.FigureAxisPlot
+
+    @test_throws ErrorException ds |> QuadraturePointData(qr, vals[1:2]; output=:iv)          # wrong ncells
+    @test_throws ErrorException mds |> QuadraturePointData(Dict(RefQuadrilateral => qr), mvals; output=:iv) # missing rule
+end
+
 @testset "subdomain restrictions error clearly" begin
     grid = generate_grid(Quadrilateral, (2,2))
     dh = DofHandler(grid)

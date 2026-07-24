@@ -61,6 +61,71 @@ those reductions directly.
 
 An alternative to this approach is to compute gradient quantities at sample points and plot these via `arrowplot`.
 
+## Internal variables (quadrature point data)
+
+Internal variables — plastic strain, damage, hardening — are L2 functions that are only
+known at the quadrature points. Averaging them per cell throws away the sub-element
+variation, and projecting them onto a nodal field invents smoothness that smears exactly
+the localization one wants to see. The [`QuadraturePointData`](@ref) filter instead
+partitions every cell into the **Voronoi regions of its quadrature points** and fills each
+region with that point's value, so nothing is averaged or smoothed:
+
+```@example 1
+using FerriteViz: QuadraturePointData
+import WGLMakie
+
+band(x) = exp(-((x[1] - x[2]) / 0.18)^2)   # a localisation band
+
+grid_iv = generate_grid(Quadrilateral, (12, 12))
+dh_iv = DofHandler(grid_iv); add!(dh_iv, :s, Lagrange{RefQuadrilateral,1}()); close!(dh_iv)
+qr_iv = QuadratureRule{RefQuadrilateral}(2)
+cv_iv = CellValues(qr_iv, Lagrange{RefQuadrilateral,1}(), Lagrange{RefQuadrilateral,1}())
+
+# one value per (cell, quadrature point) — the layout of Ferrite's material states
+qpvals = [zeros(getnquadpoints(qr_iv)) for _ in 1:getncells(grid_iv)]
+for cell in CellIterator(dh_iv)
+    reinit!(cv_iv, cell)
+    coords = getcoordinates(cell)
+    for q in 1:getnquadpoints(qr_iv)
+        qpvals[cellid(cell)][q] = band(spatial_coordinate(cv_iv, q, coords))
+    end
+end
+
+ds_iv = FEData(dh_iv, zeros(ndofs(dh_iv)))
+resolved = ds_iv |> QuadraturePointData(qr_iv, qpvals; output = :iv)
+
+averaged = FEData(dh_iv, zeros(ndofs(dh_iv)))
+FerriteViz.set_cell_data!(averaged, :avg, [sum(v) / length(v) for v in qpvals])
+
+f = WGLMakie.Figure(size = (900, 400))
+ax1 = WGLMakie.Axis(f[1, 1], aspect = WGLMakie.DataAspect(), title = "cell averaged")
+ax2 = WGLMakie.Axis(f[1, 2], aspect = WGLMakie.DataAspect(), title = "quadrature point Voronoi")
+FerriteViz.cellplot!(ax1, averaged; color = :avg, colormap = :inferno, colorrange = (0, 1))
+p = FerriteViz.solutionplot!(ax2, resolved; color = :iv, colormap = :inferno, colorrange = (0, 1))
+WGLMakie.Colorbar(f[1, 3], p)
+f
+```
+
+Values may be a `Vector` of per-cell vectors (`values[cell][qp]`), a `Matrix`
+(`values[cell, qp]`), or an `Observable` of either for live updating. Ferrite's material
+states can be passed straight through with `extract`, and because the result is ordinary
+point data every derivation filter composes with it — which is what makes tensor-valued
+internal variables usable:
+
+```julia
+ds |> QuadraturePointData(qr, states; extract = s -> s.σ, output = :σ) |> VonMises(input = :σ)
+```
+
+Grids with mixed cell types take one rule per reference shape, e.g.
+`QuadraturePointData(Dict(RefTriangle => qr_tri, RefQuadrilateral => qr_quad), values)`.
+Since the filter rebuilds the geometry, apply [`WarpByVector`](@ref) *after* it.
+
+!!! note
+    The region boundaries are a visualization choice, not physical discontinuities — they
+    only mark where the closest quadrature point changes. Values are likewise extended
+    from the (interior) quadrature points out to the element boundary, and in 3D you see
+    the partition intersected with the surface of the domain.
+
 ## High-order fields
 
 The investigation of high-order fields is currently only supported via a first-order refinement of the problem.

@@ -11,7 +11,10 @@ FerriteViz is structured in three layers, following the ParaView model:
    [`FEData`](@ref) lays this out per cell with *duplicated* vertices, so
    discontinuous (L2) fields render with their inter-element jumps intact, and
    maps reference coordinates through the cell's geometric interpolation (curved
-   cells tessellate correctly).
+   cells tessellate correctly). `src/qptessellation.jl` adds a second, quadrature
+   rule dependent reference geometry: the Voronoi partition of a reference shape
+   induced by its quadrature points, which [`QuadraturePointData`](@ref) uses to
+   render internal variables piecewise constant.
 2. **Data pipeline** (`src/dataset.jl`, `src/filters.jl`): [`FEData`](@ref)
    holds the solution as an `Observable` plus named point-/cell-data arrays;
    filters derive new datasets while sharing the source observable, so
@@ -53,6 +56,8 @@ Cell-data arrays are per-cell `Vector`s of arbitrary element type.
 FerriteViz.ReferenceTessellation
 FerriteViz.reference_tessellation
 FerriteViz.facet_based_tessellation
+FerriteViz.QPTessellation
+FerriteViz.qp_voronoi_tessellation
 FerriteViz.first_order_subcells
 FerriteViz.linear_celltype
 FerriteViz.ntriangles

@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+ - `QuadraturePointData` filter for internal variables (L2 data known only at the
+   quadrature points): every cell is partitioned into the exact Voronoi regions of
+   its quadrature points and each region is filled with that point's value, so the
+   data is neither averaged over the cell nor smoothed onto a nodal field. Accepts
+   `values[cell][qp]`, `values[cell, qp]` or an `Observable` of either, an
+   `extract` function for material-state structs, and one quadrature rule per
+   reference shape for mixed grids. The result is point data, so `VonMises`,
+   `Deviator`, `Derive`, ... compose with it.
  - composable, `Makie.SpecApi`-based `ferriteviewer`: a `layout(ds, state)` hook
    returns a `GridLayoutSpec`, pluggable `Control`s (`FieldMenu`, `ProcessMenu`,
    `ColormapMenu`, `LabelsToggle`, `DeformationToggle`, `TimeSlider`) feed the

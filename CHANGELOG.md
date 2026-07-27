@@ -89,6 +89,12 @@ Source (`FEData`) → Filters → Representations. Breaking release.
  - unused `StaticArrays` dependency
 
 ### Fixed
+ - point data holding a tensor whose dimension differs from the grid's — a shell
+   or plane-strain problem carrying 3D stresses on a 2D grid — no longer dies
+   with a `MethodError` from inside Tensors.jl. Rows of 4, 6 and 9 components are
+   interpreted as `Tensor{2,2}`, `SymmetricTensor{2,3}` and `Tensor{2,3}`, so
+   `VonMises`, `Deviator` and friends work on them; widths that cannot be
+   interpreted now report the component count instead.
  - the constitutive law in the gradient example used `ones` (a tensor of ones)
    instead of `one` (the identity) for the volumetric term.
 

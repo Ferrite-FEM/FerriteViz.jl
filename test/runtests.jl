@@ -555,6 +555,37 @@ end
 
     # the unary derivations work on cell data too
     @test FerriteViz.cell_data(src |> Component(1; input=:cv, output=:c1), :c1)[] == collect(1.0:ncells)
+
+    # A row may hold a tensor whose dimension differs from the grid's: shells and
+    # plane-strain problems carry 3D stresses on a 2D grid. These used to reach
+    # `Tensors.Vec{n}`, which does not exist beyond n = 3, and died with a
+    # MethodError from inside Tensors.
+    @test FerriteViz._wrap_row(collect(1.0:9), 2) isa Tensors.Tensor{2,3}
+    @test FerriteViz._wrap_row(collect(1.0:6), 2) isa Tensors.SymmetricTensor{2,3}
+    @test FerriteViz._wrap_row(collect(1.0:6), 3) isa Tensors.SymmetricTensor{2,3}
+    @test FerriteViz._wrap_row(collect(1.0:4), 3) isa Tensors.Tensor{2,2}
+    # dimension-matched cases still win
+    @test FerriteViz._wrap_row(collect(1.0:4), 2) isa Tensors.Tensor{2,2}
+    @test FerriteViz._wrap_row(collect(1.0:9), 3) isa Tensors.Tensor{2,3}
+    @test FerriteViz._wrap_row(collect(1.0:2), 2) isa Tensors.Vec{2}
+    @test FerriteViz._wrap_row(collect(1.0:3), 2) isa Tensors.Vec{3}
+    @test FerriteViz._wrap_row([7.0], 3) === 7.0
+    # and an uninterpretable width errors clearly instead of throwing from Tensors
+    @test_throws ErrorException FerriteViz._wrap_row(collect(1.0:5), 2)
+    @test_throws ErrorException FerriteViz._wrap_row(collect(1.0:12), 3)
+
+    # end to end: a 3D stress field stored on a 2D grid reduces with VonMises
+    set_point_data!(src, :sigma3d, repeat(reshape(collect(1.0:9), 1, 9), nv, 1))
+    vm = FerriteViz.point_data(src |> VonMises(input=:sigma3d), :vonMises)[]
+    @test size(vm) == (nv, 1)
+    @test all(vm .≈ FerriteViz.vonmises(Tensors.Tensor{2,3}(NTuple{9,Float64}(1.0:9))))
+
+    # Threshold masks values but must not touch the geometry (it is not a clip)
+    thp = src |> Threshold(input=:a, min=2.0, max=4.0)
+    @test FerriteViz.num_vertices(thp) == nv
+    @test FerriteViz.ShaderAbstractions.data(thp.vis_triangles) ==
+          FerriteViz.ShaderAbstractions.data(src.vis_triangles)
+    @test count(isnan, FerriteViz.point_data(thp, :threshold)[]) == nv - 3
 end
 
 @testset "dataset validation and reactivity" begin

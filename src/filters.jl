@@ -600,8 +600,11 @@ so `Derive(g; input=[:a, :b])` calls `g(a_i, b_i)`. All inputs must be of the sa
 kind, either all point data or all cell data.
 
 Point-data rows are passed to `f` as a scalar (1 component), `Vec` (spatial-dim
-components) or `Tensor{2}` (spatial-dim² components); cell-data entries are
-passed as-is. `f` may return a scalar, `Vec`, `Tensor` or `Tuple`.
+components) or `Tensor{2}` (spatial-dim² components). Rows holding a tensor of a
+different dimension than the grid — a shell or plane-strain problem carrying 3D
+stresses on a 2D grid — are recognised by their component count as
+`Tensor{2,2}` (4), `SymmetricTensor{2,3}` (6) or `Tensor{2,3}` (9). Cell-data
+entries are passed as-is. `f` may return a scalar, `Vec`, `Tensor` or `Tuple`.
 
 # Examples
 ```julia
@@ -627,12 +630,29 @@ for T in (:Component, :Magnitude, :Norm1, :VonMises, :Deviator, :Derive)
 end
 
 # Wrap a point-data row into the value it represents (see Derive docstring).
+#
+# The component count is matched against the spatial dimension first, so an
+# ordinary vector or tensor field on the grid keeps its natural meaning. A row
+# may however carry a tensor of a *different* dimension than the grid: shells
+# and plane-strain problems store full 3D stresses on a grid whose spatial
+# dimension is 2, and those counts (4, 6, 9) are unambiguous once the
+# dimension-matched cases above have been ruled out.
+#
+# Anything left over cannot be interpreted — Tensors.jl has no `Vec` beyond
+# dimension 3, so the old fallback `Vec{n}` raised a MethodError from deep
+# inside Tensors for every such row. Failing here with the component count
+# named is considerably more useful.
 function _wrap_row(row, sdim::Int)
     n = length(row)
     n == 1 && return row[1]
     n == sdim && return Tensors.Vec{sdim}(NTuple{sdim,Float64}(row))
     n == sdim * sdim && return Tensors.Tensor{2,sdim}(NTuple{sdim * sdim,Float64}(row))
-    return Tensors.Vec{n}(NTuple{n,Float64}(row))
+    n == 9 && return Tensors.Tensor{2,3}(NTuple{9,Float64}(row))
+    n == 6 && return Tensors.SymmetricTensor{2,3}(NTuple{6,Float64}(row))
+    n == 4 && return Tensors.Tensor{2,2}(NTuple{4,Float64}(row))
+    n <= 3 && return Tensors.Vec{n}(NTuple{n,Float64}(row))
+    error("cannot interpret a $n-component data row on a $(sdim)D grid as a scalar, vector or " *
+          "second order tensor; reduce it first, e.g. with Component(i) or Derive")
 end
 _components(v::Number) = (v,)
 _components(v) = Tuple(v)
@@ -685,8 +705,15 @@ end
 """
     Threshold(; input=:default, output=:threshold, min=-Inf, max=Inf)
 
-Filter copying a data array with values outside `[min, max]` replaced by `NaN`
-(rendered as `nan_color`).
+Filter copying a data array with values outside `[min, max]` replaced by `NaN`.
+
+!!! note
+    This masks values, it does not remove geometry. The tessellation is passed
+    through unchanged and the `NaN`s reach Makie as *colors*, so the affected
+    triangles are still drawn — in `nan_color` (`:red` by default), and blended
+    across a triangle whose other vertices are inside the range. Set
+    `nan_color=:transparent` on the representation to hide them. Removing cells
+    from the mesh is what [`CrinkleClip`](@ref) does.
 """
 struct Threshold <: AbstractFilter
     input::Symbol

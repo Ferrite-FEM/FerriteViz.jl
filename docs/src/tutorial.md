@@ -37,7 +37,7 @@ alone is already plottable:
 
 ```@example 1
 import FerriteViz
-using FerriteViz: FEData, WarpByVector, Gradient, Derive, QuadraturePointData,
+using FerriteViz: FEData, WarpByVector, Gradient, Derive, AddQuadraturePointData,
                   CrinkleClip, ClipPlane, vonmises
 using Ferrite
 import WGLMakie #activating the backend, switch to GLMakie or CairoMakie (for 2D) locally
@@ -167,10 +167,10 @@ After `Gradient` the pipeline's primary field is `:gradient`, which is why `Deri
 told `input = :gradient` explicitly (that is also its default via `:default`). `Derive`
 can be chained repeatedly to build up several named arrays from the same gradient.
 
-### Quadrature point data: `QuadraturePointData` into `Derive`
+### Quadrature point data: `AddQuadraturePointData` into `Derive`
 
 Internal variables such as plastic strain or stress are only known at the quadrature
-points. [`QuadraturePointData`](@ref) puts them on the mesh without averaging, by
+points. [`AddQuadraturePointData`](@ref) puts them on the mesh without averaging, by
 partitioning each cell into the Voronoi regions of its quadrature points.
 
 Because the filter output is ordinary point data, it feeds straight into `Derive` — and
@@ -180,8 +180,8 @@ density ``\sigma : \varepsilon^\mathrm{p}``:
 
 ```@example 1
 dissipation = ds_p |>
-    QuadraturePointData(qr, states; extract = s -> s.σ,  output = :σ) |>
-    QuadraturePointData(qr, states; extract = s -> s.ϵᵖ, output = :εᵖ) |>
+    AddQuadraturePointData(qr, states; extract = s -> s.σ,  output = :σ) |>
+    AddQuadraturePointData(qr, states; extract = s -> s.ϵᵖ, output = :εᵖ) |>
     Derive((σ, εᵖ) -> σ ⊡ εᵖ; input = [:σ, :εᵖ], output = :wᵖ) |>
     WarpByVector(:u, 2.0)
 
@@ -195,7 +195,7 @@ each element is filled by several flat patches, one per quadrature point, rather
 single averaged colour.
 
 `extract` pulls the quantity out of the material state struct, so `states` can be
-handed over as it comes out of your solver. The two `QuadraturePointData` filters share the
+handed over as it comes out of your solver. The two `AddQuadraturePointData` filters share the
 same quadrature rule and therefore the same vertex layout, which is what allows their
 arrays to be combined afterwards — and you can chain as many of them as you have
 quantities, then take them all into one `Derive`.

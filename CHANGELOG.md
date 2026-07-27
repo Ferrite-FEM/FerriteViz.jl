@@ -14,9 +14,9 @@ Source (`FEData`) → Filters → Representations. Breaking release.
  - `FEData` data source with named point-/cell-data arrays
    (`point_data`/`cell_data`/`set_point_data!`/`set_cell_data!`)
  - composable, reactive filters (applied with `|>`): `WarpByVector`,
-   `Gradient`, `CrinkleClip`, `Refine`, `FirstOrderRefinement`, `Component`,
+   `Gradient`, `CrinkleClip`, `Refine`, `FirstOrderRefinement`, `ExtractComponent`,
    `Magnitude`, `Norm1`, `VonMises`, `Deviator`, `Threshold`, `Derive`
- - `QuadraturePointData` filter for internal variables (data known only at the
+ - `AddQuadraturePointData` filter for internal variables (data known only at the
    quadrature points, with no interpolation defining it elsewhere): every cell is
    partitioned into the exact Voronoi regions of its quadrature points and each
    region is filled with that point's value, so the data is neither averaged over
@@ -24,7 +24,7 @@ Source (`FEData`) → Filters → Representations. Breaking release.
    `values[cell, qp]` or an `Observable` of either, an `extract` function for
    material-state structs, and one quadrature rule per reference shape for mixed
    grids. The result is point data, so `VonMises`, `Deviator`, `Derive`, ...
-   compose with it; two `QuadraturePointData` filters sharing a quadrature rule
+   compose with it; two `AddQuadraturePointData` filters sharing a quadrature rule
    reproduce the same vertex layout and keep each other's arrays, which is what
    allows several quadrature point quantities to be combined in one `Derive`.
  - `Derive` accepts several inputs: `input` may be a vector of names and the
@@ -77,7 +77,7 @@ Source (`FEData`) → Filters → Representations. Breaking release.
    backend (GL/WGLMakie keep the buffer-backed, live-updating path).
  - the documentation is restructured around the pipeline: the tutorial covers the
    plotting recipes first, then chaining filters, with `Gradient |> Derive` shown
-   on the mixed displacement/pressure formulation and `QuadraturePointData |>
+   on the mixed displacement/pressure formulation and `AddQuadraturePointData |>
    Derive` on the plastic work density of the plasticity example. The recommended
    practices page (formerly "advanced topics") no longer repeats that material and
    focuses on the reasoning behind the discontinuous gradient and the quadrature

@@ -66,7 +66,7 @@ An alternative to this approach is to compute gradient quantities at sample poin
 
 ## What the quadrature point partition buys you
 
-The [tutorial](tutorial.md) uses [`QuadraturePointData`](@ref) to plot internal variables.
+The [tutorial](tutorial.md) uses [`AddQuadraturePointData`](@ref) to plot internal variables.
 The reason it exists is that the two usual alternatives both destroy information: averaging
 per cell throws away the sub-element variation, and projecting onto a nodal field invents
 smoothness that smears exactly the localization one wants to see.
@@ -76,7 +76,7 @@ points** and fills each region with that point's value. A localisation band make
 difference obvious — the cell average clips the peak, the partition resolves it:
 
 ```@example 1
-using FerriteViz: QuadraturePointData
+using FerriteViz: AddQuadraturePointData
 import WGLMakie
 
 band(x) = exp(-((x[1] - x[2]) / 0.18)^2)   # a localisation band
@@ -97,7 +97,7 @@ for cell in CellIterator(dh_iv)
 end
 
 ds_iv = FEData(dh_iv, zeros(ndofs(dh_iv)))
-resolved = ds_iv |> QuadraturePointData(qr_iv, qpvals; output = :iv)
+resolved = ds_iv |> AddQuadraturePointData(qr_iv, qpvals; output = :iv)
 
 averaged = FEData(dh_iv, zeros(ndofs(dh_iv)))
 FerriteViz.set_cell_data!(averaged, :avg, [sum(v) / length(v) for v in qpvals])
@@ -114,7 +114,7 @@ f
 Beyond the `Vector` of per-cell vectors used above, values may be given as a `Matrix`
 (`values[cell, qp]`) or as an `Observable` of either for live updating. Grids with mixed
 cell types take one rule per reference shape, e.g.
-`QuadraturePointData(Dict(RefTriangle => qr_tri, RefQuadrilateral => qr_quad), values)`.
+`AddQuadraturePointData(Dict(RefTriangle => qr_tri, RefQuadrilateral => qr_quad), values)`.
 Since the filter rebuilds the geometry, apply [`WarpByVector`](@ref) *after* it.
 
 !!! note
@@ -167,11 +167,11 @@ Chaining itself is covered in the [tutorial](tutorial.md); two rules matter once
 get longer.
 
 **Ordering.** Geometry-rebuilding filters ([`Refine`](@ref),
-[`FirstOrderRefinement`](@ref), [`QuadraturePointData`](@ref)) rebuild from the base
+[`FirstOrderRefinement`](@ref), [`AddQuadraturePointData`](@ref)) rebuild from the base
 geometry, so apply [`WarpByVector`](@ref) *after* them. They also drop the point data
 registered upstream, since it refers to vertices that no longer exist — the one exception
 is a rebuild that reproduces the very same vertex layout, as when two
-[`QuadraturePointData`](@ref) share a quadrature rule, which is what lets their arrays be
+[`AddQuadraturePointData`](@ref) share a quadrature rule, which is what lets their arrays be
 combined in a later [`Derive`](@ref). [`CrinkleClip`](@ref) and [`Gradient`](@ref) share
 the — possibly warped — geometry of their input, so a warp survives those.
 

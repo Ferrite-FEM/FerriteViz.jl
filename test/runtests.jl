@@ -292,7 +292,7 @@ end
     @test all(isapprox.(resolved, vec(vm2); atol=1e-6))
 
     # derivations by name
-    pipe2 = pipe |> Magnitude(input=:gradient) |> Component(1; input=:gradient) |> Threshold(input=:vonMises, min=1.0)
+    pipe2 = pipe |> Magnitude(input=:gradient) |> ExtractComponent(1; input=:gradient) |> Threshold(input=:vonMises, min=1.0)
     @test size(FerriteViz.point_data(pipe2, :magnitude)[], 2) == 1
     @test size(FerriteViz.point_data(pipe2, :x1)[], 2) == 1
     th = FerriteViz.point_data(pipe2, :threshold)[]
@@ -397,7 +397,7 @@ end
     nqp = getnquadpoints(qr); ncells = getncells(grid)
     vals = [[Float64(10c + q) for q in 1:nqp] for c in 1:ncells]
 
-    pipe = ds |> QuadraturePointData(qr, vals; output=:iv)
+    pipe = ds |> AddQuadraturePointData(qr, vals; output=:iv)
     A = FerriteViz.point_data(pipe, :iv)[]
     @test size(A) == (FerriteViz.num_vertices(pipe), 1)
     # piecewise constant: a cell shows exactly its quadrature point values
@@ -406,16 +406,16 @@ end
     end
     # Matrix input is equivalent to the ragged Vector{Vector} form
     M = [Float64(10c + q) for c in 1:ncells, q in 1:nqp]
-    @test FerriteViz.point_data(ds |> QuadraturePointData(qr, M; output=:iv), :iv)[] ≈ A
+    @test FerriteViz.point_data(ds |> AddQuadraturePointData(qr, M; output=:iv), :iv)[] ≈ A
 
     # symmetric tensors expand to full components so VonMises composes
     symv = [[SymmetricTensor{2,2}((1.0c, 0.5q, 2.0)) for q in 1:nqp] for c in 1:ncells]
-    pσ = ds |> QuadraturePointData(qr, symv; output=:σ) |> VonMises(input=:σ, output=:σvM)
+    pσ = ds |> AddQuadraturePointData(qr, symv; output=:σ) |> VonMises(input=:σ, output=:σvM)
     @test size(FerriteViz.point_data(pσ, :σ)[], 2) == 4
     @test all(isfinite, FerriteViz._scalar_data(pσ, :σvM)[])
     # extract pulls the value out of a state-like struct
     states = [[(a=v, b=0.0) for v in cell] for cell in vals]
-    @test FerriteViz.point_data(ds |> QuadraturePointData(qr, states; output=:iv, extract=s -> s.a), :iv)[] ≈ A
+    @test FerriteViz.point_data(ds |> AddQuadraturePointData(qr, states; output=:iv, extract=s -> s.a), :iv)[] ≈ A
 
     # geometry is rebuilt but dof fields stay usable, so warping still works after
     @test size(FerriteViz.point_data(pipe |> WarpByVector(:u, 2.0), :u)[], 2) == 2
@@ -423,22 +423,22 @@ end
 
     # values are reactive
     obs = Makie.Observable(vals)
-    pr = ds |> QuadraturePointData(qr, obs; output=:iv)
+    pr = ds |> AddQuadraturePointData(qr, obs; output=:iv)
     before = copy(FerriteViz.point_data(pr, :iv)[])
     obs[] = [[3v for v in cell] for cell in vals]
     @test FerriteViz.point_data(pr, :iv)[] ≈ 3 .* before
 
     # two rules with the same quadrature rule share a vertex layout, so their
     # arrays survive and can be combined in one Derive
-    both = ds |> QuadraturePointData(qr, vals; output=:a) |>
-                 QuadraturePointData(qr, [[2v for v in c] for c in vals]; output=:b) |>
+    both = ds |> AddQuadraturePointData(qr, vals; output=:a) |>
+                 AddQuadraturePointData(qr, [[2v for v in c] for c in vals]; output=:b) |>
                  Derive((x, y) -> x + y; input=[:a, :b], output=:s)
     @test sort(collect(keys(both.point_data))) == [:a, :b, :s]
     @test vec(FerriteViz.point_data(both, :s)[]) ≈ 3 .* vec(FerriteViz.point_data(both, :a)[])
     # ... but a genuine geometry change upstream still invalidates them
     stale = ds |> Refine(1)
     set_point_data!(stale, :old, ones(FerriteViz.num_vertices(stale)))
-    @test !haskey((stale |> QuadraturePointData(qr, vals; output=:a)).point_data, :old)
+    @test !haskey((stale |> AddQuadraturePointData(qr, vals; output=:a)).point_data, :old)
 
     # mixed cell types via a per-reference-shape rule mapping
     mnodes = [Node((0.0, 0.0)), Node((1.0, 0.0)), Node((1.0, 1.0)), Node((0.0, 1.0)), Node((2.0, 0.0)), Node((2.0, 1.0))]
@@ -446,10 +446,10 @@ end
     mds = FEData(DofHandler(Grid(mcells, mnodes)), Float64[])
     qrs = Dict(RefQuadrilateral => qr, RefTriangle => QuadratureRule{RefTriangle}(2))
     mvals = [[Float64(10c + q) for q in 1:getnquadpoints(qrs[Ferrite.getrefshape(mcells[c])])] for c in 1:3]
-    @test cellplot(mds |> QuadraturePointData(qrs, mvals; output=:iv); color=:iv) isa Makie.FigureAxisPlot
+    @test cellplot(mds |> AddQuadraturePointData(qrs, mvals; output=:iv); color=:iv) isa Makie.FigureAxisPlot
 
-    @test_throws ErrorException ds |> QuadraturePointData(qr, vals[1:2]; output=:iv)          # wrong ncells
-    @test_throws ErrorException mds |> QuadraturePointData(Dict(RefQuadrilateral => qr), mvals; output=:iv) # missing rule
+    @test_throws ErrorException ds |> AddQuadraturePointData(qr, vals[1:2]; output=:iv)          # wrong ncells
+    @test_throws ErrorException mds |> AddQuadraturePointData(Dict(RefQuadrilateral => qr), mvals; output=:iv) # missing rule
 end
 
 @testset "subdomain restrictions error clearly" begin
@@ -554,7 +554,7 @@ end
     @test th[2:5] == collect(2.0:5.0)
 
     # the unary derivations work on cell data too
-    @test FerriteViz.cell_data(src |> Component(1; input=:cv, output=:c1), :c1)[] == collect(1.0:ncells)
+    @test FerriteViz.cell_data(src |> ExtractComponent(1; input=:cv, output=:c1), :c1)[] == collect(1.0:ncells)
 
     # A row may hold a tensor whose dimension differs from the grid's: shells and
     # plane-strain problems carry 3D stresses on a 2D grid. These used to reach

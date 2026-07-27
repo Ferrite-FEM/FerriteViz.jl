@@ -110,7 +110,7 @@ function create_values(interpolation, refshape::Type)
     facevalues_u = FacetValues(face_qr, interpolation, interpolation_geom)
 
     # the quadrature rule is returned as well: the material states are stored per
-    # quadrature point, so plotting them with `QuadraturePointData` needs it
+    # quadrature point, so plotting them with `AddQuadraturePointData` needs it
     return cellvalues_u, facevalues_u, qr
 end;
 
@@ -210,7 +210,7 @@ Solve the plastified cantilever. Returns
 `celltype` selects the element. `Tetrahedron` (the default) is a constant strain
 element, so all quadrature points of a cell carry the *same* state — use
 `celltype=Hexahedron` to get the bilinear modes whose strains genuinely differ
-between the quadrature points, e.g. for `FerriteViz.QuadraturePointData`.
+between the quadrature points, e.g. for `FerriteViz.AddQuadraturePointData`.
 """
 function solve(liveplotting=false; celltype=Tetrahedron)
     refshape = Ferrite.getrefshape(celltype)
@@ -319,6 +319,6 @@ function solve(liveplotting=false; celltype=Tetrahedron)
     end
     # `states` (one MaterialState per quadrature point per cell) and `qr` are returned
     # so the internal variables can be plotted without averaging, e.g.
-    #   FEData(dh, u) |> QuadraturePointData(qr, states; extract = s -> s.σ) |> VonMises()
+    #   FEData(dh, u) |> AddQuadraturePointData(qr, states; extract = s -> s.σ) |> VonMises()
     return u, dh, u_history, mises_values, κ_values, states, qr
 end

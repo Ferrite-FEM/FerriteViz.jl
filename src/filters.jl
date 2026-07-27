@@ -321,12 +321,12 @@ function _first_order_discretization(dh)
     return dh_new, transfer
 end
 
-#######################
-# QuadraturePointData #
-#######################
+##########################
+# AddQuadraturePointData #
+##########################
 
 """
-    QuadraturePointData(qr, values; output=:qpdata, extract=identity)
+    AddQuadraturePointData(qr, values; output=:qpdata, extract=identity)
 
 Filter for internal variables, i.e. quantities that carry a value only at the
 quadrature points and have no interpolation defining them anywhere else (in FEM
@@ -354,18 +354,18 @@ Rebuilds the geometry, so apply [`WarpByVector`](@ref) *after* this filter.
 
 # Example
 ```julia
-FEData(dh, u) |> QuadraturePointData(qr, states; extract = s -> s.σ) |> VonMises(input = :qpdata)
+FEData(dh, u) |> AddQuadraturePointData(qr, states; extract = s -> s.σ) |> VonMises(input = :qpdata)
 ```
 """
-struct QuadraturePointData{Q,V,F} <: AbstractFilter
+struct AddQuadraturePointData{Q,V,F} <: AbstractFilter
     qr::Q
     values::V
     output::Symbol
     extract::F
 end
 
-function QuadraturePointData(qr, values; output::Symbol=:qpdata, extract=identity)
-    return QuadraturePointData(qr, make_observable(values), output, extract)
+function AddQuadraturePointData(qr, values; output::Symbol=:qpdata, extract=identity)
+    return AddQuadraturePointData(qr, make_observable(values), output, extract)
 end
 
 _qr_for(qr::Ferrite.QuadratureRule, ::Type) = qr
@@ -389,7 +389,7 @@ _qp_at(values::AbstractVector, cell::Int, qp::Int) = values[cell][qp]
 _qp_components(v) = _components(v)
 _qp_components(v::Tensors.SymmetricTensor{2,dim}) where {dim} = _components(convert(Tensors.Tensor{2,dim}, v))
 
-function apply(f::QuadraturePointData, ds::FEData{dim}) where {dim}
+function apply(f::AddQuadraturePointData, ds::FEData{dim}) where {dim}
     grid = Ferrite.get_grid(ds.dh)
     cells = Ferrite.getcells(grid)
     ncells = length(cells)
@@ -455,7 +455,7 @@ function apply(f::QuadraturePointData, ds::FEData{dim}) where {dim}
     coords_buffer = ShaderAbstractions.Buffer(coords)
     mesh = GeometryBasics.Mesh(coords_buffer, vis_triangles)
     # Rebuilding the geometry normally invalidates the upstream point data. A
-    # second QuadraturePointData with the same rule, however, lays out exactly
+    # second AddQuadraturePointData with the same rule, however, lays out exactly
     # the same vertices, so those arrays stay valid — which is what lets several
     # quadrature point quantities be combined (e.g. σ and εᵖ in one Derive).
     same_layout = size(ds.reference_coords) == size(reference_coords) &&
@@ -526,17 +526,17 @@ function vonmises(σ::Union{Tensors.Tensor{2},Tensors.SymmetricTensor{2}})
 end
 
 """
-    Component(i; input=:default, output=Symbol("x", i))
+    ExtractComponent(i; input=:default, output=Symbol("x", i))
 
 Filter extracting component `i` of a data array into a named scalar array.
 """
-struct Component <: AbstractFilter
+struct ExtractComponent <: AbstractFilter
     i::Int
     input::Symbol
     output::Symbol
 end
-Component(i::Int; input::Symbol=:default, output::Symbol=Symbol("x", i)) = Component(i, input, output)
-_valfun(f::Component) = x -> x[f.i]
+ExtractComponent(i::Int; input::Symbol=:default, output::Symbol=Symbol("x", i)) = ExtractComponent(i, input, output)
+_valfun(f::ExtractComponent) = x -> x[f.i]
 
 """
     Magnitude(; input=:default, output=:magnitude)
@@ -625,7 +625,7 @@ _derive_inputs(name::Symbol) = [name]
 _derive_inputs(names) = collect(Symbol, names)
 _valfun(d::Derive) = d.f
 
-for T in (:Component, :Magnitude, :Norm1, :VonMises, :Deviator, :Derive)
+for T in (:ExtractComponent, :Magnitude, :Norm1, :VonMises, :Deviator, :Derive)
     @eval apply(f::$T, ds::FEData) = _apply_derivation(f, ds)
 end
 
@@ -652,7 +652,7 @@ function _wrap_row(row, sdim::Int)
     n == 4 && return Tensors.Tensor{2,2}(NTuple{4,Float64}(row))
     n <= 3 && return Tensors.Vec{n}(NTuple{n,Float64}(row))
     error("cannot interpret a $n-component data row on a $(sdim)D grid as a scalar, vector or " *
-          "second order tensor; reduce it first, e.g. with Component(i) or Derive")
+          "second order tensor; reduce it first, e.g. with ExtractComponent(i) or Derive")
 end
 _components(v::Number) = (v,)
 _components(v) = Tuple(v)

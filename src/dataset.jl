@@ -24,7 +24,7 @@
 #    change the geometry (Gradient, the derivation filters) deliberately reuse
 #    the *same* buffer objects, so several plots of one pipeline share a single
 #    GPU upload. Filters that do rebuild the geometry (Refine,
-#    QuadraturePointData) allocate fresh buffers, which is why upstream point
+#    AddQuadraturePointData) allocate fresh buffers, which is why upstream point
 #    data cannot survive them unless the vertex layout is reproduced exactly.
 #
 # The consequence for anyone touching this file: never replace an Observable's
@@ -318,7 +318,7 @@ function _scalar_data(ds::FEData, name::Symbol; reduce_default::Bool=false)
         elseif reduce_default
             [LinearAlgebra.norm(view(A, i, :)) for i in 1:size(A, 1)]
         else
-            error("point data :$name has $(size(A, 2)) components; reduce it to a scalar first, e.g. with Magnitude(input=:$name) or Component(i; input=:$name)")
+            error("point data :$name has $(size(A, 2)) components; reduce it to a scalar first, e.g. with Magnitude(input=:$name) or ExtractComponent(i; input=:$name)")
         end
     end
 end

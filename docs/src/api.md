@@ -28,8 +28,8 @@ FerriteViz.CrinkleClip
 FerriteViz.ClipPlane
 FerriteViz.Refine
 FerriteViz.FirstOrderRefinement
-FerriteViz.QuadraturePointData
-FerriteViz.Component
+FerriteViz.AddQuadraturePointData
+FerriteViz.ExtractComponent
 FerriteViz.Magnitude
 FerriteViz.Norm1
 FerriteViz.VonMises

@@ -13,7 +13,7 @@ FerriteViz is structured in three layers, following the ParaView model:
    maps reference coordinates through the cell's geometric interpolation (curved
    cells tessellate correctly). `src/qptessellation.jl` adds a second, quadrature
    rule dependent reference geometry: the Voronoi partition of a reference shape
-   induced by its quadrature points, which [`QuadraturePointData`](@ref) uses to
+   induced by its quadrature points, which [`AddQuadraturePointData`](@ref) uses to
    render internal variables piecewise constant.
 2. **Data pipeline** (`src/dataset.jl`, `src/filters.jl`): [`FEData`](@ref)
    holds the solution as an `Observable` plus named point-/cell-data arrays;

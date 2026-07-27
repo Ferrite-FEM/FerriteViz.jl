@@ -1,4 +1,4 @@
-# Advanced Topics
+# Recommended Practices
 
 ```@example 1
 import WGLMakie, Bonito # hide

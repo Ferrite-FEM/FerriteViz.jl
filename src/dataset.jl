@@ -1,10 +1,35 @@
 # Layer 2a: the FEData source.
 #
 # FEData wraps a dof handler and a solution Observable together with the static
-# triangulation built from the tessellation interface. Coordinates and triangle
-# indices live in ShaderAbstractions.Buffers shared into a GeometryBasics.Mesh,
-# so downstream Observable updates mutate the GPU data in place without
-# rebuilding the plot.
+# triangulation built from the tessellation interface.
+#
+# Two Makie mechanisms are used directly here rather than left to the recipes,
+# and both are load bearing:
+#
+#  * Observables. Every quantity that can change after a plot exists (the dof
+#    vector, the coordinates, each named data array) is an Observable, and
+#    filters build new datasets by `lift`ing from their input's observables
+#    instead of copying values. That is what makes a pipeline reactive: one
+#    FerriteViz.update! on the root solution propagates through every filter
+#    down to the open plots, and two pipelines forked off the same source stay
+#    independent because each `lift` has its own output. Storing plain arrays
+#    would mean rebuilding the pipeline (and the plots) on every time step.
+#
+#  * ShaderAbstractions.Buffers. The vertex coordinates and the triangle index
+#    list are wrapped in Buffers, which are then shared into the
+#    GeometryBasics.Mesh handed to Makie. A Buffer is the CPU-side handle of a
+#    GPU buffer, so writing into it uploads in place: an updated solution moves
+#    the existing vertices instead of allocating a new mesh and forcing Makie to
+#    tear down and re-upload the plot. Meshes derived by filters that do not
+#    change the geometry (Gradient, the derivation filters) deliberately reuse
+#    the *same* buffer objects, so several plots of one pipeline share a single
+#    GPU upload. Filters that do rebuild the geometry (Refine,
+#    QuadraturePointData) allocate fresh buffers, which is why upstream point
+#    data cannot survive them unless the vertex layout is reproduced exactly.
+#
+# The consequence for anyone touching this file: never replace an Observable's
+# or a Buffer's *content* by assigning a new object to the field — set the
+# observable (`obs[] = ...`) so the listeners downstream fire.
 
 """
     FEData(dh::Ferrite.AbstractDofHandler, u::Vector; topology)
@@ -28,18 +53,21 @@ struct FEData{dim,DH<:Ferrite.AbstractDofHandler,T1,TOP<:Union{Nothing,Ferrite.A
     source_u::SU                      # the root solution observable; update! target
     topology::TOP
     visible::Vector{Bool}             # per-cell visibility; immutable after construction
-    gridnodes::Makie.Observable{Vector{GeometryBasics.Point{dim,Float32}}}
-    coords::Makie.Observable{Vector{GeometryBasics.Point{dim,Float32}}}  # tessellation vertex coords
+    gridnodes::Makie.Observable{Vector{GeometryBasics.Point{dim,Float32}}}  # the grid's nodes (meshplot)
+    # Coordinates of the tessellation vertices, i.e. the vertices of the
+    # rendered triangulation, not the finite element cells' vertices. The
+    # Observable is what a warp lifts from; the Buffer is what the GPU sees.
+    coords::Makie.Observable{Vector{GeometryBasics.Point{dim,Float32}}}
     coords_buffer::ShaderAbstractions.Buffer{GeometryBasics.Point{dim,Float32},Vector{GeometryBasics.Point{dim,Float32}}}
-    all_triangles::Vector{TRI}
-    vis_triangles::ShaderAbstractions.Buffer{TRI,Vector{TRI}}
-    triangle_cell_map::Vector{Int}
-    cell_triangle_offsets::Vector{Int}
-    cell_vertex_offsets::Vector{Int}
-    reference_coords::Matrix{Float64} # per-vertex reference coordinates (padded to spatial dim)
-    mesh::M
-    point_data::Dict{Symbol,Makie.Observable}
-    cell_data::Dict{Symbol,Makie.Observable}
+    all_triangles::Vector{TRI}                        # every triangle of the tessellation
+    vis_triangles::ShaderAbstractions.Buffer{TRI,Vector{TRI}}  # the subset actually drawn (see CrinkleClip)
+    triangle_cell_map::Vector{Int}    # triangle -> owning cell
+    cell_triangle_offsets::Vector{Int}  # cell -> range in all_triangles (see triangles_on_cell)
+    cell_vertex_offsets::Vector{Int}    # cell -> range in coords (see vertices_on_cell)
+    reference_coords::Matrix{Float64}   # per tessellation vertex, in the cell's reference coordinates
+    mesh::M                             # coords_buffer + vis_triangles, handed to Makie as is
+    point_data::Dict{Symbol,Makie.Observable}  # arrays on the tessellation vertices
+    cell_data::Dict{Symbol,Makie.Observable}   # arrays on the cells
 end
 
 function _default_topology(grid)
@@ -134,7 +162,10 @@ function _visibility_triangles(all_triangles, visible, triangle_cell_map)
 end
 
 """
-Total number of (duplicated) tessellation vertices.
+Total number of tessellation vertices, i.e. vertices of the rendered
+triangulation. These are not the vertices of the finite element cells: cells do
+not share them (they are duplicated per cell, so discontinuities render), and a
+tessellated cell generally carries more of them than it has corners.
 """
 num_vertices(ds::FEData) = length(ds.coords[])
 
@@ -183,9 +214,12 @@ _available_data(ds::FEData) =
 """
     point_data(ds::FEData, name::Symbol) -> Observable{Matrix{Float64}}
 
-The named per-vertex data array (nvertices × ncomponents; tensor components in
-Tensors.jl linear order). Fields of the dof handler are transferred to the
-tessellation lazily and cached; `:default` resolves to the first field.
+The named data array on the tessellation vertices (nvertices × ncomponents;
+tensor components in Tensors.jl linear order). These are the vertices of the
+triangulation the dataset renders, not the vertices of the finite element cells
+— see the [architecture overview](@ref "Architecture"). Fields of the dof handler
+are transferred to the tessellation lazily and cached; `:default` resolves to
+the first field.
 """
 function point_data(ds::FEData, name::Symbol)
     name = _resolve_name(ds, name)
@@ -222,10 +256,11 @@ end
 """
     set_point_data!(ds::FEData, name::Symbol, data)
 
-Register a named per-vertex data array. `data` may be a `Vector`/`Matrix`
-(nvertices rows) or an `Observable` of one — updates to a registered Observable
-propagate into plots. Existing names are overwritten; dof field names cannot
-be shadowed.
+Register a named data array on the tessellation vertices (see
+[`num_vertices`](@ref FerriteViz.num_vertices) — one row per vertex of the
+rendered triangulation, *not* per grid node). `data` may be a `Vector`/`Matrix`
+or an `Observable` of one — updates to a registered Observable propagate into
+plots. Existing names are overwritten; dof field names cannot be shadowed.
 """
 function set_point_data!(ds::FEData, name::Symbol, data::AbstractVecOrMat)
     _check_no_field_shadow(ds, name)

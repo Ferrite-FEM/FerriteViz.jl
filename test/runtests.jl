@@ -591,6 +591,21 @@ end
 
     # a dof handler without fields has no default field to resolve
     @test_throws ErrorException FerriteViz.point_data(FEData(DofHandler(grid), Float64[]), :default)
+
+    # :default resolves to the first field, and a filter without an explicit
+    # input picks the same one
+    dhd = DofHandler(grid)
+    add!(dhd, :u, Lagrange{RefQuadrilateral,1}()^2)
+    add!(dhd, :p, Lagrange{RefQuadrilateral,1}())
+    close!(dhd)
+    dsd = FEData(dhd, rand(ndofs(dhd)))
+    @test FerriteViz._resolve_name(dsd, :default) === :u
+    @test FerriteViz._resolve_name(dsd, :p) === :p
+    @test size(FerriteViz.point_data(dsd, :default)[], 2) == 2
+    let U = FerriteViz.point_data(dsd, :u)[]
+        @test vec(FerriteViz.point_data(dsd |> Magnitude(), :magnitude)[]) ≈
+              [sqrt(U[i, 1]^2 + U[i, 2]^2) for i in 1:size(U, 1)]
+    end
 end
 
 @testset "warp reactivity" begin

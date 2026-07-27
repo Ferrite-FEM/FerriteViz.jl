@@ -1,8 +1,11 @@
 # Layer 1b: the quadrature-point Voronoi tessellation.
 #
-# Internal variables are L2 functions known only at the quadrature points, so the
-# honest way to draw them is to partition each cell into the Voronoi regions of
-# its quadrature points and paint every region with a single (flat) value.
+# Internal variables carry a value only at the quadrature points — there is no
+# interpolation attached to them that would say what the value is anywhere else
+# (in FEM terms: they live in an L2 space, with no continuity to exploit). The
+# honest way to draw them is therefore to partition each cell into the Voronoi
+# regions of its quadrature points and paint every region with a single (flat)
+# value, rather than to invent a nodal field by averaging or smoothing.
 #
 # The partition is built once per reference shape, in reference space, and then
 # instantiated per cell through the geometric map — exactly like

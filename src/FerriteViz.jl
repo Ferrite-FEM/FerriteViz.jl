@@ -23,7 +23,7 @@ export FEData, apply
 export set_point_data!, set_cell_data!
 export WarpByVector, Gradient, CrinkleClip, Refine, FirstOrderRefinement, QuadraturePointData
 export Component, Magnitude, Norm1, VonMises, Deviator, Threshold, Derive
-export ClipPlane, vonmises
+export ClipPlane
 export solutionplot, solutionplot!, cellplot, cellplot!, meshplot, meshplot!,
        surfaceplot, surfaceplot!, arrowplot, arrowplot!, elementinfo, elementinfo!
 # composable viewer (SpecApi)

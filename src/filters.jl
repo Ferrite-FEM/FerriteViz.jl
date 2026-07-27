@@ -20,6 +20,12 @@ function apply end
 
 (f::AbstractFilter)(ds::FEData) = apply(f, ds)
 
+# Filter arguments may be given as a plain value or as an Observable the caller
+# drives (a slider, a menu, ...); wrap the plain ones so the code downstream
+# only ever deals with Observables.
+make_observable(x) = Makie.Observable(x)
+make_observable(x::Makie.Observable) = x
+
 # Rebind dh/u on identical geometry (same grid ⇒ identical tessellation).
 function _rebind(ds::FEData{dim}, dh, u::Makie.Observable;
                  point_data=Dict{Symbol,Makie.Observable}(), cell_data=Dict{Symbol,Makie.Observable}()) where {dim}
@@ -52,8 +58,8 @@ end
 WarpByVector(field=:default) = WarpByVector(field, 1.0)
 
 function apply(w::WarpByVector, ds::FEData{dim}) where {dim}
-    scale = w.scale isa Makie.Observable ? w.scale : Makie.Observable(w.scale)
-    fname = w.field isa Makie.Observable ? w.field : Makie.Observable(_resolve_name(ds, w.field))
+    scale = make_observable(w.scale)
+    fname = w.field isa Makie.Observable ? w.field : make_observable(_resolve_name(ds, w.field))
     disp = _switching_point_data(ds, fname)
     size(disp[], 2) == dim || error("deformation field :$(fname[]) has $(size(disp[], 2)) components, expected $dim")
     coords = Makie.lift(ds.coords, disp, scale) do base, d, s
@@ -322,11 +328,13 @@ end
 """
     QuadraturePointData(qr, values; output=:qpdata, extract=identity)
 
-Filter for internal variables, i.e. L2 data known only at the quadrature points.
-Every cell is partitioned into the Voronoi regions of its quadrature points (see
-[`FerriteViz.qp_voronoi_tessellation`](@ref)) and each region is filled with its
-quadrature point's value, giving a piecewise constant ("flat") rendering that
-neither averages over the cell nor smooths the data onto a nodal field.
+Filter for internal variables, i.e. quantities that carry a value only at the
+quadrature points and have no interpolation defining them anywhere else (in FEM
+terms: L2 data). Every cell is partitioned into the Voronoi regions of its
+quadrature points (see [`FerriteViz.qp_voronoi_tessellation`](@ref)) and each
+region is filled with its quadrature point's value, giving a piecewise constant
+("flat") rendering that neither averages over the cell nor smooths the data onto
+a nodal field.
 
 `qr` is a `Ferrite.QuadratureRule`, or a `Dict` mapping reference shapes to rules
 for grids with mixed cell types.
@@ -357,8 +365,7 @@ struct QuadraturePointData{Q,V,F} <: AbstractFilter
 end
 
 function QuadraturePointData(qr, values; output::Symbol=:qpdata, extract=identity)
-    values_obs = values isa Makie.Observable ? values : Makie.Observable(values)
-    return QuadraturePointData(qr, values_obs, output, extract)
+    return QuadraturePointData(qr, make_observable(values), output, extract)
 end
 
 _qr_for(qr::Ferrite.QuadratureRule, ::Type) = qr

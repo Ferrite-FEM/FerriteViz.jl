@@ -208,7 +208,7 @@ quantities, then take them all into one `Derive`.
 
 ## What's next?
 
-The [Advanced Topics](atopics.md) page goes deeper: what the discontinuous gradient buys
+The [Recommended Practices](atopics.md) page goes deeper: what the discontinuous gradient buys
 you over an L2 projection, how the quadrature point partition is built, high order fields,
 the composable viewer and live plotting during a simulation.
 

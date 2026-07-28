@@ -1,30 +1,44 @@
 # Tutorial
 
-## Solve a Boundary Value Problem
+FerriteViz follows the ParaView model: a **source** holds your solution, **filters**
+transform it, and **representations** draw the result.
 
-Start with solving a boundary value problem as you would usually do with Ferrite. It is crucial that you save your used DofHandler
-and solution vector because we need to pass those objects to `MakiePlotter`.
+```
+FEData(dh, u)  |>  filter  |>  filter  |>  solutionplot(...)
+   source              transformations          representation
+```
 
-
-## Basics
-
-!!! tip "Plotting Functions"
-    Currently, [`FerriteViz.solutionplot`](@ref), [`FerriteViz.meshplot`](@ref), [`FerriteViz.surfaceplot`](@ref), [`FerriteViz.arrows`](@ref) and their mutating analogues with `!` are defined for `MakiePlotter`.
-    Due to the nature of the documentation we need `WGLMakie`, however, you can simply exchange any `WGLMakie` call by `GLMakie`.
-
-### Mesh utilities
+This tutorial introduces the representations first, then shows how filters are chained
+to get from a raw solution vector to derived quantities like stresses, pressures and
+internal variables.
 
 ```@example 1
 import WGLMakie, Bonito # hide
 Bonito.Page() # hide
 WGLMakie.activate!() # hide
 WGLMakie.Makie.inline!(true) # hide
+nothing # hide
 ```
 
-You can start by plotting your mesh
+!!! tip "Plotting functions"
+    [`FerriteViz.solutionplot`](@ref), [`FerriteViz.meshplot`](@ref),
+    [`FerriteViz.surfaceplot`](@ref), [`FerriteViz.arrowplot`](@ref),
+    [`FerriteViz.cellplot`](@ref) and their mutating analogues with `!` are defined for
+    `FEData`. The docs need `WGLMakie`; locally you can replace every `WGLMakie` call by
+    `GLMakie` (or `CairoMakie` for 2D).
+
+## Plotting recipes
+
+### The mesh
+
+Solve a boundary value problem as you usually would with Ferrite, and keep the
+`DofHandler` and the solution vector — those are what `FEData` needs. Before that, a grid
+alone is already plottable:
 
 ```@example 1
 import FerriteViz
+using FerriteViz: FEData, WarpByVector, Gradient, Derive, AddQuadraturePointData,
+                  CrinkleClip, ClipPlane, vonmises
 using Ferrite
 import WGLMakie #activating the backend, switch to GLMakie or CairoMakie (for 2D) locally
 WGLMakie.set_theme!(size=(800, 400)) # hide
@@ -33,7 +47,8 @@ grid = generate_grid(Hexahedron,(3,3,3))
 FerriteViz.meshplot(grid,markersize=10,linewidth=2)
 ```
 
-FerriteViz.jl also supports showing labels for `Ferrite.AbstractGrid` entities, such as node- and celllabels, as well as plotting cellsets.
+Node and cell labels as well as cellsets can be shown too, which is handy while debugging
+a mesh:
 
 ```@example 1
 grid = generate_grid(Quadrilateral,(3,3))
@@ -43,75 +58,161 @@ addcellset!(grid,"s3",Set((3,6,9)))
 FerriteViz.meshplot(grid,markersize=10,linewidth=1,nodelabels=true,celllabels=true,cellsets=true)
 ```
 
-### Solution field of a boundary value problem
+### The solution field
 
-If you solve some boundary value problem with Ferrite.jl keep in mind to safe your `dh::DofHandler` and solution vector `u::Vector{T}` in some variable.
-With them, we create the `MakiePlotter` struct that dispatches on the plotting functions.
+[`FEData`](@ref) wraps a `DofHandler` together with a solution vector; every plotting
+function and every filter operates on it. Here we use a mixed displacement/pressure
+formulation of incompressible elasticity, which gives us two fields to play with.
 
 ```@example 1
-include("ferrite-examples/incompressible-elasticity.jl") #defines variables dh_quadratic and u_quadratic
+include("ferrite-examples/incompressible-elasticity.jl") #defines dh_quadratic, u_quadratic and mp
 
-plotter = FerriteViz.MakiePlotter(dh_quadratic,u_quadratic)
-FerriteViz.arrows(plotter)
+ds = FEData(dh_quadratic,u_quadratic)
+FerriteViz.arrowplot(ds)
 ```
 
-Per default, all plotting functions grab the first field in the `DofHandler`, but of course you can plot a different field as well.
-The next plot will show the pressure instead of the displacement
+By default every plot grabs the first field of the `DofHandler`, reduced to its magnitude
+if it is vector valued. Naming a field colors by it instead — here the pressure:
 
 ```@example 1
-FerriteViz.solutionplot(plotter,field=:p)
+FerriteViz.solutionplot(ds,color=:p)
 ```
 
-For certain 2D problems it makes sense to visualize the result as a `surfaceplot` plot. To showcase the combination with the mutating versions of the plotting functions,
-the `solutionplot` function is plotted below the `surfaceplot` plot
+For 2D problems the solution can also be lifted into the third dimension with
+`surfaceplot`. The mutating variants let you combine representations in one scene:
 
 ```@example 1
-FerriteViz.surfaceplot(plotter)
-FerriteViz.solutionplot!(plotter,colormap=:magma)
+FerriteViz.surfaceplot(ds)
+FerriteViz.solutionplot!(ds,colormap=:magma)
 WGLMakie.current_figure()
 ```
 
-### Deformed mesh for mechanical boundary value problem
+### Per-cell data
 
-However, in structural mechanics we often would like to see the deformed configuration,
-which can be achieved by providing a `deformation_field::Symbol` as a keyword argument.
+Quantities that live per cell rather than per node are registered with
+[`FerriteViz.set_cell_data!`](@ref) and drawn with `cellplot`. We use the plastified
+cantilever from the plasticity example, which returns the cell averaged von Mises stress:
 
 ```@example 1
-include("ferrite-examples/plasticity.jl") #only defines solving function
-u, dh, uhistory, σ, κ = solve()
-plotter = FerriteViz.MakiePlotter(dh,u)
+include("ferrite-examples/plasticity.jl") #only defines the solving function
+u, dh, u_history, mises, κ, states, qr = solve(; celltype = Hexahedron)
+ds_p = FEData(dh,u)
 
-FerriteViz.solutionplot(plotter,colormap=:thermal,deformation_field=:u)
-FerriteViz.meshplot!(plotter,deformation_field=:u,markersize=10,linewidth=1)
+FerriteViz.cellplot(ds_p,mises,colormap=:thermal)
 WGLMakie.current_figure()
 ```
 
-### Showing per-cell data
+## Chaining filters
 
-FerriteViz.jl also supports to plot cell data, such as the **averaged** von-Mises stress or the drag stress of the plasticity example.
+Filters map an `FEData` to a new `FEData` and are applied by piping. Because the result is
+again an `FEData`, they compose freely, and the whole chain stays reactive: a
+[`FerriteViz.update!`](@ref) anywhere in the pipeline propagates into every open plot.
+
+### Deforming the geometry
+
+[`WarpByVector`](@ref) displaces the geometry by a vector field, so everything drawn
+downstream of it appears in the deformed configuration:
+
 ```@example 1
-u, dh, uhistory, σ, κ = solve()
-FerriteViz.cellplot(plotter,σ,colormap=:thermal,deformation_field=:u,deformation_scale=2.0)
-FerriteViz.meshplot!(plotter,deformation_field=:u,markersize=10,linewidth=1,deformation_scale=2.0)
+warped = ds_p |> WarpByVector(:u, 2.0)
+FerriteViz.cellplot(warped,mises,colormap=:thermal)
+FerriteViz.meshplot!(warped,markersize=10,linewidth=1)
 WGLMakie.current_figure()
 ```
-For a more granular investigation of the stress field consult the advanced tutorial.
 
-### Interior of a 3D domain
+### Looking inside a 3D domain
 
-For 3D problems we can also inspect the interior of the domain. Currenly we only have crinkle clipping
-implemented and it can be used as follows:
+[`CrinkleClip`](@ref) hides cells on one side of a decision function, revealing the
+interior. Filters chain, so we clip and then warp:
+
 ```@example 1
-clip_plane = FerriteViz.ClipPlane(Vec((0.0,0.5,0.5)), 0.7)
-clipped_plotter = FerriteViz.crinkle_clip(plotter, clip_plane)
-FerriteViz.solutionplot(clipped_plotter,deformation_field=:u,colormap=:thermal,deformation_scale=2.0)
+clipped = ds_p |> CrinkleClip(ClipPlane(Vec((0.0,0.5,0.5)), 0.7)) |> WarpByVector(:u, 2.0)
+FerriteViz.solutionplot(clipped,colormap=:thermal)
 WGLMakie.current_figure()
 ```
-Note that we can replace the plane withs some other object or a decision function. Such a function takes
-the grid and a cell index as input and returns a boolean which decides whether a cell is visible or not.
 
-### What's next?
+The plane can be replaced by any function of the grid and a cell index returning whether
+the cell stays visible.
 
-Further, this package provides an interactive viewer that you can call with `ferriteviewer(plotter)` and
-`ferriteviewer(plotter,u_history)` for time dependent views, respectively.
-If you want to live plot your solution while solving some finite element system, consider to take a look at the advanced topics page.
+### Derived fields: `Gradient` into `Derive`
+
+This is where chaining pays off. [`Gradient`](@ref) turns a field into its piecewise
+discontinuous gradient — for a displacement field that is ∇u, from which strains and
+stresses follow. [`Derive`](@ref) then maps that array through an arbitrary function,
+which is where the constitutive law goes.
+
+Back to the mixed formulation: `copy_fields` carries the pressure along, so the pressure
+of the mixed formulation and the stress derived from the displacement gradient live in
+*one* pipeline:
+
+```@example 1
+ε(∇u) = symmetric(∇u)
+stress(∇u) = 2*mp.G*dev(ε(∇u)) + mp.K*tr(ε(∇u))*one(ε(∇u))
+
+mixed = FEData(dh_quadratic, u_quadratic) |>
+        Gradient(:u; copy_fields = [:p]) |>
+        Derive(∇u -> vonmises(stress(∇u)); input = :gradient, output = :σvM)
+
+f = WGLMakie.Figure(size = (900, 330))
+ax1 = WGLMakie.Axis(f[1,1], title = "von Mises stress (derived)")
+ax2 = WGLMakie.Axis(f[1,3], title = "pressure (solved for)")
+p1 = FerriteViz.solutionplot!(ax1, mixed; color = :σvM, colormap = :jet)
+p2 = FerriteViz.solutionplot!(ax2, mixed; color = :p,   colormap = :jet)
+WGLMakie.Colorbar(f[1,2], p1)
+WGLMakie.Colorbar(f[1,4], p2)
+f
+```
+
+After `Gradient` the pipeline's primary field is `:gradient`, which is why `Derive` is
+told `input = :gradient` explicitly (that is also its default via `:default`). `Derive`
+can be chained repeatedly to build up several named arrays from the same gradient.
+
+### Quadrature point data: `AddQuadraturePointData` into `Derive`
+
+Internal variables such as plastic strain or stress are only known at the quadrature
+points. [`AddQuadraturePointData`](@ref) puts them on the mesh without averaging, by
+partitioning each cell into the Voronoi regions of its quadrature points.
+
+Because the filter output is ordinary point data, it feeds straight into `Derive` — and
+`Derive` accepts *several* inputs, one argument per name. That lets us combine two
+quadrature point quantities, here the stress and the plastic strain, into the plastic work
+density ``\sigma : \varepsilon^\mathrm{p}``:
+
+```@example 1
+dissipation = ds_p |>
+    AddQuadraturePointData(qr, states; extract = s -> s.σ,  output = :σ) |>
+    AddQuadraturePointData(qr, states; extract = s -> s.ϵᵖ, output = :εᵖ) |>
+    Derive((σ, εᵖ) -> σ ⊡ εᵖ; input = [:σ, :εᵖ], output = :wᵖ) |>
+    WarpByVector(:u, 2.0)
+
+FerriteViz.solutionplot(dissipation; color = :wᵖ, colormap = :inferno)
+FerriteViz.meshplot!(ds_p |> WarpByVector(:u, 2.0); plotnodes = false, linewidth = 1)
+WGLMakie.current_figure()
+```
+
+The element outlines come from the plain warped dataset and make the resolution visible:
+each element is filled by several flat patches, one per quadrature point, rather than a
+single averaged colour.
+
+`extract` pulls the quantity out of the material state struct, so `states` can be
+handed over as it comes out of your solver. The two `AddQuadraturePointData` filters share the
+same quadrature rule and therefore the same vertex layout, which is what allows their
+arrays to be combined afterwards — and you can chain as many of them as you have
+quantities, then take them all into one `Derive`.
+
+!!! note
+    We use `celltype = Hexahedron` above on purpose: linear tetrahedra are constant strain
+    elements, so all of their quadrature points carry the same state and the plot would be
+    indistinguishable from a cell averaged one. The trilinear hexahedron has bilinear modes
+    whose strains genuinely differ between quadrature points.
+
+## What's next?
+
+The [Recommended Practices](atopics.md) page goes deeper: what the discontinuous gradient buys
+you over an L2 projection, how the quadrature point partition is built, high order fields,
+the composable viewer and live plotting during a simulation.
+
+This package also provides an interactive viewer, `ferriteviewer(ds)` and
+`ferriteviewer(ds,u_history)` for time dependent views. Its layout and controls are built
+from `Makie.SpecApi` and can be fully customized, see the
+[composable viewer](atopics.md#Composable-viewer) section.

@@ -1,7 +1,7 @@
 name = "FerriteViz"
 uuid = "59d0093e-b1f1-4fb7-ac85-ab57e45f39d9"
 authors = ["Maximilian Köhler <maximilian.koehler@ruhr-uni-bochum.de> and contributors"]
-version = "0.2.2"
+version = "0.2.3"
 
 [deps]
 Ferrite = "c061ca5d-56c9-439f-9c0e-210fe06d3992"
@@ -9,7 +9,6 @@ GeometryBasics = "5c1252a2-5f33-56bf-86c9-59e7332b4326"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 Makie = "ee78f7c6-11fb-53f2-987a-cfe4a2b5a57a"
 ShaderAbstractions = "65257c39-d410-5151-9873-9b3e5be5013e"
-StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 Tensors = "48a634ad-e948-5137-8d70-aa71f2a747f4"
 
 [compat]
@@ -21,8 +20,8 @@ Tensors = "1"
 julia = "1"
 
 [extras]
-SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
+Makie = "ee78f7c6-11fb-53f2-987a-cfe4a2b5a57a"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
-test = ["SparseArrays", "Test"]
+test = ["Makie", "Test"]

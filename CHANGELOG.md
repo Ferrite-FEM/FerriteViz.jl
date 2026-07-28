@@ -7,6 +7,95 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Full rewrite of the internals around a ParaView-style pipeline:
+Source (`FEData`) → Filters → Representations. Breaking; to be tagged as a
+new minor release.
+
+### Added
+ - `FEData` data source with named point-/cell-data arrays
+   (`point_data`/`cell_data`/`set_point_data!`/`set_cell_data!`)
+ - composable, reactive filters (applied with `|>`): `WarpByVector`,
+   `Gradient`, `CrinkleClip`, `Refine`, `FirstOrderRefinement`, `ExtractComponent`,
+   `Magnitude`, `Norm1`, `VonMises`, `Deviator`, `Threshold`, `Derive`
+ - `AddQuadraturePointData` filter for internal variables (data known only at the
+   quadrature points, with no interpolation defining it elsewhere): every cell is
+   partitioned into the exact Voronoi regions of its quadrature points and each
+   region is filled with that point's value, so the data is neither averaged over
+   the cell nor smoothed onto a nodal field. Accepts `values[cell][qp]`,
+   `values[cell, qp]` or an `Observable` of either, an `extract` function for
+   material-state structs, and one quadrature rule per reference shape for mixed
+   grids. The result is point data, so `VonMises`, `Deviator`, `Derive`, ...
+   compose with it; two `AddQuadraturePointData` filters sharing a quadrature rule
+   reproduce the same vertex layout and keep each other's arrays, which is what
+   allows several quadrature point quantities to be combined in one `Derive`.
+ - `Derive` accepts several inputs: `input` may be a vector of names and the
+   function then takes one argument per name, taken from the same tessellation
+   vertex (point data) or cell (cell data), e.g.
+   `Derive((σ, εᵖ) -> σ ⊡ εᵖ; input = [:σ, :εᵖ])`. A single `Symbol` keeps
+   working. All inputs must be of the same kind (all point or all cell data).
+ - composable, `Makie.SpecApi`-based `ferriteviewer`: a `layout(ds, state)` hook
+   returns a `GridLayoutSpec`, pluggable `Control`s (`FieldMenu`, `ProcessMenu`,
+   `ColormapMenu`, `LabelsToggle`, `DeformationToggle`, `TimeSlider`) feed the
+   view state, and spec helpers (`panelspec`, `solutionplotspec`, …) build the
+   panels. The defaults reproduce the previous single-panel view; everything is
+   overridable. `panelspec` resolves the array a panel colors by *name*, so a
+   linked `Colorbar` shows the data range instead of Makie's `(0, 1)` fallback.
+ - one-method extension point for custom cell types:
+   `reference_tessellation(::Type{<:AbstractRefShape})`
+   (with `facet_based_tessellation` for 3D shapes)
+ - out-of-the-box support for `Wedge` (`RefPrism`) and `Pyramid`
+   (`RefPyramid`) cells
+ - curved (higher-order geometry) cells now tessellate through the geometric
+   interpolation; `Refine` improves geometry resolution, not just the solution
+ - `vonmises(σ)` helper (previously only in doc examples; not exported, use
+   `FerriteViz.vonmises` or import it explicitly)
+
+### Modified (breaking)
+ - `MakiePlotter(dh, u)` → `FEData(dh, u)` (which copies `u`; `update!`
+   no longer mutates the caller's vector)
+ - recipe `field`/`process`/`deformation_field`/`deformation_scale` keyword
+   arguments are replaced by upstream filters and the `color` attribute:
+   `solutionplot(plotter, field=:p)` → `solutionplot(ds, color=:p)`,
+   `solutionplot(plotter, deformation_field=:u)` →
+   `solutionplot(ds |> WarpByVector(:u))`,
+   `solutionplot(plotter, field=:gradient, process=f)` →
+   `solutionplot(ds |> Gradient(:u) |> Derive(f, output=:name), color=:name)`
+ - `arrows` → `arrowplot` (Makie 0.24 owns the `Arrows` recipe name);
+   its `normalize` attribute works now
+ - `crinkle_clip(!)` → `CrinkleClip` filter, `uniform_refinement` → `Refine`,
+   `for_discretization` → `FirstOrderRefinement` (which now also supports
+   vector fields)
+ - `wireframe` alias removed; the recipe is `meshplot` (now exported, along
+   with the other recipe functions and the filters)
+ - `for_nodes`/`for_base_geometry_type`/`for_interpolation` →
+   `first_order_subcells`/`linear_celltype`
+
+### Changed
+ - `ferriteviewer` internals fully rewritten around `PlotSpec`. The
+   `ferriteviewer(ds)` / `ferriteviewer(ds, u_history)` signatures are preserved.
+ - the documentation is restructured around the pipeline: the tutorial covers the
+   plotting recipes first, then chaining filters, with `Gradient |> Derive` shown
+   on the mixed displacement/pressure formulation and `AddQuadraturePointData |>
+   Derive` on the plastic work density of the plasticity example. The recommended
+   practices page (formerly "advanced topics") no longer repeats that material and
+   focuses on the reasoning behind the discontinuous gradient and the quadrature
+   point partition.
+
+### Removed
+ - `transfer_solution`'s `process` keyword, `postprocess`, `x₁`/`x₂`/`x₃`,
+   `l1`/`l2` (use the data-derivation filters)
+ - unused `StaticArrays` dependency
+
+### Fixed
+ - point data holding a tensor whose dimension differs from the grid's — a shell
+   or plane-strain problem carrying 3D stresses on a 2D grid — no longer dies
+   with a `MethodError` from inside Tensors.jl. Rows of 4, 6 and 9 components are
+   interpreted as `Tensor{2,2}`, `SymmetricTensor{2,3}` and `Tensor{2,3}`, so
+   `VonMises`, `Deviator` and friends work on them; widths that cannot be
+   interpreted now report the component count instead.
+ - the constitutive law in the gradient example used `ones` (a tensor of ones)
+   instead of `one` (the identity) for the volumetric term.
+
 ## [0.2.3] - 2026-06-22
 ### Added
  - `colorrange` attribute for `FerriteViz.surface` ([#122][github-122])

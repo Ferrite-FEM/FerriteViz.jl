@@ -21,33 +21,40 @@ pkg> add FerriteViz
 
 ## Usage
 
-Simply grab your solution vector and the corresponding dof handler to create a plotter: 
+Simply grab your solution vector and the corresponding dof handler to create a data source,
+then pipe it through filters into the plots — ParaView's Source → Filter → Representation model:
 
 ```julia
 import FerriteViz, GLMakie
-dh, u   = solve_problem()
-plotter = MakiePlotter(dh, u)
-FerriteViz.solutionplot(plotter)
+using FerriteViz
+dh, u = solve_problem()
+ds = FEData(dh, u)
+FerriteViz.solutionplot(ds)
+# or composed, e.g. the von Mises invariant of the displacement gradient on
+# the deformed mesh (apply a constitutive law with Derive to get a stress):
+FerriteViz.solutionplot(ds |> WarpByVector(:u) |> Gradient(:u) |> VonMises(), color=:vonMises)
 ```
 
 For a guide check out [the tutorial section](https://ferrite-fem.github.io/FerriteViz.jl/dev/tutorial.html) - or just enjoy the gallery below!
 
 ## Features
 
+- composable, reactive filters: `WarpByVector`, `Gradient`, `CrinkleClip`, `Refine`,
+  `FirstOrderRefinement`, `VonMises`, `Deviator`, `Threshold`, `Derive`, ...
 - `solutionplot` FE solution contour plot on arbitrary finite element mesh (in Makie called `mesh` plots)
 - `ferriteviewer` viewer with toggles and menus that update the plot
-- `wireframe` plots the finite element mesh and optionally labels nodes and cells
-- `arrows` - also called `quiver` plots, in paraview `glyph` filter
-- `surface` 2D solutions in 3D space as surface, in paraview `warp by scalar` filter
+- `meshplot` plots the finite element mesh and optionally labels nodes and cells
+- `arrowplot` - also called `quiver` plots, in paraview `glyph` filter
+- `surfaceplot` 2D solutions in 3D space as surface, in paraview `warp by scalar` filter
+- custom cell types via a single `reference_tessellation` method
 - synchronous plotting while your simulation runs with any of the above listed options
 - mutating versions of the above listed functions (except for the viewer)
-- deformed plots available for `solutionplot` and `wireframe`
 - full integration into the Makie ecosystem, e.g. themes, layouts etc. 
 - GPU powered plotting with GLMakie.jl, jupyter/pluto notebook plotting with WGLMakie.jl and vector graphics with CairoMakie.jl
 
 ## Missing Features
 
-- correct visualization of nonlinear geometry faces/edges
+- curved edges in `meshplot` (cell surfaces already tessellate through the geometric interpolation)
 - visualization of boundary conditions
 - subdomain entity plotting, e.g. facesets, edgesets and so on
 - ...

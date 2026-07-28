@@ -1,4 +1,5 @@
 using Ferrite, SparseArrays, LinearAlgebra, FerriteViz
+using FerriteViz: vonmises
 
 struct J2Plasticity{T, S <: SymmetricTensor{4, 3, T}}
     G::T  # Shear modulus
@@ -47,11 +48,6 @@ function update_state!(state::MaterialState)
     state.k = state.temp_k
 end;
 
-function vonMises(σ)
-    s = dev(σ)
-    return sqrt(3.0/2.0 * s ⊡ s)
-end;
-
 function compute_stress_tangent(ϵ::SymmetricTensor{2, 3}, material::J2Plasticity, state::MaterialState)
     # unpack some material parameters
     G = material.G
@@ -61,8 +57,7 @@ function compute_stress_tangent(ϵ::SymmetricTensor{2, 3}, material::J2Plasticit
     # We use (•)ᵗ to denote *trial*-values
     σᵗ = material.Dᵉ ⊡ (ϵ - state.ϵᵖ) # trial-stress
     sᵗ = dev(σᵗ)         # deviatoric part of trial-stress
-    J₂ = 0.5 * sᵗ ⊡ sᵗ   # second invariant of sᵗ
-    σᵗₑ = sqrt(3.0*J₂)   # effetive trial-stress (von Mises stress)
+    σᵗₑ = vonmises(σᵗ)   # effective trial-stress (von Mises stress)
     σʸ = material.σ₀ + H * state.k # Previous yield limit
 
     φᵗ  = σᵗₑ - σʸ # Trial-value of the yield surface
@@ -99,19 +94,24 @@ function compute_stress_tangent(ϵ::SymmetricTensor{2, 3}, material::J2Plasticit
     end
 end
 
-function create_values(interpolation)
+# `refshape` is annotated so this coexists with the two-interpolation
+# `create_values` of the incompressible elasticity example when both are
+# included into the same module (as the tutorial does)
+function create_values(interpolation, refshape::Type)
     # setup quadrature rules
-    qr      = QuadratureRule{RefTetrahedron}(2)
-    face_qr = FacetQuadratureRule{RefTetrahedron}(3)
+    qr      = QuadratureRule{refshape}(2)
+    face_qr = FacetQuadratureRule{refshape}(3)
 
     # create geometric interpolation (use the same as for u)
-    interpolation_geom = Lagrange{RefTetrahedron,1}()^3
+    interpolation_geom = Lagrange{refshape,1}()^3
 
     # cell and facevalues for u
     cellvalues_u = CellValues(qr, interpolation, interpolation_geom)
     facevalues_u = FacetValues(face_qr, interpolation, interpolation_geom)
 
-    return cellvalues_u, facevalues_u
+    # the quadrature rule is returned as well: the material states are stored per
+    # quadrature point, so plotting them with `AddQuadraturePointData` needs it
+    return cellvalues_u, facevalues_u, qr
 end;
 
 function create_dofhandler(grid, interpolation)
@@ -200,7 +200,20 @@ function symmetrize_lower!(K)
     end
 end;
 
-function solve(liveplotting=false)
+"""
+    solve(liveplotting=false; celltype=Tetrahedron)
+
+Solve the plastified cantilever. Returns
+`u, dh, u_history, mises_values, κ_values, states, qr`, where `states` holds one
+`MaterialState` per quadrature point per cell and `qr` is the matching rule.
+
+`celltype` selects the element. `Tetrahedron` (the default) is a constant strain
+element, so all quadrature points of a cell carry the *same* state — use
+`celltype=Hexahedron` to get the bilinear modes whose strains genuinely differ
+between the quadrature points, e.g. for `FerriteViz.AddQuadraturePointData`.
+"""
+function solve(liveplotting=false; celltype=Tetrahedron)
+    refshape = Ferrite.getrefshape(celltype)
     # Define material parameters
     E = 200.0e9 # [Pa]
     H = E/20   # [Pa]
@@ -220,21 +233,21 @@ function solve(liveplotting=false)
     nels = (10n, n, 2n) # number of elements in each spatial direction
     P1 = Tensors.Vec((0.0, 0.0, 0.0))  # start point for geometry
     P2 = Tensors.Vec((L, w, h))        # end point for geometry
-    grid = generate_grid(Tetrahedron, nels, P1, P2)
-    interpolation = Lagrange{RefTetrahedron, 1}() # Linear tet with 3 unknowns/node
+    grid = generate_grid(celltype, nels, P1, P2)
+    interpolation = Lagrange{refshape, 1}() # linear element with 3 unknowns/node
 
     dh = create_dofhandler(grid, interpolation^3) # helper function
     dbcs = create_bc(dh, grid) # create Dirichlet boundary-conditions
 
-    cellvalues, facevalues = create_values(interpolation^3)
+    cellvalues, facevalues, qr = create_values(interpolation^3, refshape)
 
     # Pre-allocate solution vectors, etc.
     n_dofs = ndofs(dh)  # total number of dofs
     u  = zeros(n_dofs)  # solution vector
     u_history = Vector{Vector{Float64}}()
     if liveplotting
-        plotter = MakiePlotter(dh,u)
-        fig = ferriteviewer(plotter)
+        ds = FEData(dh,u)
+        fig = ferriteviewer(ds)
         display(fig)
     end
     Δu = zeros(n_dofs)  # displacement correction
@@ -256,7 +269,7 @@ function solve(liveplotting=false)
         t = timestep # actual time (used for evaluating d-bndc)
         traction = Tensors.Vec((0.0, 0.0, traction_magnitude[timestep]))
         newton_itr = -1
-        update!(dbcs, t) # evaluates the D-bndc at time t
+        Ferrite.update!(dbcs, t) # evaluates the D-bndc at time t
         apply!(u, dbcs)  # set the prescribed values in the solution vector
 
         while true; newton_itr += 1
@@ -278,7 +291,7 @@ function solve(liveplotting=false)
             u -= Δu
         end
         if liveplotting
-            FerriteViz.update!(plotter,u)
+            FerriteViz.update!(ds,u)
             sleep(0.1)
         end
         push!(u_history,u)
@@ -298,11 +311,14 @@ function solve(liveplotting=false)
     κ_values = zeros(getncells(grid))
     for (el, cell_states) in enumerate(states)
         for state in cell_states
-            mises_values[el] += vonMises(state.σ)
+            mises_values[el] += vonmises(state.σ)
             κ_values[el] += state.k*material.H
         end
         mises_values[el] /= length(cell_states) # average von Mises stress
         κ_values[el] /= length(cell_states)     # average drag stress
     end
-    return u, dh, u_history, mises_values, κ_values
+    # `states` (one MaterialState per quadrature point per cell) and `qr` are returned
+    # so the internal variables can be plotted without averaging, e.g.
+    #   FEData(dh, u) |> AddQuadraturePointData(qr, states; extract = s -> s.σ) |> VonMises()
+    return u, dh, u_history, mises_values, κ_values, states, qr
 end

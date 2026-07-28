@@ -3,7 +3,6 @@ using Documenter, FerriteViz, WGLMakie
 
 makedocs(sitename="FerriteViz",
          doctest = true,
-         warnonly = true,
          modules=[FerriteViz],
          authors="Maximilian Köhler",
          format=Documenter.HTML(
@@ -12,7 +11,8 @@ makedocs(sitename="FerriteViz",
          ),
          pages=["Home"=> "index.md",
                 "Tutorial" => "tutorial.md",
-                "Advanced Topics" => "atopics.md",
+                "Recommended Practices" => "atopics.md",
+                "Custom Cells" => "cohesive.md",
                 "API Reference" => "api.md",
                 "Devdocs" => "devdocs.md",
                 ],

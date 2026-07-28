@@ -73,9 +73,6 @@ new minor release.
 ### Changed
  - `ferriteviewer` internals fully rewritten around `PlotSpec`. The
    `ferriteviewer(ds)` / `ferriteviewer(ds, u_history)` signatures are preserved.
- - CairoMakie is supported again: representations unwrap the shared
-   `ShaderAbstractions.Buffer`s to plain arrays when CairoMakie is the active
-   backend (GL/WGLMakie keep the buffer-backed, live-updating path).
  - the documentation is restructured around the pipeline: the tutorial covers the
    plotting recipes first, then chaining filters, with `Gradient |> Derive` shown
    on the mixed displacement/pressure formulation and `AddQuadraturePointData |>

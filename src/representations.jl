@@ -12,40 +12,6 @@ function base_fe_attributes()
     )
 end
 
-# Backend shim for CairoMakie.
-#
-# The pipeline shares its coordinates and triangles into `ShaderAbstractions.Buffer`s
-# so GL/WGLMakie can mutate the GPU data in place on `update!`. CairoMakie's
-# software mesh path, however, expects plain `Vector`s and does not accept a
-# `Buffer` for the faces. When CairoMakie is the active backend we therefore
-# draw from the buffers' underlying vectors instead of the buffer-backed
-# `GeometryBasics.Mesh` (CairoMakie renders a static frame, so losing the live
-# buffer link is inconsequential — `data()` still returns the vector kept in
-# sync with the coordinate observable).
-function _is_cairomakie_backend()
-    backend = Makie.current_backend()
-    return !ismissing(backend) && nameof(backend) === :CairoMakie
-end
-
-_buffer_data(x) = x
-_buffer_data(x::ShaderAbstractions.Buffer) = ShaderAbstractions.data(x)
-
-function _mesh!(parent, ds::FEData; kwargs...)
-    if _is_cairomakie_backend()
-        return Makie.mesh!(parent, _buffer_data(ds.coords_buffer), _buffer_data(ds.vis_triangles); kwargs...)
-    else
-        return Makie.mesh!(parent, ds.mesh; kwargs...)
-    end
-end
-
-function _mesh!(parent, vertices, faces; kwargs...)
-    if _is_cairomakie_backend()
-        return Makie.mesh!(parent, vertices, _buffer_data(faces); kwargs...)
-    else
-        return Makie.mesh!(parent, vertices, faces; kwargs...)
-    end
-end
-
 # Resolve a recipe's color attribute: a Symbol naming a field / point-data /
 # cell-data array (or :default) resolves to the scalar per-vertex array,
 # anything else passes through as a plain Makie color. Handles dynamic
@@ -113,8 +79,8 @@ end
 function Makie.plot!(SP::SolutionPlot{<:Tuple{<:FEData}})
     ds = SP[1][]
     solution = resolve_color(SP, ds, SP[:color])
-    return _mesh!(SP, ds, color=solution, shading=SP[:shading], colormap=SP[:colormap],
-                  colorrange=SP[:colorrange], nan_color=SP[:nan_color])
+    return Makie.mesh!(SP, ds.mesh, color=solution, shading=SP[:shading], colormap=SP[:colormap],
+                       colorrange=SP[:colorrange], nan_color=SP[:nan_color])
 end
 
 """
@@ -137,15 +103,15 @@ end
 function Makie.plot!(CP::CellPlot{<:Tuple{<:FEData,<:AbstractVector}})
     ds = CP[1][]
     solution = Makie.lift(v -> transfer_scalar_celldata(ds, v), CP[2])
-    return _mesh!(CP, ds, color=solution, shading=CP[:shading], colormap=CP[:colormap],
-                  colorrange=CP[:colorrange], nan_color=CP[:nan_color])
+    return Makie.mesh!(CP, ds.mesh, color=solution, shading=CP[:shading], colormap=CP[:colormap],
+                       colorrange=CP[:colorrange], nan_color=CP[:nan_color])
 end
 
 function Makie.plot!(CP::CellPlot{<:Tuple{<:FEData}})
     ds = CP[1][]
     solution = resolve_color(CP, ds, CP[:color])
-    return _mesh!(CP, ds, color=solution, shading=CP[:shading], colormap=CP[:colormap],
-                  colorrange=CP[:colorrange], nan_color=CP[:nan_color])
+    return Makie.mesh!(CP, ds.mesh, color=solution, shading=CP[:shading], colormap=CP[:colormap],
+                       colorrange=CP[:colorrange], nan_color=CP[:nan_color])
 end
 
 """
@@ -204,8 +170,8 @@ function Makie.plot!(WF::MeshPlot{<:Tuple{<:FEData{dim}}}) where {dim}
     # cellset coloring
     cellset_u = cellset_data(grid)
     colorrange = (0, max(1, isempty(cellset_u) ? 1 : maximum(cellset_u)))
-    _mesh!(WF, ds, color=transfer_scalar_celldata(ds, cellset_u), shading=Makie.NoShading,
-           colormap=:darktest, colorrange=colorrange, visible=WF[:cellsets])
+    Makie.mesh!(WF, ds.mesh, color=transfer_scalar_celldata(ds, cellset_u), shading=Makie.NoShading,
+                colormap=:darktest, colorrange=colorrange, visible=WF[:cellsets])
     # nodes
     shouldplot = @lift($(WF[:visible]) && $(WF[:plotnodes]))
     Makie.scatter!(WF, gridnodes, markersize=WF[:markersize], color=WF[:color], visible=shouldplot)
@@ -243,8 +209,8 @@ function Makie.plot!(SF::SurfacePlot{<:Tuple{<:FEData{2}}})
     positions = Makie.lift(ds.coords, solution) do coords, sol
         [Point3f(coords[i][1], coords[i][2], sol[i]) for i in eachindex(coords)]
     end
-    return _mesh!(SF, positions, ds.vis_triangles, color=solution, shading=SF[:shading],
-                  colormap=SF[:colormap], colorrange=SF[:colorrange], nan_color=SF[:nan_color])
+    return Makie.mesh!(SF, positions, ds.vis_triangles, color=solution, shading=SF[:shading],
+                       colormap=SF[:colormap], colorrange=SF[:colorrange], nan_color=SF[:nan_color])
 end
 
 """

@@ -7,9 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-28
+
 Full rewrite of the internals around a ParaView-style pipeline:
-Source (`FEData`) → Filters → Representations. Breaking; to be tagged as a
-new minor release.
+Source (`FEData`) → Filters → Representations. Breaking release.
 
 ### Added
  - `FEData` data source with named point-/cell-data arrays
@@ -212,7 +213,8 @@ new minor release.
 [github-118]: https://github.com/Ferrite-FEM/FerriteViz.jl/issues/118
 [github-146]: https://github.com/Ferrite-FEM/FerriteViz.jl/pull/146
 
-[Unreleased]: https://github.com/Ferrite-FEM/FerriteViz.jl/compare/v0.2.3...HEAD
+[Unreleased]: https://github.com/Ferrite-FEM/FerriteViz.jl/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/Ferrite-FEM/FerriteViz.jl/compare/v0.2.3...v0.3.0
 [0.2.3]: https://github.com/Ferrite-FEM/FerriteViz.jl/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/Ferrite-FEM/FerriteViz.jl/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/Ferrite-FEM/FerriteViz.jl/compare/v0.2.1...v0.2.0

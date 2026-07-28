@@ -637,6 +637,21 @@ end
         @test vec(FerriteViz.point_data(dsd |> Magnitude(), :magnitude)[]) ≈
               [sqrt(U[i, 1]^2 + U[i, 2]^2) for i in 1:size(U, 1)]
     end
+
+    # `:default` is reserved: a dof field of that name could never be addressed,
+    # since naming it resolves to the first field instead. Reject it at
+    # construction rather than silently reading the wrong array.
+    dhr = DofHandler(grid)
+    add!(dhr, :u, Lagrange{RefQuadrilateral,1}()^2)
+    add!(dhr, :default, Lagrange{RefQuadrilateral,1}())
+    close!(dhr)
+    @test_throws ErrorException FEData(dhr, rand(ndofs(dhr)))
+    @test_throws ErrorException FEData(dhr, Makie.Observable(rand(ndofs(dhr))))
+    # rejected in first position too, so the rule is unconditional
+    dhr1 = DofHandler(grid)
+    add!(dhr1, :default, Lagrange{RefQuadrilateral,1}())
+    close!(dhr1)
+    @test_throws ErrorException FEData(dhr1, rand(ndofs(dhr1)))
 end
 
 @testset "warp reactivity" begin

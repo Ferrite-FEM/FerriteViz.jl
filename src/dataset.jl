@@ -74,6 +74,19 @@ function _default_topology(grid)
     return Ferrite.getspatialdim(grid) > 2 ? Ferrite.ExclusiveTopology(grid) : nothing
 end
 
+# `:default` is the sentinel every filter and representation resolves to the
+# *first* field of the dof handler (see `_resolve_name`). A dof field actually
+# named `default` could therefore never be addressed: naming it would silently
+# select the first field instead, which is the wrong array whenever `default`
+# is not itself in first position. Reject it where it enters the package.
+function _check_reserved_fieldnames(dh::Ferrite.AbstractDofHandler)
+    :default in Ferrite.getfieldnames(dh) &&
+        error("`:default` is reserved by FerriteViz: it names the first field of the dof handler " *
+              "wherever a field, point-data or cell-data name is expected. Rename the dof field " *
+              "`:default` to address it explicitly.")
+    return nothing
+end
+
 function FEData(dh::Ferrite.AbstractDofHandler, u::AbstractVector;
                 topology=_default_topology(Ferrite.get_grid(dh)))
     # copy: update! writes into this array and must not mutate the caller's u
@@ -82,6 +95,7 @@ end
 
 function FEData(dh::Ferrite.AbstractDofHandler, u::Makie.Observable;
                 topology=_default_topology(Ferrite.get_grid(dh)), source_u::Makie.Observable=u)
+    _check_reserved_fieldnames(dh)
     grid = Ferrite.get_grid(dh)
     cells = Ferrite.getcells(grid)
     sdim = Ferrite.getspatialdim(grid)
@@ -220,6 +234,10 @@ triangulation the dataset renders, not the vertices of the finite element cells
 — see the [architecture overview](@ref "Architecture"). Fields of the dof handler
 are transferred to the tessellation lazily and cached; `:default` resolves to
 the first field.
+
+!!! note
+    `:default` is reserved for this purpose wherever a name is expected, so a
+    dof handler carrying a field named `:default` is rejected by [`FEData`](@ref).
 """
 function point_data(ds::FEData, name::Symbol)
     name = _resolve_name(ds, name)

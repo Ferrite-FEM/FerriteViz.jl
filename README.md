@@ -40,13 +40,20 @@ For a guide check out [the tutorial section](https://ferrite-fem.github.io/Ferri
 ## Features
 
 - composable, reactive filters: `WarpByVector`, `Gradient`, `CrinkleClip`, `Refine`,
-  `FirstOrderRefinement`, `VonMises`, `Deviator`, `Threshold`, `Derive`, ...
+  `FirstOrderRefinement`, `ExtractComponent`, `Magnitude`, `Norm1`, `VonMises`, `Deviator`,
+  `Threshold`, `Derive`, ...
+- `AddQuadraturePointData` renders internal variables — data known only at the quadrature points —
+  by partitioning every cell into the exact Voronoi regions of its quadrature points, without
+  averaging over the cell or smoothing onto a nodal field
 - `solutionplot` FE solution contour plot on arbitrary finite element mesh (in Makie called `mesh` plots)
-- `ferriteviewer` viewer with toggles and menus that update the plot
+- `ferriteviewer` viewer with toggles and menus that update the plot, composable through a
+  `layout(ds, state)` hook and pluggable `Control`s
 - `meshplot` plots the finite element mesh and optionally labels nodes and cells
 - `arrowplot` - also called `quiver` plots, in paraview `glyph` filter
 - `surfaceplot` 2D solutions in 3D space as surface, in paraview `warp by scalar` filter
 - custom cell types via a single `reference_tessellation` method
+- `Wedge` and `Pyramid` cells out of the box, and curved (higher-order geometry) cells that
+  tessellate through their geometric interpolation
 - synchronous plotting while your simulation runs with any of the above listed options
 - mutating versions of the above listed functions (except for the viewer)
 - full integration into the Makie ecosystem, e.g. themes, layouts etc. 

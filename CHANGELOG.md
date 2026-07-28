@@ -87,6 +87,11 @@ new minor release.
  - unused `StaticArrays` dependency
 
 ### Fixed
+ - CairoMakie renders again ([#118][github-118], [#146][github-146]): its software
+   mesh path expects plain `Vector`s and does not accept a `ShaderAbstractions.Buffer`
+   for the faces, so the representations unwrap the shared buffers to their
+   underlying arrays when CairoMakie is the active backend (GL/WGLMakie keep the
+   buffer-backed, live-updating path).
  - point data holding a tensor whose dimension differs from the grid's — a shell
    or plane-strain problem carrying 3D stresses on a 2D grid — no longer dies
    with a `MethodError` from inside Tensors.jl. Rows of 4, 6 and 9 components are
@@ -204,6 +209,8 @@ new minor release.
 [github-137]: https://github.com/Ferrite-FEM/FerriteViz.jl/pull/137
 [github-138]: https://github.com/Ferrite-FEM/FerriteViz.jl/pull/138
 [github-139]: https://github.com/Ferrite-FEM/FerriteViz.jl/pull/139
+[github-118]: https://github.com/Ferrite-FEM/FerriteViz.jl/issues/118
+[github-146]: https://github.com/Ferrite-FEM/FerriteViz.jl/pull/146
 
 [Unreleased]: https://github.com/Ferrite-FEM/FerriteViz.jl/compare/v0.2.3...HEAD
 [0.2.3]: https://github.com/Ferrite-FEM/FerriteViz.jl/compare/v0.2.2...v0.2.3

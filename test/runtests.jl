@@ -822,6 +822,10 @@ end
     @test_throws ErrorException arrowplot(FEData(dhs, rand(ndofs(dhs))))
     # surfaceplot needs a data array, not a plain color
     @test_throws ErrorException surfaceplot(ds; color=:red)
+
+    # CairoMakie shim units: Buffers unwrap to their vectors, plain data passes through
+    @test FerriteViz._buffer_data(ds.coords_buffer) isa Vector
+    @test FerriteViz._buffer_data([1, 2]) == [1, 2]
 end
 
 @testset "source hygiene" begin
@@ -830,8 +834,12 @@ end
         content = read(f, String)
         @test !occursin("@show", content)
         @test !occursin("@info", content)
+        # src must not depend on a concrete backend (the backend is the user's
+        # choice); detecting the active one by name — as the CairoMakie mesh
+        # shim does — is fine, so forbid imports rather than any mention.
         for backend in ("GLMakie", "CairoMakie", "WGLMakie")
-            @test !occursin(backend, content)
+            @test !occursin("using $backend", content)
+            @test !occursin("import $backend", content)
         end
     end
 end

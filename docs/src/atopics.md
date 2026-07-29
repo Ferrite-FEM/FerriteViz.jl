@@ -125,10 +125,20 @@ Since the filter rebuilds the geometry, apply [`WarpByVector`](@ref) *after* it.
 
 ## High-order fields
 
-The investigation of high-order fields is currently only supported via a first-order refinement of the problem.
-Here, the high-order approximation is replaced by a first order approximation of the field, which is
-spanned by the nodes of the high-order approximation — the [`FirstOrderRefinement`](@ref) filter. For example, the first order refinement of a
-heat problem on a square domain for Lagrange polynomials of order 4 looks like this:
+High-order data gets a head start out of the box: whenever the geometry or a field of the
+dof handler is nonlinear, [`FEData`](@ref) subdivides each cell's reference tessellation
+once for the surfaces and three times for the [`FerriteViz.meshplot`](@ref) wireframe
+edges, mapping the new vertices through the geometric interpolation — curved cells and
+high-order deformations render curved. The `resolution`/`edge_resolution` keywords tune
+this (`resolution=0, edge_resolution=0` gives the flat tessellation and its smaller
+memory footprint).
+
+That default is deliberately coarse for the *solution values* though. To resolve the fine
+structure of a high-order field, two filters go further. The first replaces the
+high-order approximation by a first order approximation of the field, which is spanned
+by the nodes of the high-order approximation — the [`FirstOrderRefinement`](@ref) filter.
+For example, the first order refinement of a heat problem on a square domain for Lagrange
+polynomials of order 4 looks like this:
 ```@example 1
 include("ferrite-examples/heat-equation.jl"); #defines manufactured_heat_problem
 
@@ -145,7 +155,7 @@ f
 ```
 Note that this method produces small artifacts due to the flattening of the nonlinearities of the high order ansatz.
 However, it is still sufficient to investigate important features of the solution.
-If users want to have higher resolution than the crude estimate given by the first order refinement (as well as enough RAM), then we also provide a uniform tessellation algorithm, the [`Refine`](@ref) filter:
+If users want to have higher resolution than the crude estimate given by the first order refinement (as well as enough RAM), then we also provide a uniform tessellation algorithm, the [`Refine`](@ref) filter, which quadruples the rendered triangles (and doubles the wireframe segments) per application:
 ```@example 1
 f = WGLMakie.Figure()
 axs = [WGLMakie.LScene(f[1, 1]), WGLMakie.LScene(f[1, 2])]

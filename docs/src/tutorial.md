@@ -58,6 +58,27 @@ addcellset!(grid,"s3",Set((3,6,9)))
 FerriteViz.meshplot(grid,markersize=10,linewidth=1,nodelabels=true,celllabels=true,cellsets=true)
 ```
 
+Curved (higher-order geometry) cells are rendered curved: the cell surfaces and the
+wireframe edges are subdivided in reference space and mapped through the geometric
+interpolation, so the element edges bend through their midside nodes instead of being
+drawn as straight chords. A quarter annulus of quadratic quadrilaterals:
+
+```@example 1
+grid = generate_grid(QuadraticQuadrilateral,(6,3))
+Ferrite.transform_coordinates!(grid, x -> begin
+    r = 1.5 + 0.5x[2]        # x[2] ∈ [-1,1]  →  r ∈ [1,2]
+    θ = π/4*(x[1] + 1)       # x[1] ∈ [-1,1]  →  θ ∈ [0,π/2]
+    Vec(r*cos(θ), r*sin(θ))
+end)
+FerriteViz.meshplot(grid, markersize=8, linewidth=2, axis=(aspect=WGLMakie.DataAspect(),))
+```
+
+The subdivision kicks in automatically whenever the geometry *or* any field of the dof
+handler is nonlinear — a quadratic displacement field warping a linear mesh bends the
+wireframe just the same. How fine the surfaces and edges are resolved is controlled by
+the `resolution` and `edge_resolution` keywords of [`FEData`](@ref)
+(`FEData(dh, u; resolution=0, edge_resolution=0)` restores the flat tessellation).
+
 ### The solution field
 
 [`FEData`](@ref) wraps a `DofHandler` together with a solution vector; every plotting

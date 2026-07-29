@@ -32,7 +32,8 @@ function _rebind(ds::FEData{dim}, dh, u::Makie.Observable;
     return FEData{dim,typeof(dh),eltype(u[]),typeof(ds.topology),typeof(ds.source_u),typeof(ds.mesh),eltype(ds.all_triangles)}(
         dh, u, ds.source_u, ds.topology, ds.visible, ds.gridnodes, ds.coords, ds.coords_buffer,
         ds.all_triangles, ds.vis_triangles, ds.triangle_cell_map, ds.cell_triangle_offsets,
-        ds.cell_vertex_offsets, ds.reference_coords, ds.mesh, point_data, cell_data)
+        ds.cell_vertex_offsets, ds.all_edges, ds.edge_cell_map, ds.cell_edge_offsets,
+        ds.reference_coords, ds.mesh, point_data, cell_data)
 end
 
 ################
@@ -47,9 +48,10 @@ Filter displacing the geometry (tessellation vertices and grid nodes) by
 `Observable` (e.g. driven by a slider). Warps compose: the displacement is
 added to the input dataset's current coordinates.
 
-`field` may name any vector-valued point-data array; the original grid nodes
-(drawn by `meshplot`) can only be displaced when it is a dof-backed field of
-the dof handler and stay put otherwise.
+`field` may name any vector-valued point-data array; the tessellation vertices
+(surfaces and the `meshplot` wireframe) always follow. The original grid nodes
+(`meshplot`'s node markers and labels) can only be displaced when the field is
+a dof-backed field of the dof handler and stay put otherwise.
 """
 struct WarpByVector{F<:Union{Symbol,Makie.Observable{Symbol}},S} <: AbstractFilter
     field::F
@@ -78,7 +80,8 @@ function apply(w::WarpByVector, ds::FEData{dim}) where {dim}
     return FEData{dim,typeof(ds.dh),eltype(ds.u[]),typeof(ds.topology),typeof(ds.source_u),typeof(mesh),eltype(ds.all_triangles)}(
         ds.dh, ds.u, ds.source_u, ds.topology, ds.visible, gridnodes, coords, coords_buffer,
         ds.all_triangles, ds.vis_triangles, ds.triangle_cell_map, ds.cell_triangle_offsets,
-        ds.cell_vertex_offsets, ds.reference_coords, mesh, copy(ds.point_data), copy(ds.cell_data))
+        ds.cell_vertex_offsets, ds.all_edges, ds.edge_cell_map, ds.cell_edge_offsets,
+        ds.reference_coords, mesh, copy(ds.point_data), copy(ds.cell_data))
 end
 
 # Register a listener for cleanup when `owner` (a plot) is deleted; without an
@@ -156,7 +159,8 @@ function apply(c::CrinkleClip, ds::FEData{3})
     return FEData{3,typeof(ds.dh),eltype(ds.u[]),typeof(ds.topology),typeof(ds.source_u),typeof(mesh),eltype(ds.all_triangles)}(
         ds.dh, ds.u, ds.source_u, ds.topology, visible, ds.gridnodes, ds.coords, ds.coords_buffer,
         ds.all_triangles, vis_triangles, ds.triangle_cell_map, ds.cell_triangle_offsets,
-        ds.cell_vertex_offsets, ds.reference_coords, mesh,
+        ds.cell_vertex_offsets, ds.all_edges, ds.edge_cell_map, ds.cell_edge_offsets,
+        ds.reference_coords, mesh,
         Dict{Symbol,Makie.Observable}(), copy(ds.cell_data))
 end
 
@@ -196,15 +200,33 @@ end
 
 function _refine_once(ds::FEData{dim}) where {dim}
     grid = Ferrite.get_grid(ds.dh)
-    total_triangles = length(ds.all_triangles)
-    refined_reference_coords = Matrix{Float64}(undef, 4 * 3 * total_triangles, dim)
-    refined_physical_coords = Vector{GeometryBasics.Point{dim,Float32}}(undef, 4 * 3 * total_triangles)
-    refined_triangle_cell_map = Vector{Int}(undef, 4 * total_triangles)
-    refined_triangles = Matrix{Int}(undef, 4 * total_triangles, 3)
+    ncells = Ferrite.getncells(grid)
 
-    for cell_id in 1:Ferrite.getncells(grid)
+    # Per-cell vertex layout: 12 dedicated vertices per refined triangle
+    # followed by 3 per refined edge (endpoints + reference midpoint).
+    cell_triangle_offsets = ds.cell_triangle_offsets .* 4
+    cell_edge_offsets = ds.cell_edge_offsets .* 2
+    cell_vertex_offsets = Vector{Int}(undef, ncells + 1)
+    cell_vertex_offsets[1] = 0
+    for cell_id in 1:ncells
+        cell_vertex_offsets[cell_id+1] = cell_vertex_offsets[cell_id] +
+                                         12 * length(triangles_on_cell(ds, cell_id)) +
+                                         3 * length(edges_on_cell(ds, cell_id))
+    end
+    num_verts = cell_vertex_offsets[end]
+
+    refined_reference_coords = Matrix{Float64}(undef, num_verts, dim)
+    refined_physical_coords = Vector{GeometryBasics.Point{dim,Float32}}(undef, num_verts)
+    refined_triangle_cell_map = Vector{Int}(undef, 4 * length(ds.all_triangles))
+    refined_triangles = Matrix{Int}(undef, 4 * length(ds.all_triangles), 3)
+    refined_edges = Vector{NTuple{2,Int}}(undef, 2 * length(ds.all_edges))
+    refined_edge_cell_map = Vector{Int}(undef, 2 * length(ds.all_edges))
+
+    for cell_id in 1:ncells
         ip_geo = Ferrite.geometric_interpolation(typeof(Ferrite.getcells(grid, cell_id)))
         node_coords = Ferrite.getcoordinates(grid, cell_id)
+        voff = cell_vertex_offsets[cell_id]
+        toff = cell_triangle_offsets[cell_id]
         for triangle_index in triangles_on_cell(ds, cell_id)
             tri = ds.all_triangles[triangle_index]
             v1 = ds.reference_coords[tri[1], :]
@@ -213,18 +235,35 @@ function _refine_once(ds::FEData{dim}) where {dim}
             m12 = (v1 + v2) / 2.0
             m23 = (v2 + v3) / 2.0
             m31 = (v3 + v1) / 2.0
-            voff = 4 * 3 * (triangle_index - 1)
             # 4 sub-triangles, orientation preserving
             for (k, refc) in enumerate((v1, m12, m31, v2, m23, m12, v3, m31, m23, m12, m23, m31))
                 refined_reference_coords[voff+k, :] = refc
                 x = _map_refined_vertex(ip_geo, node_coords, refc)
                 refined_physical_coords[voff+k] = GeometryBasics.Point{dim,Float32}(x...)
             end
-            toff = 4 * (triangle_index - 1)
             refined_triangle_cell_map[(toff+1):(toff+4)] .= cell_id
             for t in 1:4
                 refined_triangles[toff+t, :] = voff .+ (3 * (t - 1)) .+ (1:3)
             end
+            voff += 12
+            toff += 4
+        end
+        eoff = cell_edge_offsets[cell_id]
+        for edge_index in edges_on_cell(ds, cell_id)
+            a, b = ds.all_edges[edge_index]
+            ra = ds.reference_coords[a, :]
+            rb = ds.reference_coords[b, :]
+            for (k, refc) in enumerate((ra, (ra + rb) / 2.0, rb))
+                refined_reference_coords[voff+k, :] = refc
+                x = _map_refined_vertex(ip_geo, node_coords, refc)
+                refined_physical_coords[voff+k] = GeometryBasics.Point{dim,Float32}(x...)
+            end
+            refined_edges[eoff+1] = (voff + 1, voff + 2)
+            refined_edges[eoff+2] = (voff + 2, voff + 3)
+            refined_edge_cell_map[eoff+1] = cell_id
+            refined_edge_cell_map[eoff+2] = cell_id
+            voff += 3
+            eoff += 2
         end
     end
 
@@ -235,8 +274,9 @@ function _refine_once(ds::FEData{dim}) where {dim}
     mesh = GeometryBasics.Mesh(coords_buffer, vis_triangles)
     return FEData{dim,typeof(ds.dh),eltype(ds.u[]),typeof(ds.topology),typeof(ds.source_u),typeof(mesh),eltype(all_triangles)}(
         ds.dh, ds.u, ds.source_u, ds.topology, ds.visible, ds.gridnodes, coords, coords_buffer,
-        all_triangles, vis_triangles, refined_triangle_cell_map, ds.cell_triangle_offsets .* 4,
-        ds.cell_triangle_offsets .* 12, refined_reference_coords, mesh,
+        all_triangles, vis_triangles, refined_triangle_cell_map, cell_triangle_offsets,
+        cell_vertex_offsets, refined_edges, refined_edge_cell_map, cell_edge_offsets,
+        refined_reference_coords, mesh,
         Dict{Symbol,Makie.Observable}(), copy(ds.cell_data))
 end
 
@@ -383,6 +423,19 @@ _qp_nqp(values::AbstractVector, cell::Int) = length(values[cell])
 _qp_at(values::AbstractMatrix, cell::Int, qp::Int) = values[cell, qp]
 _qp_at(values::AbstractVector, cell::Int, qp::Int) = values[cell][qp]
 
+# Voronoi assignment of an off-quadrature-point vertex (the appended wireframe
+# edge vertices): the nearest quadrature point in reference space.
+function _nearest_qp(ξ::Ferrite.Vec, points)
+    best, bestdist = 1, Inf
+    for (i, p) in enumerate(points)
+        dist = sum(abs2, ξ - p)
+        if dist < bestdist
+            best, bestdist = i, dist
+        end
+    end
+    return best
+end
+
 # Symmetric tensors are expanded to the full component order, so that the stored
 # row has spatial-dim² entries and `_wrap_row` hands a `Tensor{2}` back to the
 # derivation filters (VonMises, Deviator, ...).
@@ -402,24 +455,41 @@ function apply(f::AddQuadraturePointData, ds::FEData{dim}) where {dim}
         RS = Ferrite.getrefshape(cell)
         return get!(() -> qp_voronoi_tessellation(RS, _qr_for(f.qr, RS)), tess_cache, RS)
     end
+    # The rebuilt layout still carries the FE cell edges, so meshplot keeps
+    # working downstream. Edge vertices are appended after the Voronoi vertices
+    # and valued by their nearest quadrature point (the Voronoi assignment).
+    edge_cache = Dict{Type,Any}()
+    function edges_for(cell)
+        return get!(edge_cache, typeof(cell)) do
+            edge_res = _auto_edge_resolution(_render_degree(typeof(cell), ds.dh))
+            edge_geometry(_cell_tessellation(reference_tessellation(Ferrite.getrefshape(cell)), 0, edge_res))
+        end
+    end
 
     cell_triangle_offsets = Vector{Int}(undef, ncells + 1)
     cell_vertex_offsets = Vector{Int}(undef, ncells + 1)
+    cell_edge_offsets = Vector{Int}(undef, ncells + 1)
     cell_triangle_offsets[1] = 0
     cell_vertex_offsets[1] = 0
+    cell_edge_offsets[1] = 0
     for (cell_id, cell) in enumerate(cells)
         tess = tess_for(cell)
+        ecoords, eedges = edges_for(cell)
         nqp = length(Ferrite.getpoints(_qr_for(f.qr, Ferrite.getrefshape(cell))))
         _qp_nqp(values, cell_id) == nqp ||
             error("cell $cell_id carries $(_qp_nqp(values, cell_id)) quadrature values, but its rule has $nqp points")
         cell_triangle_offsets[cell_id+1] = cell_triangle_offsets[cell_id] + ntriangles(tess)
-        cell_vertex_offsets[cell_id+1] = cell_vertex_offsets[cell_id] + nvertices(tess)
+        cell_vertex_offsets[cell_id+1] = cell_vertex_offsets[cell_id] + nvertices(tess) + length(ecoords)
+        cell_edge_offsets[cell_id+1] = cell_edge_offsets[cell_id] + length(eedges)
     end
     num_triangles = cell_triangle_offsets[end]
     num_verts = cell_vertex_offsets[end]
+    num_edges = cell_edge_offsets[end]
 
     triangles = Matrix{Int}(undef, num_triangles, 3)
     triangle_cell_map = Vector{Int}(undef, num_triangles)
+    all_edges = Vector{NTuple{2,Int}}(undef, num_edges)
+    edge_cell_map = Vector{Int}(undef, num_edges)
     physical_coords = Vector{GeometryBasics.Point{dim,Float32}}(undef, num_verts)
     reference_coords = zeros(Float64, num_verts, dim)
     # static vertex -> (cell, quadrature point) map; the value lift is a gather
@@ -428,6 +498,8 @@ function apply(f::AddQuadraturePointData, ds::FEData{dim}) where {dim}
 
     for (cell_id, cell) in enumerate(cells)
         tess = tess_for(cell)
+        ecoords, eedges = edges_for(cell)
+        qpoints = Ferrite.getpoints(_qr_for(f.qr, Ferrite.getrefshape(cell)))
         ip_geo = Ferrite.geometric_interpolation(typeof(cell))
         node_coords = Ferrite.getcoordinates(grid, cell_id)
         coff = cell_vertex_offsets[cell_id]
@@ -440,12 +512,27 @@ function apply(f::AddQuadraturePointData, ds::FEData{dim}) where {dim}
             vertex_cell[coff+k] = cell_id
             vertex_qp[coff+k] = tess.vertex_qp[k]
         end
+        evoff = coff + nvertices(tess)
+        for (k, ξ) in enumerate(ecoords)
+            x = geometric_map(ip_geo, node_coords, ξ)
+            physical_coords[evoff+k] = GeometryBasics.Point{dim,Float32}(x...)
+            for d in 1:length(ξ)
+                reference_coords[evoff+k, d] = ξ[d]
+            end
+            vertex_cell[evoff+k] = cell_id
+            vertex_qp[evoff+k] = _nearest_qp(ξ, qpoints)
+        end
         toff = cell_triangle_offsets[cell_id]
         for (t, tri) in enumerate(tess.triangles)
             for j in 1:3
                 triangles[toff+t, j] = tri[j] + coff
             end
             triangle_cell_map[toff+t] = cell_id
+        end
+        eoff = cell_edge_offsets[cell_id]
+        for (e, edge) in enumerate(eedges)
+            all_edges[eoff+e] = (edge[1] + evoff, edge[2] + evoff)
+            edge_cell_map[eoff+e] = cell_id
         end
     end
 
@@ -464,7 +551,8 @@ function apply(f::AddQuadraturePointData, ds::FEData{dim}) where {dim}
     out = FEData{dim,typeof(ds.dh),eltype(ds.u[]),typeof(ds.topology),typeof(ds.source_u),typeof(mesh),eltype(all_triangles)}(
         ds.dh, ds.u, ds.source_u, ds.topology, ds.visible, ds.gridnodes, coords, coords_buffer,
         all_triangles, vis_triangles, triangle_cell_map, cell_triangle_offsets,
-        cell_vertex_offsets, reference_coords, mesh,
+        cell_vertex_offsets, all_edges, edge_cell_map, cell_edge_offsets,
+        reference_coords, mesh,
         same_layout ? copy(ds.point_data) : Dict{Symbol,Makie.Observable}(), copy(ds.cell_data))
 
     ncomponents = length(_qp_components(f.extract(_qp_at(values, 1, 1))))

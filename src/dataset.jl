@@ -32,7 +32,7 @@
 # observable (`obs[] = ...`) so the listeners downstream fire.
 
 """
-    FEData(dh::Ferrite.AbstractDofHandler, u::Vector; topology)
+    FEData(dh::Ferrite.AbstractDofHandler, u::Vector; topology, resolution, edge_resolution)
 
 Source node of the visualization pipeline: builds the static "L2" triangulation
 of `Ferrite.get_grid(dh)` (nodes shared between cells are duplicated per cell so
@@ -46,6 +46,16 @@ Transformations are applied by piping into filters:
 
 For large 3D grids, pass a precomputed `topology::Ferrite.ExclusiveTopology`
 to avoid rebuilding it.
+
+`resolution` and `edge_resolution` control how often each cell's reference
+tessellation is subdivided (see [`FerriteViz.subdivide`](@ref)): `resolution`
+refines the rendered surface, `edge_resolution` the wireframe edges drawn by
+[`meshplot`](@ref). The default (`nothing`) picks per cell type: no subdivision
+when both the geometry and every field are (multi-)linear, otherwise 1 surface
+and 3 edge subdivisions — so curved and high-order-deformed cells render
+curved. Pass explicit integers to override (e.g. `resolution=0` to save memory
+on large high-order grids, or a larger value for a high-order field on a
+linear grid).
 """
 struct FEData{dim,DH<:Ferrite.AbstractDofHandler,T1,TOP<:Union{Nothing,Ferrite.AbstractTopology},SU<:Makie.Observable,M,TRI} <: AbstractPlotter
     dh::DH
@@ -64,6 +74,12 @@ struct FEData{dim,DH<:Ferrite.AbstractDofHandler,T1,TOP<:Union{Nothing,Ferrite.A
     triangle_cell_map::Vector{Int}    # triangle -> owning cell
     cell_triangle_offsets::Vector{Int}  # cell -> range in all_triangles (see triangles_on_cell)
     cell_vertex_offsets::Vector{Int}    # cell -> range in coords (see vertices_on_cell)
+    # Wireframe segments along the FE cell edges, as pairs of indices into
+    # coords. Their endpoints are ordinary tessellation vertices, which is what
+    # makes the meshplot wireframe follow warps, solutions and clips for free.
+    all_edges::Vector{NTuple{2,Int}}
+    edge_cell_map::Vector{Int}          # edge segment -> owning cell
+    cell_edge_offsets::Vector{Int}      # cell -> range in all_edges (see edges_on_cell)
     reference_coords::Matrix{Float64}   # per tessellation vertex, in the cell's reference coordinates
     mesh::M                             # coords_buffer + vis_triangles, handed to Makie as is
     point_data::Dict{Symbol,Makie.Observable}  # arrays on the tessellation vertices
@@ -88,13 +104,35 @@ function _check_reserved_fieldnames(dh::Ferrite.AbstractDofHandler)
 end
 
 function FEData(dh::Ferrite.AbstractDofHandler, u::AbstractVector;
-                topology=_default_topology(Ferrite.get_grid(dh)))
+                topology=_default_topology(Ferrite.get_grid(dh)),
+                resolution::Union{Nothing,Int}=nothing, edge_resolution::Union{Nothing,Int}=nothing)
     # copy: update! writes into this array and must not mutate the caller's u
-    return FEData(dh, Makie.Observable(collect(u)); topology)
+    return FEData(dh, Makie.Observable(collect(u)); topology, resolution, edge_resolution)
 end
 
+# Highest polynomial order the dataset may have to render: the geometry's and
+# every dof field's. It decides whether the default tessellation resolution
+# subdivides — a quadratic displacement on a linear grid bends edges just like
+# curved geometry does.
+function _max_field_order(dh::Ferrite.DofHandler)
+    order = 1
+    for sdh in dh.subdofhandlers, name in sdh.field_names
+        order = max(order, Ferrite.getorder(Ferrite.getfieldinterpolation(sdh, name)))
+    end
+    return order
+end
+_max_field_order(::Ferrite.AbstractDofHandler) = 1
+
+function _render_degree(celltype::Type{<:Ferrite.AbstractCell}, dh::Ferrite.AbstractDofHandler)
+    return max(Ferrite.getorder(Ferrite.geometric_interpolation(celltype)), _max_field_order(dh))
+end
+
+_auto_surface_resolution(degree::Int) = degree > 1 ? 1 : 0
+_auto_edge_resolution(degree::Int) = degree > 1 ? 3 : 0
+
 function FEData(dh::Ferrite.AbstractDofHandler, u::Makie.Observable;
-                topology=_default_topology(Ferrite.get_grid(dh)), source_u::Makie.Observable=u)
+                topology=_default_topology(Ferrite.get_grid(dh)), source_u::Makie.Observable=u,
+                resolution::Union{Nothing,Int}=nothing, edge_resolution::Union{Nothing,Int}=nothing)
     _check_reserved_fieldnames(dh)
     grid = Ferrite.get_grid(dh)
     cells = Ferrite.getcells(grid)
@@ -110,22 +148,35 @@ function FEData(dh::Ferrite.AbstractDofHandler, u::Makie.Observable;
     end
 
     tess_cache = Dict{Type,ReferenceTessellation}()
-    tess_for(cell) = get!(() -> reference_tessellation(Ferrite.getrefshape(cell)), tess_cache, Ferrite.getrefshape(cell))
+    function tess_for(cell)
+        return get!(tess_cache, typeof(cell)) do
+            degree = _render_degree(typeof(cell), dh)
+            _cell_tessellation(reference_tessellation(Ferrite.getrefshape(cell)),
+                               something(resolution, _auto_surface_resolution(degree)),
+                               something(edge_resolution, _auto_edge_resolution(degree)))
+        end
+    end
 
     cell_triangle_offsets = Vector{Int}(undef, ncells + 1)
     cell_vertex_offsets = Vector{Int}(undef, ncells + 1)
+    cell_edge_offsets = Vector{Int}(undef, ncells + 1)
     cell_triangle_offsets[1] = 0
     cell_vertex_offsets[1] = 0
+    cell_edge_offsets[1] = 0
     for (i, cell) in enumerate(cells)
         tess = tess_for(cell)
         cell_triangle_offsets[i+1] = cell_triangle_offsets[i] + ntriangles(tess)
         cell_vertex_offsets[i+1] = cell_vertex_offsets[i] + nvertices(tess)
+        cell_edge_offsets[i+1] = cell_edge_offsets[i] + nedges(tess)
     end
     num_triangles = cell_triangle_offsets[end]
     num_verts = cell_vertex_offsets[end]
+    num_edges = cell_edge_offsets[end]
 
     triangles = Matrix{Int}(undef, num_triangles, 3)
     triangle_cell_map = Vector{Int}(undef, num_triangles)
+    all_edges = Vector{NTuple{2,Int}}(undef, num_edges)
+    edge_cell_map = Vector{Int}(undef, num_edges)
     physical_coords = Vector{GeometryBasics.Point{sdim,Float32}}(undef, num_verts)
     reference_coords = zeros(Float64, num_verts, sdim)
 
@@ -148,6 +199,11 @@ function FEData(dh::Ferrite.AbstractDofHandler, u::Makie.Observable;
             end
             triangle_cell_map[toff+t] = cell_id
         end
+        eoff = cell_edge_offsets[cell_id]
+        for (e, edge) in enumerate(tess.edges)
+            all_edges[eoff+e] = (edge[1] + coff, edge[2] + coff)
+            edge_cell_map[eoff+e] = cell_id
+        end
     end
 
     # convert: to_triangles yields an untyped empty vector for 0 triangles
@@ -161,7 +217,8 @@ function FEData(dh::Ferrite.AbstractDofHandler, u::Makie.Observable;
     return FEData{sdim,typeof(dh),eltype(u[]),typeof(topology),typeof(source_u),typeof(mesh),eltype(all_triangles)}(
         dh, u, source_u, topology, visible, gridnodes, coords, coords_buffer,
         all_triangles, vis_triangles, triangle_cell_map, cell_triangle_offsets,
-        cell_vertex_offsets, reference_coords, mesh,
+        cell_vertex_offsets, all_edges, edge_cell_map, cell_edge_offsets,
+        reference_coords, mesh,
         Dict{Symbol,Makie.Observable}(), Dict{Symbol,Makie.Observable}())
 end
 
@@ -185,6 +242,35 @@ num_vertices(ds::FEData) = length(ds.coords[])
 
 vertices_on_cell(ds::FEData, cell_idx::Int) = (ds.cell_vertex_offsets[cell_idx]+1):ds.cell_vertex_offsets[cell_idx+1]
 triangles_on_cell(ds::FEData, cell_idx::Int) = (ds.cell_triangle_offsets[cell_idx]+1):ds.cell_triangle_offsets[cell_idx+1]
+edges_on_cell(ds::FEData, cell_idx::Int) = (ds.cell_edge_offsets[cell_idx]+1):ds.cell_edge_offsets[cell_idx+1]
+
+# Flat vertex-index list (2 entries per segment) of the wireframe of the
+# visible cells. Static per dataset (visibility is immutable after
+# construction), so meshplot computes it once and per-frame work is only the
+# coordinate gather.
+function _visible_edge_indices(ds::FEData)
+    indices = Int[]
+    for (e, cell_id) in enumerate(ds.edge_cell_map)
+        ds.visible[cell_id] || continue
+        edge = ds.all_edges[e]
+        push!(indices, edge[1], edge[2])
+    end
+    return indices
+end
+
+# Grid nodes belonging to at least one visible cell (meshplot's node markers
+# and labels follow clips like the surface does).
+function _visible_node_ids(ds::FEData)
+    grid = Ferrite.get_grid(ds.dh)
+    mask = falses(Ferrite.getnnodes(grid))
+    for (cell_id, cell) in enumerate(Ferrite.getcells(grid))
+        ds.visible[cell_id] || continue
+        for n in cell.nodes
+            mask[n] = true
+        end
+    end
+    return findall(mask)
+end
 
 """
     FerriteViz.update!(ds::FEData, u::Vector)

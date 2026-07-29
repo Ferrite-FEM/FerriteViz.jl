@@ -153,8 +153,15 @@ end
     meshplot(grid::AbstractGrid; kwargs...)
     meshplot!(...)
 
-Plot the finite element mesh (edges and nodes), optionally labeled. Warping the
-dataset upstream (`ds |> WarpByVector(:u)`) draws the deformed mesh.
+Plot the finite element mesh (edges and nodes), optionally labeled. The
+wireframe is drawn from the dataset's tessellation edges, i.e. from the same
+vertices as the surface plots: it follows an upstream [`WarpByVector`](@ref)
+(including high-order and discontinuous deformation), is hidden with the cells
+a [`CrinkleClip`](@ref) removes, and bends along curved (high-order) cell edges
+according to the dataset's `edge_resolution` (see [`FEData`](@ref)).
+
+Node markers and labels are drawn at the grid nodes of the visible cells; they
+are displaced by a warp only when the warp field is a dof field.
 
 - `plotnodes=true` plot the nodes as circles/spheres
 - `linewidth` edge line width
@@ -191,29 +198,31 @@ function Makie.plot!(WF::MeshPlot{<:Tuple{<:FEData{dim}}}) where {dim}
     grid = Ferrite.get_grid(ds.dh)
     # Makie only draws 2D/3D points; pad 1D grids with a zero y-coordinate
     pointtype = GeometryBasics.Point{max(dim, 2),Float32}
-    gridnodes = dim == 1 ? Makie.lift(ns -> [pointtype(n[1], 0) for n in ns], ds.gridnodes) : ds.gridnodes
-    lines = Makie.lift(gridnodes) do nodes
-        out = pointtype[]
-        for cell in Ferrite.getcells(grid)
-            for edge in Ferrite.edges(cell)
-                append!(out, (nodes[e] for e in edge))
-            end
-        end
-        out
-    end
+    topoint(c) = dim == 1 ? pointtype(c[1], 0) : pointtype(c...)
+    # The wireframe is a gather from the tessellation coordinates over the
+    # visible cells' edge segments. The index list is static; every dynamic
+    # concern (deformation, curved geometry, refinement) is already baked into
+    # ds.coords by the upstream pipeline, and clipping into ds.visible.
+    edge_indices = _visible_edge_indices(ds)
+    lines = Makie.lift(cs -> [topoint(cs[i]) for i in edge_indices], ds.coords)
     # cellset coloring
     cellset_u = cellset_data(grid)
     colorrange = (0, max(1, isempty(cellset_u) ? 1 : maximum(cellset_u)))
     _mesh!(WF, ds, color=transfer_scalar_celldata(ds, cellset_u), shading=Makie.NoShading,
            colormap=:darktest, colorrange=colorrange, visible=WF[:cellsets])
-    # nodes
+    # nodes (of the visible cells)
+    visible_nodes = _visible_node_ids(ds)
+    gridnodes = Makie.lift(ns -> [topoint(ns[i]) for i in visible_nodes], ds.gridnodes)
     shouldplot = @lift($(WF[:visible]) && $(WF[:plotnodes]))
     Makie.scatter!(WF, gridnodes, markersize=WF[:markersize], color=WF[:color], visible=shouldplot)
-    # labels
-    nodelabels = @lift $(WF[:nodelabels]) ? ["$i" for i in 1:length($gridnodes)] : [""]
+    # labels (global ids, restricted to the visible cells and their nodes)
+    visible_cells = findall(ds.visible)
+    nodelabels = @lift $(WF[:nodelabels]) ? ["$i" for i in visible_nodes] : [""]
     nodepositions = @lift $(WF[:nodelabels]) ? $gridnodes : pointtype[zero(pointtype)]
-    celllabels = @lift $(WF[:celllabels]) ? ["$i" for i in 1:Ferrite.getncells(grid)] : [""]
-    cellpositions = @lift $(WF[:celllabels]) ? [midpoint(cell, $gridnodes) for cell in Ferrite.getcells(grid)] : [zero(pointtype)]
+    celllabels = @lift $(WF[:celllabels]) ? ["$i" for i in visible_cells] : [""]
+    cellpositions = @lift $(WF[:celllabels]) ?
+                    [topoint(midpoint(Ferrite.getcells(grid, i), $(ds.gridnodes))) for i in visible_cells] :
+                    [zero(pointtype)]
     Makie.text!(WF, nodepositions, text=nodelabels, fontsize=WF[:fontsize], offset=WF[:offset], color=WF[:nodelabelcolor])
     Makie.text!(WF, cellpositions, text=celllabels, fontsize=WF[:fontsize], color=WF[:celllabelcolor], align=(:center, :center))
     # edges (3D) / faces (2D) of the mesh

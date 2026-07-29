@@ -54,7 +54,7 @@ For a guide check out [the tutorial section](https://ferrite-fem.github.io/Ferri
 - custom cell types via a single `reference_tessellation` method
 - `Wedge` and `Pyramid` cells out of the box; curved (higher-order geometry) cells render
   curved — surfaces *and* the `meshplot` wireframe are subdivided in reference space and
-  mapped through the geometric interpolation via the `Subdivide` filter, applied
+  mapped through the geometric interpolation via the `Refine` filter, applied
   automatically whenever the geometry or a field is nonlinear (so a quadratic displacement
   warp bends edges too; opt out with `FEData(dh, u; adaptive=false)`)
 - synchronous plotting while your simulation runs with any of the above listed options

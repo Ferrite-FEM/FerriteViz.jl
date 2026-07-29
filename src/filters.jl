@@ -164,21 +164,27 @@ function apply(c::CrinkleClip, ds::FEData{3})
         Dict{Symbol,Makie.Observable}(), copy(ds.cell_data))
 end
 
-#############
-# Subdivide #
-#############
+##########
+# Refine #
+##########
 
 """
-    Subdivide()                       # automatic, what FEData applies by default
-    Subdivide(n::Int; edges=n)
-    Subdivide(; surface=nothing, edges=nothing)
+    Refine()                       # automatic, what FEData applies by default
+    Refine(n::Int; edges=n)
+    Refine(; surface=nothing, edges=nothing)
 
 Filter re-tessellating every cell from its reference shape with a subdivided
 reference tessellation (see [`FerriteViz.subdivide`](@ref)): `surface` rounds
-for the rendered triangles, `edges` rounds for the wireframe segments drawn by
-[`meshplot`](@ref). The subdivided reference vertices are mapped through the
-cell's geometric interpolation, so curved (high-order) geometry and high-order
+for the rendered triangles (each round quadruples them, refining the rendered
+solution), `edges` rounds for the wireframe segments drawn by
+[`meshplot`](@ref) (each round doubles them, refining the rendered geometry
+edges). The subdivided reference vertices are mapped through the cell's
+geometric interpolation, so curved (high-order) geometry and high-order
 deformation render curved instead of as flat facets and straight chords.
+
+The counts are absolute, not relative to the input's tessellation: `Refine(2)`
+yields 2 subdivision rounds regardless of how the dataset was tessellated
+before.
 
 A count given as `nothing` is chosen per cell type: no subdivision when the
 geometry and every dof field are (multi-)linear, otherwise 1 surface and
@@ -189,7 +195,7 @@ of a pipeline:
 ```julia
 ds = FEData(dh, u; adaptive=false)
 meshplot(ds)                          # flat, cheap
-solutionplot(ds |> Subdivide(2))      # this plot resolved finer
+solutionplot(ds |> Refine(2))         # this plot resolved finer
 ```
 
 !!! note "Memory usage"
@@ -200,20 +206,23 @@ solutionplot(ds |> Subdivide(2))      # this plot resolved finer
     (segments only double). On large high-order grids opt out with
     `FEData(dh, u; adaptive=false)`.
 
-Rebuilds the geometry from the grid, so apply [`WarpByVector`](@ref) *after*
-it; registered point data is dropped, cell data survives.
+Rebuilds the geometry from the grid (a quadrature-point partition of
+[`AddQuadraturePointData`](@ref) does not survive — nor would it gain anything
+from refinement, its data being piecewise constant), so apply
+[`WarpByVector`](@ref) *after* it; registered point data is dropped, cell data
+survives.
 """
-struct Subdivide <: AbstractFilter
+struct Refine <: AbstractFilter
     surface::Union{Nothing,Int}
     edges::Union{Nothing,Int}
 end
-Subdivide(n::Int; edges::Int=n) = Subdivide(n, edges)
-Subdivide(; surface::Union{Nothing,Int}=nothing, edges::Union{Nothing,Int}=nothing) = Subdivide(surface, edges)
+Refine(n::Int; edges::Int=n) = Refine(n, edges)
+Refine(; surface::Union{Nothing,Int}=nothing, edges::Union{Nothing,Int}=nothing) = Refine(surface, edges)
 
-# Per-cell tessellation choice of a Subdivide filter, shared with the FEData
+# Per-cell tessellation choice of a Refine filter, shared with the FEData
 # constructor (which builds through this directly so the default application
 # costs nothing over constructing flat and filtering afterwards).
-function _tessellation_provider(f::Subdivide, dh::Ferrite.AbstractDofHandler)
+function _tessellation_provider(f::Refine, dh::Ferrite.AbstractDofHandler)
     cache = Dict{Type,ReferenceTessellation}()
     return function (cell)
         return get!(cache, typeof(cell)) do
@@ -225,132 +234,11 @@ function _tessellation_provider(f::Subdivide, dh::Ferrite.AbstractDofHandler)
     end
 end
 
-function apply(f::Subdivide, ds::FEData)
+function apply(f::Refine, ds::FEData)
     out = _build_dataset(ds.dh, ds.u, ds.source_u, ds.topology, ds.visible,
                          _tessellation_provider(f, ds.dh))
     merge!(out.cell_data, ds.cell_data) # cell data is layout independent
     return out
-end
-
-##########
-# Refine #
-##########
-
-"""
-    Refine(n=1)
-
-Filter subdividing every triangle of the *current* tessellation into 4 (in
-reference space, orientation preserving) and every wireframe segment into 2,
-`n` times. New vertices are mapped through the cell's geometric interpolation,
-so both solution resolution and curved geometry improve. Unlike
-[`Subdivide`](@ref) — which re-tessellates from the reference shape — this
-works on any tessellation, including the quadrature-point partition of
-[`AddQuadraturePointData`](@ref).
-
-!!! danger
-    This filter has high RAM usage (and, unlike [`Subdivide`](@ref), it does
-    not share subdivided vertices between neighbouring triangles)!
-"""
-struct Refine <: AbstractFilter
-    n::Int
-end
-Refine() = Refine(1)
-
-function apply(r::Refine, ds::FEData)
-    out = ds
-    for _ in 1:r.n
-        out = _refine_once(out)
-    end
-    return out
-end
-
-# The reference dimension is the interpolation's, not the spatial one (padded
-# reference-coordinate rows may be wider, e.g. surface cells in a 3D grid).
-function _map_refined_vertex(ip_geo::Ferrite.ScalarInterpolation, node_coords, refc)
-    ξ = Tensors.Vec{Ferrite.getrefdim(ip_geo)}(d -> refc[d])
-    return geometric_map(ip_geo, node_coords, ξ)
-end
-
-function _refine_once(ds::FEData{dim}) where {dim}
-    grid = Ferrite.get_grid(ds.dh)
-    ncells = Ferrite.getncells(grid)
-
-    # Per-cell vertex layout: 12 dedicated vertices per refined triangle
-    # followed by 3 per refined edge (endpoints + reference midpoint).
-    cell_triangle_offsets = ds.cell_triangle_offsets .* 4
-    cell_edge_offsets = ds.cell_edge_offsets .* 2
-    cell_vertex_offsets = Vector{Int}(undef, ncells + 1)
-    cell_vertex_offsets[1] = 0
-    for cell_id in 1:ncells
-        cell_vertex_offsets[cell_id+1] = cell_vertex_offsets[cell_id] +
-                                         12 * length(triangles_on_cell(ds, cell_id)) +
-                                         3 * length(edges_on_cell(ds, cell_id))
-    end
-    num_verts = cell_vertex_offsets[end]
-
-    refined_reference_coords = Matrix{Float64}(undef, num_verts, dim)
-    refined_physical_coords = Vector{GeometryBasics.Point{dim,Float32}}(undef, num_verts)
-    refined_triangle_cell_map = Vector{Int}(undef, 4 * length(ds.all_triangles))
-    refined_triangles = Matrix{Int}(undef, 4 * length(ds.all_triangles), 3)
-    refined_edges = Vector{NTuple{2,Int}}(undef, 2 * length(ds.all_edges))
-    refined_edge_cell_map = Vector{Int}(undef, 2 * length(ds.all_edges))
-
-    for cell_id in 1:ncells
-        ip_geo = Ferrite.geometric_interpolation(typeof(Ferrite.getcells(grid, cell_id)))
-        node_coords = Ferrite.getcoordinates(grid, cell_id)
-        voff = cell_vertex_offsets[cell_id]
-        toff = cell_triangle_offsets[cell_id]
-        for triangle_index in triangles_on_cell(ds, cell_id)
-            tri = ds.all_triangles[triangle_index]
-            v1 = ds.reference_coords[tri[1], :]
-            v2 = ds.reference_coords[tri[2], :]
-            v3 = ds.reference_coords[tri[3], :]
-            m12 = (v1 + v2) / 2.0
-            m23 = (v2 + v3) / 2.0
-            m31 = (v3 + v1) / 2.0
-            # 4 sub-triangles, orientation preserving
-            for (k, refc) in enumerate((v1, m12, m31, v2, m23, m12, v3, m31, m23, m12, m23, m31))
-                refined_reference_coords[voff+k, :] = refc
-                x = _map_refined_vertex(ip_geo, node_coords, refc)
-                refined_physical_coords[voff+k] = GeometryBasics.Point{dim,Float32}(x...)
-            end
-            refined_triangle_cell_map[(toff+1):(toff+4)] .= cell_id
-            for t in 1:4
-                refined_triangles[toff+t, :] = voff .+ (3 * (t - 1)) .+ (1:3)
-            end
-            voff += 12
-            toff += 4
-        end
-        eoff = cell_edge_offsets[cell_id]
-        for edge_index in edges_on_cell(ds, cell_id)
-            a, b = ds.all_edges[edge_index]
-            ra = ds.reference_coords[a, :]
-            rb = ds.reference_coords[b, :]
-            for (k, refc) in enumerate((ra, (ra + rb) / 2.0, rb))
-                refined_reference_coords[voff+k, :] = refc
-                x = _map_refined_vertex(ip_geo, node_coords, refc)
-                refined_physical_coords[voff+k] = GeometryBasics.Point{dim,Float32}(x...)
-            end
-            refined_edges[eoff+1] = (voff + 1, voff + 2)
-            refined_edges[eoff+2] = (voff + 2, voff + 3)
-            refined_edge_cell_map[eoff+1] = cell_id
-            refined_edge_cell_map[eoff+2] = cell_id
-            voff += 3
-            eoff += 2
-        end
-    end
-
-    all_triangles = convert(Vector{GeometryBasics.GLTriangleFace}, Makie.to_triangles(refined_triangles))
-    vis_triangles = ShaderAbstractions.Buffer(Makie.Observable(_visibility_triangles(all_triangles, ds.visible, refined_triangle_cell_map)))
-    coords = Makie.Observable(refined_physical_coords)
-    coords_buffer = ShaderAbstractions.Buffer(coords)
-    mesh = GeometryBasics.Mesh(coords_buffer, vis_triangles)
-    return FEData{dim,typeof(ds.dh),eltype(ds.u[]),typeof(ds.topology),typeof(ds.source_u),typeof(mesh),eltype(all_triangles)}(
-        ds.dh, ds.u, ds.source_u, ds.topology, ds.visible, ds.gridnodes, coords, coords_buffer,
-        all_triangles, vis_triangles, refined_triangle_cell_map, cell_triangle_offsets,
-        cell_vertex_offsets, refined_edges, refined_edge_cell_map, cell_edge_offsets,
-        refined_reference_coords, mesh,
-        Dict{Symbol,Makie.Observable}(), copy(ds.cell_data))
 end
 
 ########################

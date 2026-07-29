@@ -126,13 +126,13 @@ Since the filter rebuilds the geometry, apply [`WarpByVector`](@ref) *after* it.
 ## High-order fields
 
 High-order data gets a head start out of the box: whenever the geometry or a field of the
-dof handler is nonlinear, [`FEData`](@ref) applies the [`Subdivide`](@ref) filter's
+dof handler is nonlinear, [`FEData`](@ref) applies the [`Refine`](@ref) filter's
 automatic mode, subdividing each cell's reference tessellation once for the surfaces and
 three times for the [`FerriteViz.meshplot`](@ref) wireframe edges and mapping the new
 vertices through the geometric interpolation — curved cells and high-order deformations
 render curved. This costs high-order cell types about 4× the triangles of the flat
-tessellation; `FEData(dh, u; adaptive=false)` opts out, and applying [`Subdivide`](@ref)
-explicitly (e.g. `ds |> Subdivide(2)`) picks custom levels for a single branch of a
+tessellation; `FEData(dh, u; adaptive=false)` opts out, and applying [`Refine`](@ref)
+explicitly (e.g. `ds |> Refine(2)`) picks custom levels for a single branch of a
 pipeline.
 
 That default is deliberately coarse for the *solution values* though. To resolve the fine
@@ -157,7 +157,7 @@ f
 ```
 Note that this method produces small artifacts due to the flattening of the nonlinearities of the high order ansatz.
 However, it is still sufficient to investigate important features of the solution.
-If users want to have higher resolution than the crude estimate given by the first order refinement (as well as enough RAM), then we also provide a uniform tessellation algorithm, the [`Refine`](@ref) filter, which quadruples the rendered triangles (and doubles the wireframe segments) per application:
+If users want to have higher resolution than the crude estimate given by the first order refinement (as well as enough RAM), the [`Refine`](@ref) filter takes explicit subdivision counts — each surface round quadruples the rendered triangles (and each edge round doubles the wireframe segments):
 ```@example 1
 f = WGLMakie.Figure()
 axs = [WGLMakie.LScene(f[1, 1]), WGLMakie.LScene(f[1, 2])]

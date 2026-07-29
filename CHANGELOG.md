@@ -14,18 +14,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    `all_edges`/`edge_cell_map`/`cell_edge_offsets` index into the same
    tessellation vertices as the surface. Custom shapes without edges simply
    render no wireframe.
- - `Subdivide` filter: re-tessellates every cell from its reference shape with
-   reference-space subdivision (`FerriteViz.subdivide`) — `surface` rounds for
-   the triangles, `edges` rounds for the wireframe, either given explicitly or
-   (default) chosen per cell type: no subdivision when geometry and all fields
-   are (multi-)linear (bit-identical layout to before), otherwise 1 surface
-   and 3 edge subdivisions, so curved and high-order-deformed cells render
-   curved instead of as flat facets and straight chords. `FEData` applies the
-   automatic mode by default and grew an `adaptive::Bool=true` keyword to opt
-   out (`adaptive=false`), e.g. to subdivide only one branch of a pipeline
-   with an explicit `ds |> Subdivide(n)`.
+ - `FEData` grew an `adaptive::Bool=true` keyword: by default it tessellates
+   with the reworked `Refine` filter's automatic mode (see below), so curved
+   and high-order-deformed cells render curved out of the box;
+   `adaptive=false` opts out and keeps the flat base tessellation, e.g. to
+   subdivide only one branch of a pipeline with an explicit `ds |> Refine(n)`.
 
 ### Changed
+ - `Refine` is reworked (breaking): instead of relatively subdividing every
+   triangle of the current tessellation into 4 dedicated-vertex triangles, it
+   re-tessellates every cell from its reference shape with reference-space
+   subdivision (`FerriteViz.subdivide`, shared vertices — several times less
+   memory for the same picture) and now takes two counts, `surface` rounds
+   for the triangles and `edges` rounds for the wireframe
+   (`Refine(n; edges=n)` / `Refine(surface=..., edges=...)`). Counts are
+   *absolute*, not relative to the input's tessellation, and a count of
+   `nothing` (the default) is chosen per cell type: no subdivision when
+   geometry and all fields are (multi-)linear, otherwise 1 surface and 3 edge
+   rounds — the automatic mode `FEData` applies by default. Note `Refine()`
+   now means this automatic mode, not one relative round, and applying it
+   after `AddQuadraturePointData` no longer refines the quadrature-point
+   partition (which was moot anyway: the partition renders piecewise-constant
+   data exactly, and the refined dataset dropped the quadrature-point arrays).
  - `meshplot` draws the wireframe from the dataset's tessellation edges
    instead of connecting grid nodes with straight lines. The wireframe now
    respects the whole pipeline: it follows `WarpByVector` (including

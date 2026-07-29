@@ -47,13 +47,13 @@ Transformations are applied by piping into filters:
 For large 3D grids, pass a precomputed `topology::Ferrite.ExclusiveTopology`
 to avoid rebuilding it.
 
-`adaptive=true` (the default) tessellates with the [`Subdivide`](@ref) filter's
+`adaptive=true` (the default) tessellates with the [`Refine`](@ref) filter's
 automatic choice: cell types whose geometry and fields are all (multi-)linear
 keep the flat base tessellation, everything else is subdivided so curved and
 high-order-deformed cells render curved — at the price of more triangles (see
-[`Subdivide`](@ref) for the numbers). Opt out with `adaptive=false` (flat base
+[`Refine`](@ref) for the numbers). Opt out with `adaptive=false` (flat base
 tessellation for every cell); custom levels are a filter application:
-`FEData(dh, u; adaptive=false) |> Subdivide(2)`.
+`FEData(dh, u; adaptive=false) |> Refine(2)`.
 """
 struct FEData{dim,DH<:Ferrite.AbstractDofHandler,T1,TOP<:Union{Nothing,Ferrite.AbstractTopology},SU<:Makie.Observable,M,TRI} <: AbstractPlotter
     dh::DH
@@ -108,7 +108,7 @@ function FEData(dh::Ferrite.AbstractDofHandler, u::AbstractVector;
 end
 
 # Highest polynomial order the dataset may have to render: the geometry's and
-# every dof field's. It decides whether Subdivide's automatic mode subdivides —
+# every dof field's. It decides whether Refine's automatic mode subdivides —
 # a quadratic displacement on a linear grid bends edges just like curved
 # geometry does.
 function _max_field_order(dh::Ferrite.DofHandler)
@@ -143,16 +143,16 @@ function FEData(dh::Ferrite.AbstractDofHandler, u::Makie.Observable;
         visible .= true
     end
 
-    # The tessellation choice is the Subdivide filter's; the constructor merely
+    # The tessellation choice is the Refine filter's; the constructor merely
     # applies its automatic mode by default (adaptive=false pins every cell to
     # the flat base tessellation). Building through the provider directly means
     # the default costs nothing over constructing flat and filtering after.
-    subdiv = adaptive ? Subdivide() : Subdivide(0)
+    subdiv = adaptive ? Refine() : Refine(0)
     return _build_dataset(dh, u, source_u, topology, visible, _tessellation_provider(subdiv, dh))
 end
 
 # Shared tessellation-instantiation core of the FEData constructor and the
-# Subdivide filter: lay out `tess_for(cell)` per cell with duplicated vertices.
+# Refine filter: lay out `tess_for(cell)` per cell with duplicated vertices.
 function _build_dataset(dh::Ferrite.AbstractDofHandler, u::Makie.Observable, source_u::Makie.Observable,
                         topology, visible::Vector{Bool}, tess_for)
     grid = Ferrite.get_grid(dh)

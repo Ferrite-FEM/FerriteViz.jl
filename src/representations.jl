@@ -161,7 +161,7 @@ wireframe is drawn from the dataset's tessellation edges, i.e. from the same
 vertices as the surface plots: it follows an upstream [`WarpByVector`](@ref)
 (including high-order and discontinuous deformation), is hidden with the cells
 a [`CrinkleClip`](@ref) removes, and bends along curved (high-order) cell edges
-according to the dataset's subdivision (see [`Subdivide`](@ref)).
+according to the dataset's subdivision (see [`Refine`](@ref)).
 
 Node markers and labels are drawn at the grid nodes of the visible cells; they
 are displaced by a warp only when the warp field is a dof field.

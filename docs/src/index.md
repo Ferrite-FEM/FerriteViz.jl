@@ -61,7 +61,7 @@ This package offers a set of unique features that are not easily reproducible wi
 - `Wedge` and `Pyramid` cells out of the box; curved (higher-order geometry) cells render
   curved — surfaces *and* the [`FerriteViz.meshplot`](@ref) wireframe are subdivided in
   reference space and mapped through the geometric interpolation via the
-  [`FerriteViz.Subdivide`](@ref) filter, applied automatically whenever the geometry or a
+  [`FerriteViz.Refine`](@ref) filter, applied automatically whenever the geometry or a
   field is nonlinear (so a quadratic displacement warp bends edges too; opt out with
   `FEData(dh, u; adaptive=false)`)
 - full integration into the Makie ecosystem, e.g. themes, layouts etc. 

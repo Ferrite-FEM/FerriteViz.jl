@@ -15,7 +15,8 @@ FerriteViz is structured in three layers, following the ParaView model:
    inter-element jumps intact, and maps reference coordinates through the cell's
    geometric interpolation. High-order cells (or high-order fields) get their
    reference tessellation subdivided first ([`FerriteViz.subdivide`](@ref),
-   controlled by `FEData`'s `resolution`/`edge_resolution`), so curved geometry
+   driven by the [`Subdivide`](@ref) filter whose automatic mode `FEData`
+   applies unless constructed with `adaptive=false`), so curved geometry
    and deformation render curved. Since the wireframe's vertices are ordinary
    tessellation vertices, [`meshplot`](@ref) inherits warping, clipping and
    refinement from the pipeline without any special-casing.

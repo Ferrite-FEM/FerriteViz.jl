@@ -14,12 +14,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    `all_edges`/`edge_cell_map`/`cell_edge_offsets` index into the same
    tessellation vertices as the surface. Custom shapes without edges simply
    render no wireframe.
- - reference-space subdivision (`FerriteViz.subdivide`): `FEData` accepts
-   `resolution` (surface) and `edge_resolution` (wireframe) subdivision
-   counts. The default picks per cell type: no subdivision when geometry and
-   all fields are (multi-)linear (bit-identical layout to before), otherwise
-   1 surface and 3 edge subdivisions, so curved and high-order-deformed cells
-   render curved instead of as flat facets and straight chords.
+ - `Subdivide` filter: re-tessellates every cell from its reference shape with
+   reference-space subdivision (`FerriteViz.subdivide`) — `surface` rounds for
+   the triangles, `edges` rounds for the wireframe, either given explicitly or
+   (default) chosen per cell type: no subdivision when geometry and all fields
+   are (multi-)linear (bit-identical layout to before), otherwise 1 surface
+   and 3 edge subdivisions, so curved and high-order-deformed cells render
+   curved instead of as flat facets and straight chords. `FEData` applies the
+   automatic mode by default and grew an `adaptive::Bool=true` keyword to opt
+   out (`adaptive=false`), e.g. to subdivide only one branch of a pipeline
+   with an explicit `ds |> Subdivide(n)`.
 
 ### Changed
  - `meshplot` draws the wireframe from the dataset's tessellation edges
@@ -34,8 +38,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    their rebuilt vertex layout (valued by the nearest quadrature point), so
    `meshplot` keeps working downstream of it.
  - datasets with high-order geometry or fields tessellate finer by default
-   (see above); pass `resolution=0, edge_resolution=0` to `FEData` to restore
-   the previous flat tessellation and its memory footprint.
+   (see above), costing those cell types about 4× the triangles; pass
+   `adaptive=false` to `FEData` to restore the previous flat tessellation and
+   its memory footprint.
 
 ## [0.3.0] - 2026-07-28
 

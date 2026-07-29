@@ -251,11 +251,26 @@ end
     end
     @test meshplot(warped) isa Makie.FigureAxisPlot
 
-    # explicit resolution overrides the automatic choice
-    ds0 = FEData(dh, u; resolution=0, edge_resolution=0)
+    # adaptive=false opts out of the automatic subdivision entirely
+    ds0 = FEData(dh, u; adaptive=false)
     @test length(ds0.all_triangles) == 4 && length(ds0.all_edges) == 4
-    dsl = FEData(DofHandler(grid), Float64[]; resolution=1) # linear grid, forced
+    # ... and the Subdivide filter reintroduces it with explicit control
+    @test length((ds0 |> Subdivide(1)).all_triangles) == 16
+    dsl = FEData(DofHandler(grid), Float64[]; adaptive=false) |> Subdivide(1) # linear grid, forced
     @test length(dsl.all_triangles) == 16
+    @test length((ds0 |> Subdivide(surface=0, edges=2)).all_edges) == 4 * 4
+    # the automatic filter mode reproduces the constructor default exactly
+    dsauto = ds0 |> Subdivide()
+    @test length(dsauto.all_triangles) == length(ds.all_triangles)
+    @test dsauto.reference_coords == ds.reference_coords
+    # data across the rebuild: cell data survives, point data is dropped,
+    # dof fields transfer onto the new vertices
+    set_cell_data!(ds0, :c, [1.0])
+    set_point_data!(ds0, :pd, ones(FerriteViz.num_vertices(ds0)))
+    sub = ds0 |> Subdivide(1)
+    @test FerriteViz.cell_data(sub, :c)[] == [1.0]
+    @test !haskey(sub.point_data, :pd)
+    @test size(FerriteViz.point_data(sub, :u)[], 1) == FerriteViz.num_vertices(sub)
 
     # 3D: the wireframe is restricted to the visible cells, so a crinkle clip
     # hides the clipped cells' edges
@@ -270,6 +285,11 @@ end
     # node markers/labels follow the visibility too
     @test length(FerriteViz._visible_node_ids(clipped)) < length(FerriteViz._visible_node_ids(ds3))
     @test length(FerriteViz._visible_node_ids(FEData(DofHandler(grid), Float64[]))) == getnnodes(grid)
+    # Subdivide preserves the input's visibility (e.g. downstream of a clip)
+    subclipped = clipped |> Subdivide(1)
+    @test subclipped.visible == clipped.visible
+    @test length(subclipped.all_triangles) == 4 * length(clipped.all_triangles)
+    @test meshplot(subclipped) isa Makie.FigureAxisPlot
 
     # Refine splits the wireframe with the triangles
     refined = ds3 |> Refine(1)

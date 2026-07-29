@@ -32,7 +32,7 @@
 # observable (`obs[] = ...`) so the listeners downstream fire.
 
 """
-    FEData(dh::Ferrite.AbstractDofHandler, u::Vector; topology, resolution, edge_resolution)
+    FEData(dh::Ferrite.AbstractDofHandler, u::Vector; topology, adaptive=true)
 
 Source node of the visualization pipeline: builds the static "L2" triangulation
 of `Ferrite.get_grid(dh)` (nodes shared between cells are duplicated per cell so
@@ -47,15 +47,13 @@ Transformations are applied by piping into filters:
 For large 3D grids, pass a precomputed `topology::Ferrite.ExclusiveTopology`
 to avoid rebuilding it.
 
-`resolution` and `edge_resolution` control how often each cell's reference
-tessellation is subdivided (see [`FerriteViz.subdivide`](@ref)): `resolution`
-refines the rendered surface, `edge_resolution` the wireframe edges drawn by
-[`meshplot`](@ref). The default (`nothing`) picks per cell type: no subdivision
-when both the geometry and every field are (multi-)linear, otherwise 1 surface
-and 3 edge subdivisions — so curved and high-order-deformed cells render
-curved. Pass explicit integers to override (e.g. `resolution=0` to save memory
-on large high-order grids, or a larger value for a high-order field on a
-linear grid).
+`adaptive=true` (the default) tessellates with the [`Subdivide`](@ref) filter's
+automatic choice: cell types whose geometry and fields are all (multi-)linear
+keep the flat base tessellation, everything else is subdivided so curved and
+high-order-deformed cells render curved — at the price of more triangles (see
+[`Subdivide`](@ref) for the numbers). Opt out with `adaptive=false` (flat base
+tessellation for every cell); custom levels are a filter application:
+`FEData(dh, u; adaptive=false) |> Subdivide(2)`.
 """
 struct FEData{dim,DH<:Ferrite.AbstractDofHandler,T1,TOP<:Union{Nothing,Ferrite.AbstractTopology},SU<:Makie.Observable,M,TRI} <: AbstractPlotter
     dh::DH
@@ -104,16 +102,15 @@ function _check_reserved_fieldnames(dh::Ferrite.AbstractDofHandler)
 end
 
 function FEData(dh::Ferrite.AbstractDofHandler, u::AbstractVector;
-                topology=_default_topology(Ferrite.get_grid(dh)),
-                resolution::Union{Nothing,Int}=nothing, edge_resolution::Union{Nothing,Int}=nothing)
+                topology=_default_topology(Ferrite.get_grid(dh)), adaptive::Bool=true)
     # copy: update! writes into this array and must not mutate the caller's u
-    return FEData(dh, Makie.Observable(collect(u)); topology, resolution, edge_resolution)
+    return FEData(dh, Makie.Observable(collect(u)); topology, adaptive)
 end
 
 # Highest polynomial order the dataset may have to render: the geometry's and
-# every dof field's. It decides whether the default tessellation resolution
-# subdivides — a quadratic displacement on a linear grid bends edges just like
-# curved geometry does.
+# every dof field's. It decides whether Subdivide's automatic mode subdivides —
+# a quadratic displacement on a linear grid bends edges just like curved
+# geometry does.
 function _max_field_order(dh::Ferrite.DofHandler)
     order = 1
     for sdh in dh.subdofhandlers, name in sdh.field_names
@@ -132,12 +129,11 @@ _auto_edge_resolution(degree::Int) = degree > 1 ? 3 : 0
 
 function FEData(dh::Ferrite.AbstractDofHandler, u::Makie.Observable;
                 topology=_default_topology(Ferrite.get_grid(dh)), source_u::Makie.Observable=u,
-                resolution::Union{Nothing,Int}=nothing, edge_resolution::Union{Nothing,Int}=nothing)
+                adaptive::Bool=true)
     _check_reserved_fieldnames(dh)
     grid = Ferrite.get_grid(dh)
-    cells = Ferrite.getcells(grid)
     sdim = Ferrite.getspatialdim(grid)
-    ncells = length(cells)
+    ncells = Ferrite.getncells(grid)
 
     visible = zeros(Bool, ncells)
     if sdim > 2
@@ -147,15 +143,22 @@ function FEData(dh::Ferrite.AbstractDofHandler, u::Makie.Observable;
         visible .= true
     end
 
-    tess_cache = Dict{Type,ReferenceTessellation}()
-    function tess_for(cell)
-        return get!(tess_cache, typeof(cell)) do
-            degree = _render_degree(typeof(cell), dh)
-            _cell_tessellation(reference_tessellation(Ferrite.getrefshape(cell)),
-                               something(resolution, _auto_surface_resolution(degree)),
-                               something(edge_resolution, _auto_edge_resolution(degree)))
-        end
-    end
+    # The tessellation choice is the Subdivide filter's; the constructor merely
+    # applies its automatic mode by default (adaptive=false pins every cell to
+    # the flat base tessellation). Building through the provider directly means
+    # the default costs nothing over constructing flat and filtering after.
+    subdiv = adaptive ? Subdivide() : Subdivide(0)
+    return _build_dataset(dh, u, source_u, topology, visible, _tessellation_provider(subdiv, dh))
+end
+
+# Shared tessellation-instantiation core of the FEData constructor and the
+# Subdivide filter: lay out `tess_for(cell)` per cell with duplicated vertices.
+function _build_dataset(dh::Ferrite.AbstractDofHandler, u::Makie.Observable, source_u::Makie.Observable,
+                        topology, visible::Vector{Bool}, tess_for)
+    grid = Ferrite.get_grid(dh)
+    cells = Ferrite.getcells(grid)
+    sdim = Ferrite.getspatialdim(grid)
+    ncells = length(cells)
 
     cell_triangle_offsets = Vector{Int}(undef, ncells + 1)
     cell_vertex_offsets = Vector{Int}(undef, ncells + 1)

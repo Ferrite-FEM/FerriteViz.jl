@@ -126,12 +126,14 @@ Since the filter rebuilds the geometry, apply [`WarpByVector`](@ref) *after* it.
 ## High-order fields
 
 High-order data gets a head start out of the box: whenever the geometry or a field of the
-dof handler is nonlinear, [`FEData`](@ref) subdivides each cell's reference tessellation
-once for the surfaces and three times for the [`FerriteViz.meshplot`](@ref) wireframe
-edges, mapping the new vertices through the geometric interpolation — curved cells and
-high-order deformations render curved. The `resolution`/`edge_resolution` keywords tune
-this (`resolution=0, edge_resolution=0` gives the flat tessellation and its smaller
-memory footprint).
+dof handler is nonlinear, [`FEData`](@ref) applies the [`Subdivide`](@ref) filter's
+automatic mode, subdividing each cell's reference tessellation once for the surfaces and
+three times for the [`FerriteViz.meshplot`](@ref) wireframe edges and mapping the new
+vertices through the geometric interpolation — curved cells and high-order deformations
+render curved. This costs high-order cell types about 4× the triangles of the flat
+tessellation; `FEData(dh, u; adaptive=false)` opts out, and applying [`Subdivide`](@ref)
+explicitly (e.g. `ds |> Subdivide(2)`) picks custom levels for a single branch of a
+pipeline.
 
 That default is deliberately coarse for the *solution values* though. To resolve the fine
 structure of a high-order field, two filters go further. The first replaces the

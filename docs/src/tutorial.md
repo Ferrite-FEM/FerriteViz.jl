@@ -73,11 +73,12 @@ end)
 FerriteViz.meshplot(grid, markersize=8, linewidth=2, axis=(aspect=WGLMakie.DataAspect(),))
 ```
 
-The subdivision kicks in automatically whenever the geometry *or* any field of the dof
-handler is nonlinear — a quadratic displacement field warping a linear mesh bends the
-wireframe just the same. How fine the surfaces and edges are resolved is controlled by
-the `resolution` and `edge_resolution` keywords of [`FEData`](@ref)
-(`FEData(dh, u; resolution=0, edge_resolution=0)` restores the flat tessellation).
+The subdivision is the [`Subdivide`](@ref) filter, which [`FEData`](@ref) applies
+automatically whenever the geometry *or* any field of the dof handler is nonlinear — a
+quadratic displacement field warping a linear mesh bends the wireframe just the same.
+Since this multiplies the rendered triangles (about 4× for high-order cell types),
+`FEData(dh, u; adaptive=false)` opts out; applying the filter explicitly, e.g.
+`ds |> Subdivide(2)`, picks custom subdivision levels for a single branch of a pipeline.
 
 ### The solution field
 

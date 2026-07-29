@@ -164,6 +164,74 @@ function apply(c::CrinkleClip, ds::FEData{3})
         Dict{Symbol,Makie.Observable}(), copy(ds.cell_data))
 end
 
+#############
+# Subdivide #
+#############
+
+"""
+    Subdivide()                       # automatic, what FEData applies by default
+    Subdivide(n::Int; edges=n)
+    Subdivide(; surface=nothing, edges=nothing)
+
+Filter re-tessellating every cell from its reference shape with a subdivided
+reference tessellation (see [`FerriteViz.subdivide`](@ref)): `surface` rounds
+for the rendered triangles, `edges` rounds for the wireframe segments drawn by
+[`meshplot`](@ref). The subdivided reference vertices are mapped through the
+cell's geometric interpolation, so curved (high-order) geometry and high-order
+deformation render curved instead of as flat facets and straight chords.
+
+A count given as `nothing` is chosen per cell type: no subdivision when the
+geometry and every dof field are (multi-)linear, otherwise 1 surface and
+3 edge rounds. [`FEData`](@ref) applies this automatic mode by default —
+construct with `adaptive=false` to opt out, e.g. to subdivide only one branch
+of a pipeline:
+
+```julia
+ds = FEData(dh, u; adaptive=false)
+meshplot(ds)                          # flat, cheap
+solutionplot(ds |> Subdivide(2))      # this plot resolved finer
+```
+
+!!! note "Memory usage"
+    Every surface round quadruples the rendered triangles and roughly triples
+    the tessellation vertices (each of which carries solution values per
+    field). The automatic mode therefore costs high-order cell types about 4×
+    the memory of the flat tessellation; edge rounds are comparatively cheap
+    (segments only double). On large high-order grids opt out with
+    `FEData(dh, u; adaptive=false)`.
+
+Rebuilds the geometry from the grid, so apply [`WarpByVector`](@ref) *after*
+it; registered point data is dropped, cell data survives.
+"""
+struct Subdivide <: AbstractFilter
+    surface::Union{Nothing,Int}
+    edges::Union{Nothing,Int}
+end
+Subdivide(n::Int; edges::Int=n) = Subdivide(n, edges)
+Subdivide(; surface::Union{Nothing,Int}=nothing, edges::Union{Nothing,Int}=nothing) = Subdivide(surface, edges)
+
+# Per-cell tessellation choice of a Subdivide filter, shared with the FEData
+# constructor (which builds through this directly so the default application
+# costs nothing over constructing flat and filtering afterwards).
+function _tessellation_provider(f::Subdivide, dh::Ferrite.AbstractDofHandler)
+    cache = Dict{Type,ReferenceTessellation}()
+    return function (cell)
+        return get!(cache, typeof(cell)) do
+            degree = _render_degree(typeof(cell), dh)
+            _cell_tessellation(reference_tessellation(Ferrite.getrefshape(cell)),
+                               something(f.surface, _auto_surface_resolution(degree)),
+                               something(f.edges, _auto_edge_resolution(degree)))
+        end
+    end
+end
+
+function apply(f::Subdivide, ds::FEData)
+    out = _build_dataset(ds.dh, ds.u, ds.source_u, ds.topology, ds.visible,
+                         _tessellation_provider(f, ds.dh))
+    merge!(out.cell_data, ds.cell_data) # cell data is layout independent
+    return out
+end
+
 ##########
 # Refine #
 ##########
@@ -171,12 +239,17 @@ end
 """
     Refine(n=1)
 
-Filter subdividing every triangle into 4 (in reference space, orientation
-preserving), `n` times. New vertices are mapped through the cell's geometric
-interpolation, so both solution resolution and curved geometry improve.
+Filter subdividing every triangle of the *current* tessellation into 4 (in
+reference space, orientation preserving) and every wireframe segment into 2,
+`n` times. New vertices are mapped through the cell's geometric interpolation,
+so both solution resolution and curved geometry improve. Unlike
+[`Subdivide`](@ref) — which re-tessellates from the reference shape — this
+works on any tessellation, including the quadrature-point partition of
+[`AddQuadraturePointData`](@ref).
 
 !!! danger
-    This filter has high RAM usage!
+    This filter has high RAM usage (and, unlike [`Subdivide`](@ref), it does
+    not share subdivided vertices between neighbouring triangles)!
 """
 struct Refine <: AbstractFilter
     n::Int

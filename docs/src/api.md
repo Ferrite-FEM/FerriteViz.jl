@@ -26,6 +26,7 @@ FerriteViz.WarpByVector
 FerriteViz.Gradient
 FerriteViz.CrinkleClip
 FerriteViz.ClipPlane
+FerriteViz.Subdivide
 FerriteViz.Refine
 FerriteViz.FirstOrderRefinement
 FerriteViz.AddQuadraturePointData

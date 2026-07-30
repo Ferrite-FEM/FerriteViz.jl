@@ -12,37 +12,40 @@ function base_fe_attributes()
     )
 end
 
-# Backend shim for CairoMakie (Petur Bryde, #146, fixes #118).
+# Backend shim, generalizing the CairoMakie one (Petur Bryde, #146, fixes #118).
 #
 # The pipeline shares its coordinates and triangles into `ShaderAbstractions.Buffer`s
-# so GL/WGLMakie can mutate the GPU data in place on `update!`. CairoMakie's
-# software mesh path, however, expects plain `Vector`s and does not accept a
-# `Buffer` for the faces. When CairoMakie is the active backend we therefore
-# draw from the buffers' underlying vectors instead of the buffer-backed
-# `GeometryBasics.Mesh` (CairoMakie renders a static frame, so losing the live
-# buffer link is inconsequential — `data()` still returns the vector kept in
-# sync with the coordinate observable).
-function _is_cairomakie_backend()
+# so GLMakie can mutate the GPU data in place on `update!` — and only GLMakie:
+# CairoMakie's software mesh path expects plain `Vector`s and does not accept a
+# `Buffer` for the faces, and WGLMakie renders a `Buffer`-backed mesh once but
+# never applies subsequent `Buffer` updates — the browser silently keeps the
+# initial geometry (verified on WGLMakie 0.13.13). On every backend but
+# GLMakie we therefore draw from the coordinate *Observable* the buffer wraps
+# (`ds.coords`) plus the triangles' underlying vector: coordinate and color
+# updates then flow through Makie's ordinary observable path (live WGLMakie
+# viewers keep updating over the websocket); only CrinkleClip-style *triangle*
+# changes need the buffer link and won't propagate outside GLMakie.
+function _is_glmakie_backend()
     backend = Makie.current_backend()
-    return !ismissing(backend) && nameof(backend) === :CairoMakie
+    return !ismissing(backend) && nameof(backend) === :GLMakie
 end
 
 _buffer_data(x) = x
 _buffer_data(x::ShaderAbstractions.Buffer) = ShaderAbstractions.data(x)
 
 function _mesh!(parent, ds::FEData; kwargs...)
-    if _is_cairomakie_backend()
-        return Makie.mesh!(parent, _buffer_data(ds.coords_buffer), _buffer_data(ds.vis_triangles); kwargs...)
-    else
+    if _is_glmakie_backend()
         return Makie.mesh!(parent, ds.mesh; kwargs...)
+    else
+        return Makie.mesh!(parent, ds.coords, _buffer_data(ds.vis_triangles); kwargs...)
     end
 end
 
 function _mesh!(parent, vertices, faces; kwargs...)
-    if _is_cairomakie_backend()
-        return Makie.mesh!(parent, vertices, _buffer_data(faces); kwargs...)
-    else
+    if _is_glmakie_backend()
         return Makie.mesh!(parent, vertices, faces; kwargs...)
+    else
+        return Makie.mesh!(parent, vertices, _buffer_data(faces); kwargs...)
     end
 end
 

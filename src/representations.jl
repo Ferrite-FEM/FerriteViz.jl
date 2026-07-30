@@ -17,13 +17,14 @@ end
 # The pipeline shares its coordinates and triangles into `ShaderAbstractions.Buffer`s
 # so GLMakie can mutate the GPU data in place on `update!` — and only GLMakie:
 # CairoMakie's software mesh path expects plain `Vector`s and does not accept a
-# `Buffer` for the faces, and WGLMakie's serialization sends the `Buffer` to JS
-# as-is, where THREE rejects it ("Unsupported buffer data format"). On every
-# backend but GLMakie we therefore draw from the coordinate *Observable* the
-# buffer wraps (`ds.coords`) plus the triangles' underlying vector: coordinate
-# and color updates then flow through Makie's ordinary observable path (live
-# WGLMakie viewers keep updating over the websocket); only CrinkleClip-style
-# *triangle* changes need the buffer link and won't propagate outside GLMakie.
+# `Buffer` for the faces, and WGLMakie renders a `Buffer`-backed mesh once but
+# never applies subsequent `Buffer` updates — the browser silently keeps the
+# initial geometry (verified on WGLMakie 0.13.13). On every backend but
+# GLMakie we therefore draw from the coordinate *Observable* the buffer wraps
+# (`ds.coords`) plus the triangles' underlying vector: coordinate and color
+# updates then flow through Makie's ordinary observable path (live WGLMakie
+# viewers keep updating over the websocket); only CrinkleClip-style *triangle*
+# changes need the buffer link and won't propagate outside GLMakie.
 function _is_glmakie_backend()
     backend = Makie.current_backend()
     return !ismissing(backend) && nameof(backend) === :GLMakie

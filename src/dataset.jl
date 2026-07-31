@@ -184,29 +184,16 @@ function _build_dataset(dh::Ferrite.AbstractDofHandler, u::Makie.Observable, sou
     reference_coords = zeros(Float64, num_verts, sdim)
 
     for (cell_id, cell) in enumerate(cells)
-        tess = tess_for(cell)
-        ip_geo = Ferrite.geometric_interpolation(typeof(cell))
-        node_coords = Ferrite.getcoordinates(grid, cell_id)
-        coff = cell_vertex_offsets[cell_id]
-        for (k, ξ) in enumerate(tess.coords)
-            x = geometric_map(ip_geo, node_coords, ξ)
-            physical_coords[coff+k] = GeometryBasics.Point{sdim,Float32}(x...)
-            for d in 1:length(ξ)
-                reference_coords[coff+k, d] = ξ[d]
-            end
-        end
-        toff = cell_triangle_offsets[cell_id]
-        for (t, tri) in enumerate(tess.triangles)
-            for j in 1:3
-                triangles[toff+t, j] = tri[j] + coff
-            end
-            triangle_cell_map[toff+t] = cell_id
-        end
-        eoff = cell_edge_offsets[cell_id]
-        for (e, edge) in enumerate(tess.edges)
-            all_edges[eoff+e] = (edge[1] + coff, edge[2] + coff)
-            edge_cell_map[eoff+e] = cell_id
-        end
+        # Function barrier: `tess_for` and `geometric_interpolation` are only
+        # abstractly inferred here (the tessellation cache is heterogeneous),
+        # so instantiate through a call specialized on the concrete types —
+        # one dynamic dispatch per cell instead of per tessellation vertex.
+        _instantiate_cell!(physical_coords, reference_coords, triangles, triangle_cell_map,
+                           all_edges, edge_cell_map, tess_for(cell),
+                           Ferrite.geometric_interpolation(typeof(cell)),
+                           Ferrite.getcoordinates(grid, cell_id),
+                           cell_vertex_offsets[cell_id], cell_triangle_offsets[cell_id],
+                           cell_edge_offsets[cell_id], cell_id)
     end
 
     # convert: to_triangles yields an untyped empty vector for 0 triangles
@@ -223,6 +210,31 @@ function _build_dataset(dh::Ferrite.AbstractDofHandler, u::Makie.Observable, sou
         cell_vertex_offsets, all_edges, edge_cell_map, cell_edge_offsets,
         reference_coords, mesh,
         Dict{Symbol,Makie.Observable}(), Dict{Symbol,Makie.Observable}())
+end
+
+function _instantiate_cell!(physical_coords::Vector{GeometryBasics.Point{sdim,Float32}}, reference_coords,
+                            triangles, triangle_cell_map, all_edges, edge_cell_map,
+                            tess::ReferenceTessellation, ip_geo::Ferrite.ScalarInterpolation,
+                            node_coords::AbstractVector, coff::Int, toff::Int, eoff::Int,
+                            cell_id::Int) where {sdim}
+    for (k, ξ) in enumerate(tess.coords)
+        x = geometric_map(ip_geo, node_coords, ξ)
+        physical_coords[coff+k] = GeometryBasics.Point{sdim,Float32}(x...)
+        for d in 1:length(ξ)
+            reference_coords[coff+k, d] = ξ[d]
+        end
+    end
+    for (t, tri) in enumerate(tess.triangles)
+        for j in 1:3
+            triangles[toff+t, j] = tri[j] + coff
+        end
+        triangle_cell_map[toff+t] = cell_id
+    end
+    for (e, edge) in enumerate(tess.edges)
+        all_edges[eoff+e] = (edge[1] + coff, edge[2] + coff)
+        edge_cell_map[eoff+e] = cell_id
+    end
+    return nothing
 end
 
 function _visibility_triangles(all_triangles, visible, triangle_cell_map)

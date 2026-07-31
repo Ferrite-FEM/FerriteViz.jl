@@ -51,10 +51,6 @@ segments indexing into them; shared coordinates are fine — per-cell
 duplication is `FEData`'s job). Edges may be omitted, in which case
 [`meshplot`](@ref) draws no wireframe for cells of that shape.
 
-To additionally support [`FirstOrderRefinement`](@ref) for a high-order
-interpolation, provide its [`FerriteViz.first_order_subcells`](@ref) table (and
-[`FerriteViz.linear_celltype`](@ref) for a new reference shape).
-
 ## Data layout
 
 Point-data arrays are `Matrix{Float64}` (nvertices × ncomponents) with tensor
@@ -70,8 +66,6 @@ FerriteViz.facet_based_tessellation
 FerriteViz.subdivide
 FerriteViz.QPTessellation
 FerriteViz.qp_voronoi_tessellation
-FerriteViz.first_order_subcells
-FerriteViz.linear_celltype
 FerriteViz.ntriangles
 FerriteViz.num_vertices
 FerriteViz.transfer_solution

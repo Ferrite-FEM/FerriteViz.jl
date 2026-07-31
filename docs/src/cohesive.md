@@ -127,8 +127,3 @@ f
 The cohesive cell tessellates and colours just like a native Ferrite cell —
 FerriteViz never needed to know what a cohesive element *is*, only how its
 reference shape triangulates.
-
-To additionally support the [`FirstOrderRefinement`](@ref) filter for a
-high-order variant of such a cell, provide its
-[`FerriteViz.first_order_subcells`](@ref) table as described in the
-[developer documentation](devdocs.md).

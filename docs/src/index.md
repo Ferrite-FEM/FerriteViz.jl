@@ -40,7 +40,7 @@ This package offers a set of unique features that are not easily reproducible wi
 
 - a composable, reactive filter pipeline (ParaView's Source → Filter → Representation model):
   [`FerriteViz.WarpByVector`](@ref), [`FerriteViz.Gradient`](@ref), [`FerriteViz.CrinkleClip`](@ref),
-  [`FerriteViz.Refine`](@ref), [`FerriteViz.FirstOrderRefinement`](@ref), [`FerriteViz.ExtractComponent`](@ref),
+  [`FerriteViz.Refine`](@ref), [`FerriteViz.ExtractComponent`](@ref),
   [`FerriteViz.Magnitude`](@ref), [`FerriteViz.Norm1`](@ref), [`FerriteViz.VonMises`](@ref),
   [`FerriteViz.Deviator`](@ref), [`FerriteViz.Threshold`](@ref), [`FerriteViz.Derive`](@ref), ...
 - [`FerriteViz.AddQuadraturePointData`](@ref) renders internal variables — data known only at the
@@ -66,7 +66,7 @@ This package offers a set of unique features that are not easily reproducible wi
   `FEData(dh, u; adaptive=false)`)
 - full integration into the Makie ecosystem, e.g. themes, layouts etc. 
 - GPU powered plotting with GLMakie.jl, jupyter/pluto notebook plotting with WGLMakie.jl and vector graphics with CairoMakie.jl
-- visualization of high order solutions via first order refinement
+- visualization of high order solutions via reference-space subdivision ([`FerriteViz.Refine`](@ref))
 - visualization of non-conforming solutions, e.g. for Crouzeix-Raviart ansatz
 
 ## Viewing the docs locally

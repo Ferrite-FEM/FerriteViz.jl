@@ -52,6 +52,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    `adaptive=false` to `FEData` to restore the previous flat tessellation and
    its memory footprint.
 
+### Removed
+ - the `FirstOrderRefinement` filter and its extension-point registry
+   (`FerriteViz.first_order_subcells`/`FerriteViz.linear_celltype`)
+   (breaking): the reworked `Refine` covers resolving high-order fields —
+   without the flattening artifacts of the first-order re-discretization —
+   and `FEData`'s adaptive default already renders them curved out of the
+   box.
+
 ## [0.3.0] - 2026-07-28
 
 Full rewrite of the internals around a ParaView-style pipeline:

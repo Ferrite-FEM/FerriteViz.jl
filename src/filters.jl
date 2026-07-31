@@ -4,7 +4,7 @@
 # with |>:  ds |> WarpByVector(:u, 2.0) |> Gradient(:u) |> VonMises().
 # Every apply returns a new FEData sharing the source solution observable, so
 # pipelines stay live under FerriteViz.update! and fork without clobbering each
-# other. Geometry-rebuilding filters (Refine, FirstOrderRefinement) rebuild
+# other. Geometry-rebuilding filters (Refine, AddQuadraturePointData) rebuild
 # from the base geometry — apply WarpByVector after them (CrinkleClip and
 # Gradient share their input's coordinates, so warps survive them).
 #
@@ -239,87 +239,6 @@ function apply(f::Refine, ds::FEData)
                          _tessellation_provider(f, ds.dh))
     merge!(out.cell_data, ds.cell_data) # cell data is layout independent
     return out
-end
-
-########################
-# FirstOrderRefinement #
-########################
-
-"""
-    FirstOrderRefinement()
-
-Filter replacing a high-order discretization by the first-order one spanned by
-its nodes (see [`first_order_subcells`](@ref)), transferring the solution.
-Requires a single subdofhandler with a single (scalar or vector) Lagrange field.
-"""
-struct FirstOrderRefinement <: AbstractFilter end
-
-function apply(::FirstOrderRefinement, ds::FEData)
-    dh = ds.dh
-    _check_full_domain(dh, "FirstOrderRefinement")
-    length(Ferrite.getfieldnames(dh)) == 1 || error("FirstOrderRefinement supports only a single field")
-    dh_new, transfer = _first_order_discretization(dh)
-    u_new = Makie.lift(transfer, ds.u)
-    return FEData(dh_new, u_new; source_u=ds.source_u)
-end
-
-function _first_order_discretization(dh)
-    sdh = dh.subdofhandlers[1]
-    field_name = first(Ferrite.getfieldnames(sdh))
-    grid = Ferrite.get_grid(dh)
-    ip = Ferrite.getfieldinterpolation(sdh, field_name)
-    vdim = Ferrite.n_components(dh, field_name)
-    sip = ip isa VectorizedInterpolation ? ip.ip : ip
-    subcells = first_order_subcells(sip)
-    CT = linear_celltype(Ferrite.getrefshape(sip))
-
-    ref_coords = Ferrite.reference_coordinates(sip)
-    nodes_per_cell = length(ref_coords)
-    ip_geo = Ferrite.geometric_interpolation(Ferrite.getcelltype(sdh))
-    qr = Ferrite.QuadratureRule{Ferrite.getrefshape(sip)}(zeros(nodes_per_cell), ref_coords)
-    cv = Ferrite.CellValues(qr, sip, ip_geo)
-
-    # One new grid node per scalar basis function; with a single field the dofs
-    # of node j are vdim*(j-1)+1 : vdim*j, which is what makes the node
-    # identification below work.
-    nnodes_new = Ferrite.ndofs(dh) ÷ vdim
-    nodes = Vector{Ferrite.Node{Ferrite.getspatialdim(grid),Float64}}(undef, nnodes_new)
-    cells = Vector{CT}(undef, Ferrite.getncells(grid) * length(subcells))
-    nodeid(dofs_f, q) = div(dofs_f[vdim*(q-1)+1] - 1, vdim) + 1
-    cellidx = 1
-    for cell in Ferrite.CellIterator(sdh)
-        Ferrite.reinit!(cv, cell)
-        coords = Ferrite.getcoordinates(cell)
-        dofs_f = Ferrite.celldofs(cell)[Ferrite.dof_range(sdh, field_name)]
-        for q in 1:nodes_per_cell
-            nodes[nodeid(dofs_f, q)] = Ferrite.Node(Ferrite.spatial_coordinate(cv, q, coords))
-        end
-        for sub in subcells
-            cells[cellidx] = CT(map(k -> nodeid(dofs_f, k), sub))
-            cellidx += 1
-        end
-    end
-
-    grid_new = Ferrite.Grid(cells, nodes)
-    dh_new = Ferrite.DofHandler(grid_new)
-    lip = Ferrite.Lagrange{Ferrite.getrefshape(sip),1}()
-    add!(dh_new, field_name, vdim > 1 ? lip^vdim : lip)
-    close!(dh_new)
-
-    rng = Ferrite.dof_range(dh_new.subdofhandlers[1], field_name)
-    function transfer(u)
-        u_new = zeros(eltype(u), Ferrite.ndofs(dh_new))
-        cdofs = zeros(Int, Ferrite.ndofs_per_cell(dh_new))
-        for cell_idx in 1:Ferrite.getncells(grid_new)
-            Ferrite.celldofs!(cdofs, dh_new, cell_idx)
-            dofs = @view cdofs[rng]
-            for (k, node) in enumerate(Ferrite.getcells(grid_new, cell_idx).nodes), c in 1:vdim
-                u_new[dofs[vdim*(k-1)+c]] = u[vdim*(node-1)+c]
-            end
-        end
-        return u_new
-    end
-    return dh_new, transfer
 end
 
 ##########################

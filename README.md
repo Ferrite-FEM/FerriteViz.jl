@@ -40,7 +40,7 @@ For a guide check out [the tutorial section](https://ferrite-fem.github.io/Ferri
 ## Features
 
 - composable, reactive filters: `WarpByVector`, `Gradient`, `CrinkleClip`, `Refine`,
-  `FirstOrderRefinement`, `ExtractComponent`, `Magnitude`, `Norm1`, `VonMises`, `Deviator`,
+  `ExtractComponent`, `Magnitude`, `Norm1`, `VonMises`, `Deviator`,
   `Threshold`, `Derive`, ...
 - `AddQuadraturePointData` renders internal variables — data known only at the quadrature points —
   by partitioning every cell into the exact Voronoi regions of its quadrature points, without

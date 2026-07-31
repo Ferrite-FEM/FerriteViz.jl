@@ -576,11 +576,10 @@ end
     u = zeros(ndofs(dh))
     ds = FEData(dh, u)
     @test_throws ErrorException ds |> Gradient(:u)
-    @test_throws ErrorException ds |> FirstOrderRefinement()
     @test_throws ErrorException FerriteViz.interpolate_gradient_field(dh, u, :u)
 end
 
-@testset "filters: crinkle clip, refine, first-order refinement" begin
+@testset "filters: crinkle clip, refine" begin
     # 3D clip
     grid = generate_grid(Hexahedron, (3,3,3))
     dh = DofHandler(grid); add!(dh, :u, Lagrange{RefHexahedron,1}()); close!(dh)
@@ -598,38 +597,6 @@ end
     data = FerriteViz.point_data(refined, :u)[]
     vis = .!isnan.(vec(data))
     @test all(isapprox.(vec(data)[vis], [h_ana(x) for x in refined.coords[]][vis]; atol=0.5))
-
-    # first-order refinement of a high-order scalar field
-    grid2 = generate_grid(Quadrilateral, (2,2))
-    dh2 = DofHandler(grid2); add!(dh2, :u, Lagrange{RefQuadrilateral,2}()); close!(dh2)
-    f_ana(x) = 0.5x[1]^2 - 2x[2]^2 + x[1]*x[2]
-    u2 = Vector{Float64}(undef, ndofs(dh2)); Ferrite.apply_analytical!(u2, dh2, :u, f_ana)
-    lor = FEData(dh2, u2) |> FirstOrderRefinement()
-    @test getncells(Ferrite.get_grid(lor.dh)) == 4*getncells(grid2)
-    datal = FerriteViz.point_data(lor, :u)[]
-    # exact at subcell corner vertices (the 5th vertex of each quad is the
-    # center, where the linear interpolant of a quadratic field differs)
-    for cell in 1:getncells(Ferrite.get_grid(lor.dh)), k in 1:4
-        v = lor.cell_vertex_offsets[cell] + k
-        @test isapprox(datal[v], f_ana(lor.coords[][v]); atol=1e-6)
-    end
-
-    # first-order refinement of a vector field
-    dh3 = DofHandler(grid2); add!(dh3, :u, Lagrange{RefQuadrilateral,2}()^2); close!(dh3)
-    v_ana(x) = Vec{2}((x[1] + 2x[2], x[1] - x[2])) # linear: exact everywhere
-    u3 = Vector{Float64}(undef, ndofs(dh3)); Ferrite.apply_analytical!(u3, dh3, :u, v_ana)
-    lor3 = FEData(dh3, u3) |> FirstOrderRefinement()
-    data3 = FerriteViz.point_data(lor3, :u)[]
-    for i in 1:FerriteViz.num_vertices(lor3)
-        @test all(isapprox.(Vec{2}(data3[i,:]), v_ana(Vec{2}(Float64.(lor3.coords[][i]))); atol=1e-6))
-    end
-
-    # first-order refinement requires a single field
-    dhm = DofHandler(grid2)
-    add!(dhm, :u, Lagrange{RefQuadrilateral,1}())
-    add!(dhm, :p, Lagrange{RefQuadrilateral,1}())
-    close!(dhm)
-    @test_throws ErrorException FEData(dhm, zeros(ndofs(dhm))) |> FirstOrderRefinement()
 end
 
 @testset "derivation filters: Norm1, point-data Deviator, tuple output, Threshold bounds" begin

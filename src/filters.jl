@@ -59,6 +59,20 @@ struct WarpByVector{F<:Union{Symbol,Makie.Observable{Symbol}},S} <: AbstractFilt
 end
 WarpByVector(field=:default) = WarpByVector(field, 1.0)
 
+# Row `i` of a displacement container: a point-data Matrix or a Vector of
+# per-node values (e.g. from `evaluate_at_grid_nodes`).
+@inline _disp_component(d::AbstractMatrix, i::Int, j::Int) = d[i, j]
+@inline _disp_component(d::AbstractVector, i::Int, j::Int) = d[i][j]
+
+# Per-vertex displacement of WarpByVector, per frame. Function barrier: in the
+# lift closures `dim` is captured as a plain `Int`, which would make
+# `Point{dim,Float32}` a dynamic type application on every vertex — here it is
+# a static parameter recovered from the points' element type.
+function _displaced(points::Vector{GeometryBasics.Point{dim,Float32}}, d, scale::Real) where {dim}
+    s = Float32(scale)
+    return [points[i] .+ s .* GeometryBasics.Point{dim,Float32}(ntuple(j -> Float32(_disp_component(d, i, j)), Val(dim))) for i in eachindex(points)]
+end
+
 function apply(w::WarpByVector, ds::FEData{dim}) where {dim}
     scale = make_observable(w.scale)
     fname = w.field isa Makie.Observable ? w.field : make_observable(_resolve_name(ds, w.field))
@@ -66,14 +80,14 @@ function apply(w::WarpByVector, ds::FEData{dim}) where {dim}
     size(disp[], 2) == dim || error("deformation field :$(fname[]) has $(size(disp[], 2)) components, expected $dim")
     coords = Makie.lift(ds.coords, disp, scale) do base, d, s
         size(d, 2) == dim || error("deformation field has $(size(d, 2)) components, expected $dim")
-        [base[i] .+ Float32(s) .* GeometryBasics.Point{dim,Float32}(view(d, i, :)...) for i in eachindex(base)]
+        _displaced(base, d, s)
     end
     gridnodes = Makie.lift(ds.gridnodes, ds.u, scale, fname) do nodes, u, s, fn
         fn = _resolve_name(ds, fn)
         # named (non-dof) arrays live on the tessellation vertices only
         fn in Ferrite.getfieldnames(ds.dh) || return nodes
         vals = Ferrite.evaluate_at_grid_nodes(ds.dh, u, fn)
-        [nodes[i] .+ Float32(s) .* GeometryBasics.Point{dim,Float32}(vals[i]...) for i in eachindex(nodes)]
+        _displaced(nodes, vals, s)
     end
     coords_buffer = ShaderAbstractions.Buffer(coords)
     mesh = GeometryBasics.Mesh(coords_buffer, ds.vis_triangles)

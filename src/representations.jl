@@ -283,6 +283,13 @@ Draw an arrow at every tessellation vertex for a vector-valued data array
     )
 end
 
+# One Makie.Vec per row of a data matrix, per frame for arrowplot. Function
+# barrier: `dim` captured in the lift closure is a plain `Int`, which would
+# make `Vec{dim,Float32}` a dynamic type application on every row.
+function _row_vectors(A::AbstractMatrix, ::Val{dim}) where {dim}
+    return [Makie.Vec{dim,Float32}(ntuple(j -> Float32(A[i, j]), Val(dim))) for i in 1:size(A, 1)]
+end
+
 function Makie.plot!(AR::ArrowPlot{<:Tuple{<:FEData{dim}}}) where {dim}
     dim >= 2 || error("arrowplot is only available for spatial dim ≥ 2")
     ds = AR[1][]
@@ -290,7 +297,7 @@ function Makie.plot!(AR::ArrowPlot{<:Tuple{<:FEData{dim}}}) where {dim}
     vecdata = _switching_point_data(ds, fname; owner=AR)
     directions = Makie.lift(vecdata) do A
         size(A, 2) == dim || error("arrowplot needs a $dim-component vector array, :$(fname[]) has $(size(A, 2))")
-        [Makie.Vec{dim,Float32}(view(A, i, :)...) for i in 1:size(A, 1)]
+        _row_vectors(A, Val(dim))
     end
     arrowcolor = Makie.Observable{Any}()
     listener = Ref{Any}(nothing)

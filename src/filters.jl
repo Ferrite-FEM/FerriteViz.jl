@@ -220,6 +220,10 @@ solutionplot(ds |> Refine(2))         # this plot resolved finer
     (segments only double). On large high-order grids opt out with
     `FEData(dh, u; adaptive=false)`.
 
+!!! note
+    The choice made for a `nothing` count may change in a future release; such a
+    change is breaking. Explicit counts are stable.
+
 Rebuilds the geometry from the grid (a quadrature-point partition of
 [`AddQuadraturePointData`](@ref) does not survive — nor would it gain anything
 from refinement, its data being piecewise constant), so apply

@@ -54,6 +54,11 @@ high-order-deformed cells render curved — at the price of more triangles (see
 [`Refine`](@ref) for the numbers). Opt out with `adaptive=false` (flat base
 tessellation for every cell); custom levels are a filter application:
 `FEData(dh, u; adaptive=false) |> Refine(2)`.
+
+!!! note
+    The tessellation `adaptive=true` picks may change in a future release; such
+    a change is breaking. `adaptive=false` and explicit `Refine(n)` counts are
+    stable.
 """
 struct FEData{dim,DH<:Ferrite.AbstractDofHandler,T1,TOP<:Union{Nothing,Ferrite.AbstractTopology},SU<:Makie.Observable,M,TRI} <: AbstractPlotter
     dh::DH

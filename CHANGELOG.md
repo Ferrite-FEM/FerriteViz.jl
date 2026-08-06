@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    and high-order-deformed cells render curved out of the box;
    `adaptive=false` opts out and keeps the flat base tessellation, e.g. to
    subdivide only one branch of a pipeline with an explicit `ds |> Refine(n)`.
+   The tessellation the flag picks may change in a future release; such a
+   change is breaking. `adaptive=false` and explicit `Refine(n)` counts are
+   stable.
 
 ### Changed
  - `Refine` is reworked (breaking): instead of relatively subdividing every

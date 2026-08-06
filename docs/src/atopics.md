@@ -154,7 +154,9 @@ FerriteViz.solutionplot!(axs[2], clipped |> Refine(4))
 f
 ```
 
-In future we will also provide an adaptive tessellation algorithm to resolve the high-order fields with full detail.
+In future the tessellation `adaptive=true` picks may resolve the high-order fields with
+full detail; such a change is breaking. `adaptive=false` and explicit [`Refine`](@ref)
+counts are stable.
 
 ## Pipeline semantics
 

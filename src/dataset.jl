@@ -112,26 +112,6 @@ function FEData(dh::Ferrite.AbstractDofHandler, u::AbstractVector;
     return FEData(dh, Makie.Observable(collect(u)); topology, adaptive)
 end
 
-# Highest polynomial order the dataset may have to render: the geometry's and
-# every dof field's. It decides whether Refine's automatic mode subdivides —
-# a quadratic displacement on a linear grid bends edges just like curved
-# geometry does.
-function _max_field_order(dh::Ferrite.DofHandler)
-    order = 1
-    for sdh in dh.subdofhandlers, name in sdh.field_names
-        order = max(order, Ferrite.getorder(Ferrite.getfieldinterpolation(sdh, name)))
-    end
-    return order
-end
-_max_field_order(::Ferrite.AbstractDofHandler) = 1
-
-function _render_degree(celltype::Type{<:Ferrite.AbstractCell}, dh::Ferrite.AbstractDofHandler)
-    return max(Ferrite.getorder(Ferrite.geometric_interpolation(celltype)), _max_field_order(dh))
-end
-
-_auto_surface_resolution(degree::Int) = degree > 1 ? 1 : 0
-_auto_edge_resolution(degree::Int) = degree > 1 ? 3 : 0
-
 function FEData(dh::Ferrite.AbstractDofHandler, u::Makie.Observable;
                 topology=_default_topology(Ferrite.get_grid(dh)), source_u::Makie.Observable=u,
                 adaptive::Bool=true)
@@ -149,11 +129,13 @@ function FEData(dh::Ferrite.AbstractDofHandler, u::Makie.Observable;
     end
 
     # The tessellation choice is the Refine filter's; the constructor merely
-    # applies its automatic mode by default (adaptive=false pins every cell to
-    # the flat base tessellation). Building through the provider directly means
-    # the default costs nothing over constructing flat and filtering after.
-    subdiv = adaptive ? Refine() : Refine(0)
-    return _build_dataset(dh, u, source_u, topology, visible, _tessellation_provider(subdiv, dh))
+    # applies its automatic mode by default — Refine() picks the subdivision
+    # per cell type (see _pick_subdivision_rounds), Refine(0) pins every cell
+    # to the flat base tessellation. Building through the provider directly
+    # means the default costs nothing over constructing flat and filtering
+    # afterwards.
+    refinement = adaptive ? Refine() : Refine(0)
+    return _build_dataset(dh, u, source_u, topology, visible, _tessellation_provider(refinement, dh))
 end
 
 # Shared tessellation-instantiation core of the FEData constructor and the

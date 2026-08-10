@@ -168,12 +168,14 @@ function _subdivide_edges(tess::ReferenceTessellation)
     return ReferenceTessellation(coords, tess.triangles, edges)
 end
 
-# The tessellation a cell is actually instantiated with: `surface_res`
-# subdivision rounds for the triangles, and at least `edge_res` rounds for the
-# wireframe edges (edge segments end up at 2^max(surface_res, edge_res)).
-function _cell_tessellation(base::ReferenceTessellation, surface_res::Int, edge_res::Int)
-    tess = subdivide(base, surface_res)
-    for _ in (surface_res + 1):edge_res
+# The tessellation a cell is actually instantiated with: `surface_rounds`
+# subdivision rounds for the triangles, and at least `edge_rounds` rounds for
+# the wireframe edges. Each surface round already halves the edge segments, so
+# only the missing edge-only rounds are applied on top and every edge ends up
+# split into 2^max(surface_rounds, edge_rounds) segments.
+function _subdivided_tessellation(base::ReferenceTessellation, surface_rounds::Int, edge_rounds::Int)
+    tess = subdivide(base, surface_rounds)
+    for _ in (surface_rounds + 1):edge_rounds
         tess = _subdivide_edges(tess)
     end
     return tess

@@ -237,19 +237,67 @@ end
 Refine(n::Int; edges::Int=n) = Refine(n, edges)
 Refine(; surface::Union{Nothing,Int}=nothing, edges::Union{Nothing,Int}=nothing) = Refine(surface, edges)
 
-# Per-cell tessellation choice of a Refine filter, shared with the FEData
-# constructor (which builds through this directly so the default application
-# costs nothing over constructing flat and filtering afterwards).
+# How a cell type's tessellation is chosen, top to bottom:
+#
+#   _tessellation_provider          one cached tessellation per cell type
+#   └─ _build_cell_tessellation     base shape -> subdivided tessellation
+#      ├─ _pick_subdivision_rounds  explicit Refine counts win, `nothing`
+#      │  │                         falls back to the automatic defaults
+#      │  ├─ _max_render_order      highest order of geometry and dof fields
+#      │  └─ _default_*_rounds      flat for order 1, subdivided above
+#      ├─ reference_tessellation    flat tessellation of the reference shape
+#      └─ _subdivided_tessellation  applies the subdivision rounds
+
+# Highest polynomial order among the dof fields. A quadratic displacement on a
+# linear grid bends edges just like curved geometry does, so the fields count
+# toward the render order alongside the geometric interpolation.
+function _max_field_order(dh::Ferrite.DofHandler)
+    order = 1
+    for sdh in dh.subdofhandlers, name in sdh.field_names
+        order = max(order, Ferrite.getorder(Ferrite.getfieldinterpolation(sdh, name)))
+    end
+    return order
+end
+_max_field_order(::Ferrite.AbstractDofHandler) = 1
+
+# Highest polynomial order a cell of this type may have to render: its
+# geometric interpolation's order or any dof field's, whichever is larger.
+function _max_render_order(celltype::Type{<:Ferrite.AbstractCell}, dh::Ferrite.AbstractDofHandler)
+    return max(Ferrite.getorder(Ferrite.geometric_interpolation(celltype)), _max_field_order(dh))
+end
+
+# Defaults of Refine's automatic mode: cells that render (multi-)linearly are
+# exact on the flat base tessellation and get no subdivision; higher-order
+# cells get 1 surface round (4× the triangles) and 3 edge rounds (each cell
+# edge drawn as 8 segments).
+_default_surface_rounds(render_order::Int) = render_order > 1 ? 1 : 0
+_default_edge_rounds(render_order::Int) = render_order > 1 ? 3 : 0
+
+# The subdivision rounds a Refine filter applies to one cell type: counts set
+# explicitly on the filter are used as given, counts left as `nothing` fall
+# back to the automatic defaults for the cell type's render order.
+function _pick_subdivision_rounds(f::Refine, celltype::Type{<:Ferrite.AbstractCell}, dh::Ferrite.AbstractDofHandler)
+    render_order = _max_render_order(celltype, dh)
+    surface_rounds = f.surface === nothing ? _default_surface_rounds(render_order) : f.surface
+    edge_rounds = f.edges === nothing ? _default_edge_rounds(render_order) : f.edges
+    return surface_rounds, edge_rounds
+end
+
+function _build_cell_tessellation(f::Refine, celltype::Type{<:Ferrite.AbstractCell}, dh::Ferrite.AbstractDofHandler)
+    surface_rounds, edge_rounds = _pick_subdivision_rounds(f, celltype, dh)
+    base = reference_tessellation(Ferrite.getrefshape(celltype))
+    return _subdivided_tessellation(base, surface_rounds, edge_rounds)
+end
+
+# Per-cell tessellation lookup handed to `_build_dataset`, shared with the
+# FEData constructor (which builds through this directly so the default
+# application costs nothing over constructing flat and filtering afterwards).
+# All cells of one type share the same reference tessellation, so the build
+# runs once per cell type and is cached.
 function _tessellation_provider(f::Refine, dh::Ferrite.AbstractDofHandler)
     cache = Dict{Type,ReferenceTessellation}()
-    return function (cell)
-        return get!(cache, typeof(cell)) do
-            degree = _render_degree(typeof(cell), dh)
-            _cell_tessellation(reference_tessellation(Ferrite.getrefshape(cell)),
-                               something(f.surface, _auto_surface_resolution(degree)),
-                               something(f.edges, _auto_edge_resolution(degree)))
-        end
-    end
+    tessellation_for_cell(cell) = get!(() -> _build_cell_tessellation(f, typeof(cell), dh), cache, typeof(cell))
+    return tessellation_for_cell
 end
 
 function apply(f::Refine, ds::FEData)
@@ -359,8 +407,9 @@ function apply(f::AddQuadraturePointData, ds::FEData{dim}) where {dim}
     edge_cache = Dict{Type,Any}()
     function edges_for(cell)
         return get!(edge_cache, typeof(cell)) do
-            edge_res = _auto_edge_resolution(_render_degree(typeof(cell), ds.dh))
-            edge_geometry(_cell_tessellation(reference_tessellation(Ferrite.getrefshape(cell)), 0, edge_res))
+            edge_rounds = _default_edge_rounds(_max_render_order(typeof(cell), ds.dh))
+            base = reference_tessellation(Ferrite.getrefshape(cell))
+            edge_geometry(_subdivided_tessellation(base, 0, edge_rounds))
         end
     end
 

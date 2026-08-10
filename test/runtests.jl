@@ -229,7 +229,7 @@ end
     end
     # edge-only rounds refine the wireframe without touching the surface
     base = FerriteViz.reference_tessellation(RefQuadrilateral)
-    fine = FerriteViz._cell_tessellation(base, 0, 2)
+    fine = FerriteViz._subdivided_tessellation(base, 0, 2)
     @test FerriteViz.ntriangles(fine) == FerriteViz.ntriangles(base)
     @test FerriteViz.nedges(fine) == 4 * FerriteViz.nedges(base)
 end
@@ -241,7 +241,7 @@ end
     g_ana(x) = Vec{2}((0.0, x[1]^2))
     u = zeros(ndofs(dh)); Ferrite.apply_analytical!(u, dh, :u, g_ana)
     ds = FEData(dh, u)
-    @test length(ds.all_edges) == 4 * 2^3    # auto edge_resolution = 3 for order 2
+    @test length(ds.all_edges) == 4 * 2^3    # default edge rounds = 3 for order 2
     warped = ds |> WarpByVector(:u)
     pts = warped.coords[][FerriteViz._visible_edge_indices(warped)]
     # every warped edge vertex satisfies y = y₀ + x² exactly (up to Float32);

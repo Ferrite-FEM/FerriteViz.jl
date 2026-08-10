@@ -40,7 +40,7 @@ This package offers a set of unique features that are not easily reproducible wi
 
 - a composable, reactive filter pipeline (ParaView's Source → Filter → Representation model):
   [`FerriteViz.WarpByVector`](@ref), [`FerriteViz.Gradient`](@ref), [`FerriteViz.CrinkleClip`](@ref),
-  [`FerriteViz.Refine`](@ref), [`FerriteViz.FirstOrderRefinement`](@ref), [`FerriteViz.ExtractComponent`](@ref),
+  [`FerriteViz.Refine`](@ref), [`FerriteViz.ExtractComponent`](@ref),
   [`FerriteViz.Magnitude`](@ref), [`FerriteViz.Norm1`](@ref), [`FerriteViz.VonMises`](@ref),
   [`FerriteViz.Deviator`](@ref), [`FerriteViz.Threshold`](@ref), [`FerriteViz.Derive`](@ref), ...
 - [`FerriteViz.AddQuadraturePointData`](@ref) renders internal variables — data known only at the
@@ -58,11 +58,15 @@ This package offers a set of unique features that are not easily reproducible wi
 - deformed plots for any representation via the [`FerriteViz.WarpByVector`](@ref) filter
 - support for custom cell types by implementing a single [`FerriteViz.reference_tessellation`](@ref)
   method (walked through on the [custom cells](cohesive.md) page)
-- `Wedge` and `Pyramid` cells out of the box, and curved (higher-order geometry) cells that
-  tessellate through their geometric interpolation
+- `Wedge` and `Pyramid` cells out of the box; curved (higher-order geometry) cells render
+  curved — surfaces *and* the [`FerriteViz.meshplot`](@ref) wireframe are subdivided in
+  reference space and mapped through the geometric interpolation via the
+  [`FerriteViz.Refine`](@ref) filter, applied automatically whenever the geometry or a
+  field is nonlinear (so a quadratic displacement warp bends edges too; opt out with
+  `FEData(dh, u; adaptive=false)`)
 - full integration into the Makie ecosystem, e.g. themes, layouts etc. 
 - GPU powered plotting with GLMakie.jl, jupyter/pluto notebook plotting with WGLMakie.jl and vector graphics with CairoMakie.jl
-- visualization of high order solutions via first order refinement
+- visualization of high order solutions via reference-space subdivision ([`FerriteViz.Refine`](@ref))
 - visualization of non-conforming solutions, e.g. for Crouzeix-Raviart ansatz
 
 ## Viewing the docs locally

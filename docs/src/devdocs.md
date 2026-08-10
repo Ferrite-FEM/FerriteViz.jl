@@ -7,11 +7,20 @@ Note that these functions could be removed or change in behavior between minor v
 FerriteViz is structured in three layers, following the ParaView model:
 
 1. **Tessellation** (`src/tessellation.jl`): every reference shape describes its
-   surface triangulation with a single [`FerriteViz.ReferenceTessellation`](@ref).
-   [`FEData`](@ref) lays this out per cell with *duplicated* vertices, so
-   discontinuous (L2) fields render with their inter-element jumps intact, and
-   maps reference coordinates through the cell's geometric interpolation (curved
-   cells tessellate correctly). `src/qptessellation.jl` adds a second, quadrature
+   surface triangulation *and* its wireframe edge segments with a single
+   [`FerriteViz.ReferenceTessellation`](@ref) — the edges are separate from the
+   triangles because the triangulation contains interior diagonals that are not
+   finite element edges. [`FEData`](@ref) lays this out per cell with
+   *duplicated* vertices, so discontinuous (L2) fields render with their
+   inter-element jumps intact, and maps reference coordinates through the cell's
+   geometric interpolation. High-order cells (or high-order fields) get their
+   reference tessellation subdivided first ([`FerriteViz.subdivide`](@ref),
+   driven by the [`Refine`](@ref) filter whose automatic mode `FEData`
+   applies unless constructed with `adaptive=false`), so curved geometry
+   and deformation render curved. Since the wireframe's vertices are ordinary
+   tessellation vertices, [`meshplot`](@ref) inherits warping, clipping and
+   refinement from the pipeline without any special-casing.
+   `src/qptessellation.jl` adds a second, quadrature
    rule dependent reference geometry: the Voronoi partition of a reference shape
    induced by its quadrature points, which [`AddQuadraturePointData`](@ref) uses to
    render internal variables piecewise constant.
@@ -37,12 +46,10 @@ FerriteViz.reference_tessellation(::Type{Ferrite.RefPyramid}) =
 ```
 
 For 2D shapes, construct the [`FerriteViz.ReferenceTessellation`](@ref)
-directly (coordinates in reference space, triangles indexing into them; shared
-coordinates are fine — per-cell duplication is `FEData`'s job).
-
-To additionally support [`FirstOrderRefinement`](@ref) for a high-order
-interpolation, provide its [`FerriteViz.first_order_subcells`](@ref) table (and
-[`FerriteViz.linear_celltype`](@ref) for a new reference shape).
+directly (coordinates in reference space, triangles and wireframe edge
+segments indexing into them; shared coordinates are fine — per-cell
+duplication is `FEData`'s job). Edges may be omitted, in which case
+[`meshplot`](@ref) draws no wireframe for cells of that shape.
 
 ## Data layout
 
@@ -56,10 +63,9 @@ Cell-data arrays are per-cell `Vector`s of arbitrary element type.
 FerriteViz.ReferenceTessellation
 FerriteViz.reference_tessellation
 FerriteViz.facet_based_tessellation
+FerriteViz.subdivide
 FerriteViz.QPTessellation
 FerriteViz.qp_voronoi_tessellation
-FerriteViz.first_order_subcells
-FerriteViz.linear_celltype
 FerriteViz.ntriangles
 FerriteViz.num_vertices
 FerriteViz.transfer_solution

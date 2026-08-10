@@ -7,6 +7,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+ - `ReferenceTessellation` now carries the wireframe edge segments of its
+   reference shape (from `Ferrite.reference_edges`) next to the surface
+   triangles, and `FEData` instantiates them per cell like the triangles:
+   `all_edges`/`edge_cell_map`/`cell_edge_offsets` index into the same
+   tessellation vertices as the surface. Custom shapes without edges simply
+   render no wireframe.
+ - `FEData` grew an `adaptive::Bool=true` keyword: by default it tessellates
+   with the reworked `Refine` filter's automatic mode (see below), so curved
+   and high-order-deformed cells render curved out of the box;
+   `adaptive=false` opts out and keeps the flat base tessellation, e.g. to
+   subdivide only one branch of a pipeline with an explicit `ds |> Refine(n)`.
+   The tessellation the flag picks may change in a future release; such a
+   change is breaking. `adaptive=false` and explicit `Refine(n)` counts are
+   stable.
+
+### Changed
+ - `Refine` is reworked (breaking): instead of relatively subdividing every
+   triangle of the current tessellation into 4 dedicated-vertex triangles, it
+   re-tessellates every cell from its reference shape with reference-space
+   subdivision (`FerriteViz.subdivide`, shared vertices — several times less
+   memory for the same picture) and now takes two counts, `surface` rounds
+   for the triangles and `edges` rounds for the wireframe
+   (`Refine(n; edges=n)` / `Refine(surface=..., edges=...)`). Counts are
+   *absolute*, not relative to the input's tessellation, and a count of
+   `nothing` (the default) is chosen per cell type: no subdivision when
+   geometry and all fields are (multi-)linear, otherwise 1 surface and 3 edge
+   rounds — the automatic mode `FEData` applies by default. Note `Refine()`
+   now means this automatic mode, not one relative round, and applying it
+   after `AddQuadraturePointData` no longer refines the quadrature-point
+   partition (which was moot anyway: the partition renders piecewise-constant
+   data exactly, and the refined dataset dropped the quadrature-point arrays).
+ - `meshplot` draws the wireframe from the dataset's tessellation edges
+   instead of connecting grid nodes with straight lines. The wireframe now
+   respects the whole pipeline: it follows `WarpByVector` (including
+   high-order, discontinuous and non-dof-field warps), is hidden with cells
+   removed by `CrinkleClip` (previously clipped cells kept their edges), is
+   refined by `Refine`, and bends along curved cell edges. Node markers and
+   labels are restricted to nodes of visible cells; in 3D, edges of interior
+   cells are no longer drawn.
+ - `AddQuadraturePointData` datasets keep the finite element cell edges in
+   their rebuilt vertex layout (valued by the nearest quadrature point), so
+   `meshplot` keeps working downstream of it.
+ - datasets with high-order geometry or fields tessellate finer by default
+   (see above), costing those cell types about 4× the triangles; pass
+   `adaptive=false` to `FEData` to restore the previous flat tessellation and
+   its memory footprint.
+
+### Removed
+ - the `FirstOrderRefinement` filter and its extension-point registry
+   (`FerriteViz.first_order_subcells`/`FerriteViz.linear_celltype`)
+   (breaking): the reworked `Refine` covers resolving high-order fields —
+   without the flattening artifacts of the first-order re-discretization —
+   and `FEData`'s adaptive default already renders them curved out of the
+   box.
+
 ## [0.3.0] - 2026-07-28
 
 Full rewrite of the internals around a ParaView-style pipeline:

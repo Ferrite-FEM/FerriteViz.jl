@@ -27,7 +27,6 @@ FerriteViz.Gradient
 FerriteViz.CrinkleClip
 FerriteViz.ClipPlane
 FerriteViz.Refine
-FerriteViz.FirstOrderRefinement
 FerriteViz.AddQuadraturePointData
 FerriteViz.ExtractComponent
 FerriteViz.Magnitude

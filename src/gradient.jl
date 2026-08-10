@@ -49,13 +49,21 @@ function _compute_gradient_values(dh::DofHandler{spatial_dim}, dh_gradient::DofH
     qr_gradient = QuadratureRule{getrefshape(Ferrite.getcells(get_grid(dh), 1))}(ones(length(ref_coords_gradient)), ref_coords_gradient)
     cv = CellValues(qr_gradient, ip, ip_geom)
 
+    # Function barrier: `ip` (and hence `cv`) is only abstractly inferred here,
+    # and this runs per frame — specialize the cell loop on the concrete values.
+    return _compute_gradient_values!(cv, dh, dh_gradient, u, field_name, copy_fields, field_dim)
+end
+
+function _compute_gradient_values!(cv::CellValues, dh::DofHandler{spatial_dim}, dh_gradient::DofHandler,
+                                   u::AbstractVector, field_name::Symbol, copy_fields::Vector{Symbol},
+                                   field_dim::Int) where {spatial_dim}
     cell_dofs = zeros(Int, Ferrite.ndofs_per_cell(dh))
     cell_dofs_gradient = zeros(Int, Ferrite.ndofs_per_cell(dh_gradient))
 
     u_gradient = zeros(Ferrite.ndofs(dh_gradient))
     # In general uᵉ_gradient is an order 3 tensor [field_dim, spatial_dim, nqp]
     uᵉ_gradient = zeros(length(Ferrite.dof_range(dh_gradient.subdofhandlers[1], :gradient)))
-    uᵉ_gradient_view = reshape(uᵉ_gradient, (spatial_dim, field_dim, getnquadpoints(qr_gradient)))
+    uᵉ_gradient_view = reshape(uᵉ_gradient, (spatial_dim, field_dim, getnquadpoints(cv)))
 
     for (cell_num, cell) in enumerate(Ferrite.CellIterator(dh))
         Ferrite.celldofs!(cell_dofs, dh, cell_num)
@@ -64,7 +72,7 @@ function _compute_gradient_values(dh::DofHandler{spatial_dim}, dh_gradient::DofH
         Ferrite.reinit!(cv, cell)
 
         # Evaluate the gradient at the basis function locations of the gradient field
-        for i ∈ 1:Ferrite.getnquadpoints(qr_gradient)
+        for i ∈ 1:Ferrite.getnquadpoints(cv)
             uᵉgradi = Ferrite.function_gradient(cv, i, uᵉ)
             for ds in 1:spatial_dim, df in 1:field_dim
                 uᵉ_gradient_view[ds, df, i] = _tensorsjl_gradient_accessor(uᵉgradi, df, ds)
@@ -72,10 +80,10 @@ function _compute_gradient_values(dh::DofHandler{spatial_dim}, dh_gradient::DofH
         end
 
         Ferrite.celldofs!(cell_dofs_gradient, dh_gradient, cell_num)
-        u_gradient[cell_dofs_gradient[Ferrite.dof_range(dh_gradient, :gradient)]] .+= uᵉ_gradient
+        @views u_gradient[cell_dofs_gradient[Ferrite.dof_range(dh_gradient, :gradient)]] .+= uᵉ_gradient
 
         for fieldname in copy_fields
-            u_gradient[cell_dofs_gradient[Ferrite.dof_range(dh_gradient, fieldname)]] .= u[cell_dofs[Ferrite.dof_range(dh, fieldname)]]
+            @views u_gradient[cell_dofs_gradient[Ferrite.dof_range(dh_gradient, fieldname)]] .= u[cell_dofs[Ferrite.dof_range(dh, fieldname)]]
         end
     end
     return u_gradient

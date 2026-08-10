@@ -23,7 +23,7 @@ linear one shows pronounced facets between elements, the quadratic one is nearly
 ```@example 1
 using Ferrite
 import FerriteViz
-using FerriteViz: FEData, WarpByVector, Gradient, Derive, Refine, FirstOrderRefinement, CrinkleClip, ClipPlane
+using FerriteViz: FEData, WarpByVector, Gradient, Derive, Refine, CrinkleClip, ClipPlane
 ε(∇u) = (∇u+transpose(∇u))/2
 import WGLMakie #activating the backend, switch to GLMakie or CairoMakie (for 2D) locally
 
@@ -125,28 +125,23 @@ Since the filter rebuilds the geometry, apply [`WarpByVector`](@ref) *after* it.
 
 ## High-order fields
 
-The investigation of high-order fields is currently only supported via a first-order refinement of the problem.
-Here, the high-order approximation is replaced by a first order approximation of the field, which is
-spanned by the nodes of the high-order approximation — the [`FirstOrderRefinement`](@ref) filter. For example, the first order refinement of a
-heat problem on a square domain for Lagrange polynomials of order 4 looks like this:
+High-order data gets a head start out of the box: whenever the geometry or a field of the
+dof handler is nonlinear, [`FEData`](@ref) applies the [`Refine`](@ref) filter's
+automatic mode, subdividing each cell's reference tessellation once for the surfaces and
+three times for the [`FerriteViz.meshplot`](@ref) wireframe edges and mapping the new
+vertices through the geometric interpolation — curved cells and high-order deformations
+render curved. This costs high-order cell types about 4× the triangles of the flat
+tessellation; `FEData(dh, u; adaptive=false)` opts out, and applying [`Refine`](@ref)
+explicitly (e.g. `ds |> Refine(2)`) picks custom levels for a single branch of a
+pipeline.
+
+That default is deliberately coarse for the *solution values* though. To resolve the fine
+structure of a high-order field (given enough RAM), the [`Refine`](@ref) filter takes
+explicit subdivision counts — each surface round quadruples the rendered triangles (and
+each edge round doubles the wireframe segments):
 ```@example 1
 include("ferrite-examples/heat-equation.jl"); #defines manufactured_heat_problem
 
-f = WGLMakie.Figure()
-axs = [WGLMakie.Axis3(f[1, 1], title="Coarse"), WGLMakie.Axis3(f[1, 2], title="Fine")]
-
-dh,u = manufactured_heat_problem(Triangle, Lagrange{RefTriangle,4}(), 1)
-FerriteViz.surfaceplot!(axs[1], FEData(dh, u) |> FirstOrderRefinement())
-
-dh,u = manufactured_heat_problem(Triangle, Lagrange{RefTriangle,4}(), 3)
-FerriteViz.surfaceplot!(axs[2], FEData(dh, u) |> FirstOrderRefinement())
-
-f
-```
-Note that this method produces small artifacts due to the flattening of the nonlinearities of the high order ansatz.
-However, it is still sufficient to investigate important features of the solution.
-If users want to have higher resolution than the crude estimate given by the first order refinement (as well as enough RAM), then we also provide a uniform tessellation algorithm, the [`Refine`](@ref) filter:
-```@example 1
 f = WGLMakie.Figure()
 axs = [WGLMakie.LScene(f[1, 1]), WGLMakie.LScene(f[1, 2])]
 
@@ -159,7 +154,9 @@ FerriteViz.solutionplot!(axs[2], clipped |> Refine(4))
 f
 ```
 
-In future we will also provide an adaptive tessellation algorithm to resolve the high-order fields with full detail.
+In future the tessellation `adaptive=true` picks may resolve the high-order fields with
+full detail; such a change is breaking. `adaptive=false` and explicit [`Refine`](@ref)
+counts are stable.
 
 ## Pipeline semantics
 
@@ -167,7 +164,7 @@ Chaining itself is covered in the [tutorial](tutorial.md); two rules matter once
 get longer.
 
 **Ordering.** Geometry-rebuilding filters ([`Refine`](@ref),
-[`FirstOrderRefinement`](@ref), [`AddQuadraturePointData`](@ref)) rebuild from the base
+[`AddQuadraturePointData`](@ref)) rebuild from the base
 geometry, so apply [`WarpByVector`](@ref) *after* them. They also drop the point data
 registered upstream, since it refers to vertices that no longer exist — the one exception
 is a rebuild that reproduces the very same vertex layout, as when two

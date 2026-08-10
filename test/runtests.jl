@@ -192,8 +192,123 @@ end
                 @test Ferrite.facet_to_element_transformation(face2d[k], RS, fi) ≈ refc[v] atol=1e-12
             end
         end
-        @test FerriteViz.nvertices(tess) == sum(length(f) == 3 ? 3 : 5 for f in Ferrite.reference_faces(RS))
+        # face vertices plus 2 dedicated endpoint vertices per wireframe edge
+        @test FerriteViz.nvertices(tess) == sum(length(f) == 3 ? 3 : 5 for f in Ferrite.reference_faces(RS)) +
+                                            2 * length(Ferrite.reference_edges(RS))
+        @test FerriteViz.nedges(tess) == length(Ferrite.reference_edges(RS))
+        # every edge connects the reference coordinates of its FE edge's vertices
+        for (e, (v1, v2)) in enumerate(Ferrite.reference_edges(RS))
+            a, b = tess.edges[e]
+            @test tess.coords[a] ≈ refc[v1] && tess.coords[b] ≈ refc[v2]
+        end
     end
+end
+
+@testset "reference-space subdivision" begin
+    for RS in (RefTriangle, RefQuadrilateral, RefTetrahedron, RefHexahedron)
+        base = FerriteViz.reference_tessellation(RS)
+        for n in 1:2
+            tess = FerriteViz.subdivide(base, n)
+            @test FerriteViz.ntriangles(tess) == 4^n * FerriteViz.ntriangles(base)
+            @test FerriteViz.nedges(tess) == 2^n * FerriteViz.nedges(base)
+            # subdivided edge segments join up into the original edge polylines:
+            # each original edge's segments cover it with 2^n equal pieces
+            for (e, (a, b)) in enumerate(base.edges)
+                segs = tess.edges[(2^n*(e-1)+1):(2^n*e)]
+                @test tess.coords[segs[1][1]] ≈ base.coords[a]
+                @test tess.coords[segs[end][2]] ≈ base.coords[b]
+                for k in 1:(length(segs)-1) # consecutive segments share their joint
+                    @test segs[k][2] == segs[k+1][1]
+                end
+            end
+        end
+        # midpoints are deduplicated: neighbouring triangles share them
+        t1 = FerriteViz.subdivide(base, 1)
+        naive = FerriteViz.nvertices(base) + 3 * FerriteViz.ntriangles(base) + FerriteViz.nedges(base)
+        @test FerriteViz.nvertices(t1) < naive
+    end
+    # edge-only rounds refine the wireframe without touching the surface
+    base = FerriteViz.reference_tessellation(RefQuadrilateral)
+    fine = FerriteViz._subdivided_tessellation(base, 0, 2)
+    @test FerriteViz.ntriangles(fine) == FerriteViz.ntriangles(base)
+    @test FerriteViz.nedges(fine) == 4 * FerriteViz.nedges(base)
+end
+
+@testset "wireframe edges follow the pipeline" begin
+    # curved wireframe: a quadratic displacement on a linear grid bends edges
+    grid = generate_grid(Quadrilateral, (1,1))
+    dh = DofHandler(grid); add!(dh, :u, Lagrange{RefQuadrilateral,2}()^2); close!(dh)
+    g_ana(x) = Vec{2}((0.0, x[1]^2))
+    u = zeros(ndofs(dh)); Ferrite.apply_analytical!(u, dh, :u, g_ana)
+    ds = FEData(dh, u)
+    @test length(ds.all_edges) == 4 * 2^3    # default edge rounds = 3 for order 2
+    warped = ds |> WarpByVector(:u)
+    pts = warped.coords[][FerriteViz._visible_edge_indices(warped)]
+    # every warped edge vertex satisfies y = y₀ + x² exactly (up to Float32);
+    # a straight-chord wireframe would interpolate linearly between corners
+    for (p0, p) in zip(ds.coords[][FerriteViz._visible_edge_indices(ds)], pts)
+        @test isapprox(p[2], p0[2] + p0[1]^2; atol=1e-5)
+    end
+    @test meshplot(warped) isa Makie.FigureAxisPlot
+
+    # adaptive=false opts out of the automatic subdivision entirely
+    ds0 = FEData(dh, u; adaptive=false)
+    @test length(ds0.all_triangles) == 4 && length(ds0.all_edges) == 4
+    # ... and the Refine filter reintroduces it with explicit control
+    @test length((ds0 |> Refine(1)).all_triangles) == 16
+    dsl = FEData(DofHandler(grid), Float64[]; adaptive=false) |> Refine(1) # linear grid, forced
+    @test length(dsl.all_triangles) == 16
+    @test length((ds0 |> Refine(surface=0, edges=2)).all_edges) == 4 * 4
+    # the automatic filter mode reproduces the constructor default exactly
+    dsauto = ds0 |> Refine()
+    @test length(dsauto.all_triangles) == length(ds.all_triangles)
+    @test dsauto.reference_coords == ds.reference_coords
+    # data across the rebuild: cell data survives, point data is dropped,
+    # dof fields transfer onto the new vertices
+    set_cell_data!(ds0, :c, [1.0])
+    set_point_data!(ds0, :pd, ones(FerriteViz.num_vertices(ds0)))
+    sub = ds0 |> Refine(1)
+    @test FerriteViz.cell_data(sub, :c)[] == [1.0]
+    @test !haskey(sub.point_data, :pd)
+    @test size(FerriteViz.point_data(sub, :u)[], 1) == FerriteViz.num_vertices(sub)
+
+    # 3D: the wireframe is restricted to the visible cells, so a crinkle clip
+    # hides the clipped cells' edges
+    grid3 = generate_grid(Hexahedron, (3,3,3))
+    dh3 = DofHandler(grid3); add!(dh3, :u, Lagrange{RefHexahedron,1}()); close!(dh3)
+    ds3 = FEData(dh3, rand(ndofs(dh3)))
+    @test length(ds3.all_edges) == getncells(grid3) * 12
+    clipped = ds3 |> CrinkleClip(ClipPlane(Vec((0.0,0.5,0.5)), 0.1))
+    @test length(FerriteViz._visible_edge_indices(clipped)) != length(FerriteViz._visible_edge_indices(ds3))
+    @test 2 * length(ds3.all_edges) > length(FerriteViz._visible_edge_indices(ds3)) # interior cells hidden
+    @test meshplot(clipped) isa Makie.FigureAxisPlot
+    # node markers/labels follow the visibility too
+    @test length(FerriteViz._visible_node_ids(clipped)) < length(FerriteViz._visible_node_ids(ds3))
+    @test length(FerriteViz._visible_node_ids(FEData(DofHandler(grid), Float64[]))) == getnnodes(grid)
+    # Refine preserves the input's visibility (e.g. downstream of a clip)
+    subclipped = clipped |> Refine(1)
+    @test subclipped.visible == clipped.visible
+    @test length(subclipped.all_triangles) == 4 * length(clipped.all_triangles)
+    @test meshplot(subclipped) isa Makie.FigureAxisPlot
+
+    # Refine splits the wireframe with the triangles
+    refined = ds3 |> Refine(1)
+    @test length(refined.all_edges) == 2 * length(ds3.all_edges)
+    @test all(1:getncells(grid3)) do c
+        length(FerriteViz.edges_on_cell(refined, c)) == 2 * length(FerriteViz.edges_on_cell(ds3, c))
+    end
+    @test meshplot(refined) isa Makie.FigureAxisPlot
+
+    # AddQuadraturePointData rebuilds the geometry but keeps the FE edges
+    qr = QuadratureRule{RefQuadrilateral}(2)
+    gridq = generate_grid(Quadrilateral, (3,3))
+    dhq = DofHandler(gridq); add!(dhq, :u, Lagrange{RefQuadrilateral,1}()^2); close!(dhq)
+    dsq = FEData(dhq, rand(ndofs(dhq)))
+    vals = [[Float64(10c + q) for q in 1:getnquadpoints(qr)] for c in 1:getncells(gridq)]
+    pipe = dsq |> AddQuadraturePointData(qr, vals; output=:iv)
+    @test length(pipe.all_edges) == getncells(gridq) * 4
+    @test meshplot(pipe) isa Makie.FigureAxisPlot
+    @test meshplot(pipe |> WarpByVector(:u, 0.1)) isa Makie.FigureAxisPlot
 end
 
 # A minimal custom reference shape (a clone of the linear triangle), used to
@@ -461,11 +576,10 @@ end
     u = zeros(ndofs(dh))
     ds = FEData(dh, u)
     @test_throws ErrorException ds |> Gradient(:u)
-    @test_throws ErrorException ds |> FirstOrderRefinement()
     @test_throws ErrorException FerriteViz.interpolate_gradient_field(dh, u, :u)
 end
 
-@testset "filters: crinkle clip, refine, first-order refinement" begin
+@testset "filters: crinkle clip, refine" begin
     # 3D clip
     grid = generate_grid(Hexahedron, (3,3,3))
     dh = DofHandler(grid); add!(dh, :u, Lagrange{RefHexahedron,1}()); close!(dh)
@@ -483,38 +597,6 @@ end
     data = FerriteViz.point_data(refined, :u)[]
     vis = .!isnan.(vec(data))
     @test all(isapprox.(vec(data)[vis], [h_ana(x) for x in refined.coords[]][vis]; atol=0.5))
-
-    # first-order refinement of a high-order scalar field
-    grid2 = generate_grid(Quadrilateral, (2,2))
-    dh2 = DofHandler(grid2); add!(dh2, :u, Lagrange{RefQuadrilateral,2}()); close!(dh2)
-    f_ana(x) = 0.5x[1]^2 - 2x[2]^2 + x[1]*x[2]
-    u2 = Vector{Float64}(undef, ndofs(dh2)); Ferrite.apply_analytical!(u2, dh2, :u, f_ana)
-    lor = FEData(dh2, u2) |> FirstOrderRefinement()
-    @test getncells(Ferrite.get_grid(lor.dh)) == 4*getncells(grid2)
-    datal = FerriteViz.point_data(lor, :u)[]
-    # exact at subcell corner vertices (the 5th vertex of each quad is the
-    # center, where the linear interpolant of a quadratic field differs)
-    for cell in 1:getncells(Ferrite.get_grid(lor.dh)), k in 1:4
-        v = lor.cell_vertex_offsets[cell] + k
-        @test isapprox(datal[v], f_ana(lor.coords[][v]); atol=1e-6)
-    end
-
-    # first-order refinement of a vector field
-    dh3 = DofHandler(grid2); add!(dh3, :u, Lagrange{RefQuadrilateral,2}()^2); close!(dh3)
-    v_ana(x) = Vec{2}((x[1] + 2x[2], x[1] - x[2])) # linear: exact everywhere
-    u3 = Vector{Float64}(undef, ndofs(dh3)); Ferrite.apply_analytical!(u3, dh3, :u, v_ana)
-    lor3 = FEData(dh3, u3) |> FirstOrderRefinement()
-    data3 = FerriteViz.point_data(lor3, :u)[]
-    for i in 1:FerriteViz.num_vertices(lor3)
-        @test all(isapprox.(Vec{2}(data3[i,:]), v_ana(Vec{2}(Float64.(lor3.coords[][i]))); atol=1e-6))
-    end
-
-    # first-order refinement requires a single field
-    dhm = DofHandler(grid2)
-    add!(dhm, :u, Lagrange{RefQuadrilateral,1}())
-    add!(dhm, :p, Lagrange{RefQuadrilateral,1}())
-    close!(dhm)
-    @test_throws ErrorException FEData(dhm, zeros(ndofs(dhm))) |> FirstOrderRefinement()
 end
 
 @testset "derivation filters: Norm1, point-data Deviator, tuple output, Threshold bounds" begin

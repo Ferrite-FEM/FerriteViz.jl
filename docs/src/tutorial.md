@@ -58,6 +58,28 @@ addcellset!(grid,"s3",Set((3,6,9)))
 FerriteViz.meshplot(grid,markersize=10,linewidth=1,nodelabels=true,celllabels=true,cellsets=true)
 ```
 
+Curved (higher-order geometry) cells are rendered curved: the cell surfaces and the
+wireframe edges are subdivided in reference space and mapped through the geometric
+interpolation, so the element edges bend through their midside nodes instead of being
+drawn as straight chords. A quarter annulus of quadratic quadrilaterals:
+
+```@example 1
+grid = generate_grid(QuadraticQuadrilateral,(6,3))
+Ferrite.transform_coordinates!(grid, x -> begin
+    r = 1.5 + 0.5x[2]        # x[2] ∈ [-1,1]  →  r ∈ [1,2]
+    θ = π/4*(x[1] + 1)       # x[1] ∈ [-1,1]  →  θ ∈ [0,π/2]
+    Vec(r*cos(θ), r*sin(θ))
+end)
+FerriteViz.meshplot(grid, markersize=8, linewidth=2, axis=(aspect=WGLMakie.DataAspect(),))
+```
+
+The subdivision is the [`Refine`](@ref) filter, which [`FEData`](@ref) applies
+automatically whenever the geometry *or* any field of the dof handler is nonlinear — a
+quadratic displacement field warping a linear mesh bends the wireframe just the same.
+Since this multiplies the rendered triangles (about 4× for high-order cell types),
+`FEData(dh, u; adaptive=false)` opts out; applying the filter explicitly, e.g.
+`ds |> Refine(2)`, picks custom subdivision levels for a single branch of a pipeline.
+
 ### The solution field
 
 [`FEData`](@ref) wraps a `DofHandler` together with a solution vector; every plotting

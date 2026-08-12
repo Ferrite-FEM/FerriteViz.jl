@@ -143,7 +143,7 @@ end
     # straight-sided grid both are exact
     function survey(sp)
         pos, faces = sp.subd_positions[], sp.subd_faces[]
-        rk(p) = (round(Float64(p[1]); digits = 7), round(Float64(p[2]); digits = 7))
+        rk(p) = (round(Float64(p[1]); digits = 7) + 0.0, round(Float64(p[2]); digits = 7) + 0.0)
         verts = Set(rk(p) for p in pos)
         tj = 0
         counts = Dict{Tuple{Any,Any},Int}()
@@ -219,7 +219,7 @@ end
     # every drawn edge is shared by exactly two triangles: watertight and closed
     function survey(sp)
         pos, faces = sp.subd_positions[], sp.subd_faces[]
-        rk(p) = ntuple(i -> round(Float64(p[i]); digits = 6), 3)
+        rk(p) = ntuple(i -> round(Float64(p[i]); digits = 6) + 0.0, 3)
         verts = Set(rk(p) for p in pos)
         tj = 0
         counts = Dict{Any,Int}()
@@ -268,7 +268,7 @@ end
     @test all(t -> all(e -> e[1] != 0, base.adjacency[t]), 1:length(base.corners))
     _, _, sp = solutionplot(clipped; adaptive = true, solution_tol = 5e-3, max_depth = 4)
     pos, faces = sp.subd_positions[], sp.subd_faces[]
-    rk(p) = ntuple(i -> round(Float64(p[i]); digits = 6), 3)
+    rk(p) = ntuple(i -> round(Float64(p[i]); digits = 6) + 0.0, 3)
     counts = Dict{Any,Int}()
     for f in faces, (i, j) in ((1, 2), (2, 3), (3, 1))
         a, b = rk(pos[f[i]]), rk(pos[f[j]])
@@ -306,4 +306,41 @@ end
     area = sum(abs((ξs[f[2]][1] - ξs[f[1]][1]) * (ξs[f[3]][2] - ξs[f[1]][2]) -
                    (ξs[f[3]][1] - ξs[f[1]][1]) * (ξs[f[2]][2] - ξs[f[1]][2])) / 2 for f in fs)
     @test area ≈ 4.0 * Ferrite.getncells(grid) rtol = 1e-6  # each ref quad has area 4
+end
+
+@testset "per-cell coefficients agree with the shape-function sum" begin
+    # every standard Lagrange space is representable in a monomial basis;
+    # anything else must fall back rather than fit something wrong
+    for (ip, supported) in ((Lagrange{RefTriangle,1}(), true),
+                            (Lagrange{RefTriangle,2}(), true),
+                            (Lagrange{RefQuadrilateral,1}(), true),
+                            (Lagrange{RefQuadrilateral,2}(), true),
+                            (Lagrange{RefHexahedron,1}(), true),
+                            (Lagrange{RefTetrahedron,2}(), true),
+                            (Lagrange{RefPrism,1}(), false))
+        @test (FerriteViz.PolyBasis(ip) !== nothing) == supported
+    end
+    # a vectorized interpolation reuses its scalar basis
+    @test FerriteViz.PolyBasis(Lagrange{RefQuadrilateral,2}()^2) !== nothing
+
+    # and the coefficients reproduce the shape-function sum exactly
+    for (celltype, ip) in ((Quadrilateral, Lagrange{RefQuadrilateral,1}()),
+                           (QuadraticQuadrilateral, Lagrange{RefQuadrilateral,2}()),
+                           (Triangle, Lagrange{RefTriangle,1}()))
+        grid = generate_grid(celltype, (3, 3))
+        dh = DofHandler(grid); add!(dh, :f, ip); close!(dh)
+        u = zeros(ndofs(dh))
+        Ferrite.apply_analytical!(u, dh, :f, x -> sin(pi * x[1]) + x[2]^2)
+        ev = FerriteViz.FieldEvaluator(dh, :f)
+        @test ev.poly !== nothing
+        FerriteViz.prepare!(ev, 1:Ferrite.getncells(grid), u)
+        inside = Ferrite.getrefshape(ip) === RefTriangle ?
+                 (Ferrite.Vec(0.2, 0.3), Ferrite.Vec(0.1, 0.6), Ferrite.Vec(0.0, 0.0)) :
+                 (Ferrite.Vec(0.13, -0.21), Ferrite.Vec(-0.7, 0.4), Ferrite.Vec(0.9, 0.9))
+        for cell in (1, 5, 9), ξ in inside
+            direct = FerriteViz._sum_shape_values(ev.ips[1], ev.celldofs_field[cell], ξ, u)
+            @test FerriteViz.evaluate(ev.poly, cell, ξ) ≈ direct atol = 1e-12
+            @test FerriteViz.evaluate_at(ev, cell, ξ, u) ≈ direct atol = 1e-12
+        end
+    end
 end

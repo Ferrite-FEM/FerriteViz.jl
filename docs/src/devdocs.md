@@ -15,6 +15,16 @@ adaptive recipes wire it into the plots' compute graphs. Every hot function is
 an element-wise pass over flat buffers, so a GPU port (KernelAbstractions
 kernel / Mantle compute pass) is a lowering, not a rewrite.
 
+Pointwise field evaluation — the hot path, since the estimators query it far
+more often than the rendering does — goes through per-cell monomial
+coefficients ([`FerriteViz.PolyBasis`](@ref),
+[`FerriteViz.PolyField`](@ref), `src/polyeval.jl`): on a fixed cell the field
+is a polynomial in the reference coordinate, so it is rewritten once per
+solution update and then evaluated with a handful of multiply-adds. This is
+also the representation the planned fragment-shader evaluation needs. The
+basis verifies itself against the shape functions before use, and
+interpolations it cannot represent fall back to summing shape functions.
+
 Refinement is driven by interpolation-error estimators
 ([`FerriteViz.DeviationLoD`](@ref), combined with
 [`FerriteViz.CombinedLoD`](@ref)) rather than by the camera, and it is
@@ -108,6 +118,8 @@ FerriteViz.DeviationLoD
 FerriteViz.CombinedLoD
 FerriteViz.CachedLoD
 FerriteViz.excess_levels
+FerriteViz.PolyBasis
+FerriteViz.PolyField
 FerriteViz.key_neighbour
 FerriteViz.diamond_partner
 FerriteViz.force_split!

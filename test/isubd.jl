@@ -20,8 +20,11 @@ _signed_area(a, b, c) = 0.5 * ((b[1] - a[1]) * (c[2] - a[2]) - (c[1] - a[1]) * (
 # T-junction on our straight edge. Exact only where the mapping is affine per
 # cell (curved cells displace the mapped reference midpoint off the straight
 # edge by O(h²)) — run it on linear geometry.
+# `+ 0.0` normalizes negative zero: -0.0 and 0.0 are the same point but not
+# the same dictionary key, and evaluation paths differ in which one they
+# produce.
 function count_tjunctions(mesh; digits = 9)
-    key(p) = (round(p[1]; digits = digits), round(p[2]; digits = digits))
+    key(p) = (round(p[1]; digits = digits) + 0.0, round(p[2]; digits = digits) + 0.0)
     verts = Set(key(p) for p in mesh.positions)
     cracks = 0
     for f in mesh.faces
@@ -40,7 +43,7 @@ end
 # drawn only once (a hole), how many sit on the domain boundary, and how many
 # are shared by more than two triangles (an overlap).
 function edge_multiplicities(mesh; digits = 9)
-    key(p) = (round(p[1]; digits = digits), round(p[2]; digits = digits))
+    key(p) = (round(p[1]; digits = digits) + 0.0, round(p[2]; digits = digits) + 0.0)
     counts = Dict{Tuple{Any,Any},Int}()
     for f in mesh.faces, (i, j) in ((1, 2), (2, 3), (3, 1))
         a, b = key(mesh.positions[f[i]]), key(mesh.positions[f[j]])

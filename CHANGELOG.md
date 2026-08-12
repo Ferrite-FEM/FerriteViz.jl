@@ -48,12 +48,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    straight from the reference shape functions instead of through
    `PointValues` (3×, and again that much for vectorized interpolations), the
    estimators sample four points instead of sixteen, decoded vertices are
-   shared within a cell (5× fewer), and connectivity is a separate graph node
-   from the values it carries. What remains is dominated by pointwise FE
-   evaluation inside the estimators: deciding a mesh costs about 30 field
-   evaluations per triangle against the ~1 that filling a fixed one needs, so
-   the adaptive path is not yet faster in wall clock even where it draws far
-   fewer triangles.
+   shared within a cell (5× fewer), connectivity is a separate graph node from
+   the values it carries, the nodes hand out their buffers instead of copies,
+   and every field is rewritten once per update into per-cell monomial
+   coefficients so a sample is a few multiply-adds. What remains is dominated
+   by pointwise evaluation inside the estimators: deciding a mesh costs about
+   30 field evaluations per triangle against the ~1 that filling a fixed one
+   needs, so the adaptive path is not yet faster in wall clock even where it
+   draws far fewer triangles.
    The whole chain (solution →
    subdivision keys → decoded triangles → per-vertex field evaluation) lives
    in the plot's ComputeGraph and follows `FerriteViz.update!`; the camera is

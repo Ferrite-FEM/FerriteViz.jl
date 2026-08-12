@@ -35,11 +35,15 @@
 # back — is pure overhead, worth a measured 3x. Fields whose values are
 # mapped (Piola, i.e. H(curl)/H(div)) would need the real thing; they are
 # unsupported here as in the rest of the package (#151).
-struct FieldEvaluator{IP}
+struct FieldEvaluator{IP,PF}
     ips::Vector{IP}                   # one interpolation per subdofhandler with the field
     sdh_of_cell::Vector{Int}          # cell -> index into ips, 0 when the field is absent
     celldofs_field::Vector{Vector{Int}}  # cell -> global dofs of the field, empty when absent
     ncomps::Int
+    # Monomial coefficients per cell, when the interpolation admits them (see
+    # polyeval.jl). `prepare!` fills them for the cells that will be sampled;
+    # `nothing` means every evaluation sums shape functions instead.
+    poly::PF
 end
 
 function FieldEvaluator(dh::Ferrite.DofHandler, field::Symbol)
@@ -59,14 +63,54 @@ function FieldEvaluator(dh::Ferrite.DofHandler, field::Symbol)
             celldofs_field[cell_idx] = Ferrite.celldofs(dh, cell_idx)[rng]
         end
     end
-    return FieldEvaluator(ips, sdh_of_cell, celldofs_field, ncomps)
+    # only a single interpolation can share one coefficient layout
+    basis = length(ips) == 1 ? PolyBasis(only(ips)) : nothing
+    T = ncomps == 1 ? Float64 : Tensors.Vec{ncomps,Float64}
+    poly = basis === nothing ? nothing : PolyField(basis, ncells, T)
+    return FieldEvaluator(ips, sdh_of_cell, celldofs_field, ncomps, poly)
+end
+
+# Fill the coefficients of the cells that will be evaluated. Cheap (one small
+# matvec per cell) next to the sampling that follows, and skipped entirely
+# when the field has no polynomial form.
+prepare!(::FieldEvaluator{IP,Nothing}, cells, u::AbstractVector) where {IP} = nothing
+function prepare!(ev::FieldEvaluator, cells, u::AbstractVector)
+    pf = ev.poly
+    nodal = _nodal_buffer(pf)
+    for cell in cells
+        ev.sdh_of_cell[cell] == 0 && continue
+        dofs = ev.celldofs_field[cell]
+        _gather_nodal!(nodal, dofs, u, ev.ncomps)
+        refresh_cell!(pf, cell, nodal)
+    end
+    return nothing
+end
+
+_nodal_buffer(pf::PolyField{refdim,N,P,T}) where {refdim,N,P,T} = Vector{T}(undef, N)
+
+function _gather_nodal!(nodal::Vector{Float64}, dofs, u, ::Int)
+    @inbounds for k in eachindex(nodal)
+        nodal[k] = u[dofs[k]]
+    end
+    return nodal
+end
+function _gather_nodal!(nodal::Vector{Tensors.Vec{vdim,Float64}}, dofs, u, ::Int) where {vdim}
+    @inbounds for k in eachindex(nodal)
+        o = (k - 1) * vdim
+        nodal[k] = Tensors.Vec{vdim}(ntuple(c -> u[dofs[o + c]], vdim))
+    end
+    return nodal
 end
 
 # Evaluate at one reference point of one cell; `nothing` outside the field's
 # subdomain.
-function evaluate_at(ev::FieldEvaluator, cell_idx::Int, ξ, u::AbstractVector)
+@inline function evaluate_at(ev::FieldEvaluator, cell_idx::Int, ξ, u::AbstractVector)
     si = ev.sdh_of_cell[cell_idx]
     si == 0 && return nothing
+    pf = ev.poly
+    if pf !== nothing && pf.filled[cell_idx]
+        return evaluate(pf, cell_idx, ξ)
+    end
     return _sum_shape_values(ev.ips[si], ev.celldofs_field[cell_idx], ξ, u)
 end
 
@@ -254,9 +298,13 @@ function _isubd_mapping(ds::FEData{dim}, cellmap::Vector{Int}, cellcoords) where
     warps = [(FieldEvaluator(ds.dh, _resolve_name(ds, fname[])), scale)
              for (fname, scale) in ds.deformation]
     u_obs = ds.u
+    # The geometry's own coefficients never change — the node coordinates are
+    # fixed — so they are computed once here rather than per update.
+    geo = _geometry_poly(gips, cellcoords, cellmap, Val(dim))
     function mapping(base_id::Int, ξ)
         cell_id = cellmap[base_id]
-        x = geometric_map(gips[cell_id], cellcoords[cell_id], ξ)
+        x = (geo !== nothing && geo.filled[cell_id]) ? evaluate(geo, cell_id, ξ) :
+            geometric_map(gips[cell_id], cellcoords[cell_id], ξ)
         for (ev, scale) in warps
             d = evaluate_at(ev, cell_id, ξ, u_obs[])
             d === nothing && continue
@@ -264,19 +312,42 @@ function _isubd_mapping(ds::FEData{dim}, cellmap::Vector{Int}, cellcoords) where
         end
         return x
     end
-    return mapping
+    return mapping, warps
 end
 
-_render_positions(ps, ::Val{dim}) where {dim} =
-    [GeometryBasics.Point{dim,Float32}(p...) for p in ps]
+function _geometry_poly(gips, cellcoords, cellmap, ::Val{dim}) where {dim}
+    basis = PolyBasis(first(gips))
+    basis === nothing && return nothing
+    poly = PolyField(basis, length(gips), Tensors.Vec{dim,Float64})
+    for cell in unique(cellmap)
+        # a differently interpolated cell keeps the shape-function path
+        PolyBasis(gips[cell]) === nothing && continue
+        length(cellcoords[cell]) == size(poly.coeffs, 1) || continue
+        refresh_cell!(poly, cell, cellcoords[cell])
+    end
+    return poly
+end
+
+# Positions leave the graph as Float32 points for rendering; the pipeline
+# itself stays in Float64 (the geometry estimator measures deviations far
+# below Float32 noise). Filled into a buffer that is handed out as is, see
+# `_adaptive_solutionplot!`.
+function _render_positions!(out::Vector{GeometryBasics.Point{dim,Float32}}, ps) where {dim}
+    resize!(out, length(ps))
+    @inbounds for i in eachindex(ps)
+        out[i] = GeometryBasics.Point{dim,Float32}(ps[i]...)
+    end
+    return out
+end
 
 function _isubd_base(ds::FEData)
     corners, cornergids, cellmap = _isubd_base_triangles(ds)
     adjacency, _ = _base_adjacency(cornergids)
     grid = Ferrite.get_grid(ds.dh)
     cellcoords = [Ferrite.getcoordinates(grid, i) for i in 1:Ferrite.getncells(grid)]
-    base = IsubdBase(corners, _isubd_mapping(ds, cellmap, cellcoords), adjacency)
-    return base, cellmap, cellcoords
+    mapping, warps = _isubd_mapping(ds, cellmap, cellcoords)
+    base = IsubdBase(corners, mapping, adjacency)
+    return base, cellmap, cellcoords, warps
 end
 
 # Per-vertex field values at the decoded reference coordinates: the adaptive
@@ -291,6 +362,18 @@ function _transfer_at!(out::Vector{Float32}, ev::FieldEvaluator, cellmap::Vector
                  reduce ? Float32(LinearAlgebra.norm(val)) : Float32(val[1])
     end
     return out
+end
+
+# Refresh the per-cell coefficients of everything sampled from the solution,
+# before anything reads them. Coefficients that do not match the `u` in hand
+# would evaluate silently wrong values, so this runs at the top of every graph
+# node that samples, not once per update somewhere central.
+function _prepare_fields!(warps, ev, cells, u::AbstractVector)
+    for (wev, _) in warps
+        prepare!(wev, cells, u)
+    end
+    ev === nothing || prepare!(ev, cells, u)
+    return nothing
 end
 
 # The scalar drawn as color, as a (base_id, ξ) probe for the solution-error
@@ -334,8 +417,10 @@ function _adaptive_solutionplot!(SP, ds::FEData{dim}) where {dim}
     graph = SP.attributes
     ComputePipeline.add_input!(graph, :subd_u, ds.u)
 
-    base, cellmap, cellcoords = _isubd_base(ds)
+    base, cellmap, cellcoords, warps = _isubd_base(ds)
     conforming = SP.conforming[] && is_conformable(base)
+    # cells the plot samples; their coefficients are refreshed per update
+    used_cells = unique(cellmap)
     state = (keys=root_keys(base), scratch=UInt64[], prev=UInt64[])
 
     # color resolution (eager): a dof field evaluated per vertex, or a plain color
@@ -369,6 +454,7 @@ function _adaptive_solutionplot!(SP, ds::FEData{dim}) where {dim}
     diag = _grid_diagonal(Ferrite.get_grid(ds.dh))
     span = Ref(NaN)
     ComputePipeline.register_computation!(graph, keyinputs, [:subd_keys]) do inputs, changed, cached
+        _prepare_fields!(warps, ev, used_cells, inputs.subd_u)
         geo = DeviationLoD(base.mapping, Float64(inputs.geometry_tol) * diag)
         lods = (geo,)
         if ev !== nothing
@@ -408,23 +494,35 @@ function _adaptive_solutionplot!(SP, ds::FEData{dim}) where {dim}
     #
     # Vertices are shared within a cell (where the drawn field is continuous)
     # and duplicated across cells, so element-boundary jumps survive.
+    # Every node hands out the same buffer it filled, rather than a copy: the
+    # pipeline compares an output against its previous value to decide what is
+    # stale, and an array that *is* the previous one (same pointer) counts as
+    # changed — so in-place reuse propagates exactly like a fresh array, while
+    # a mesh that keeps its size stops allocating per update altogether.
     mesh_buf = IsubdMesh(base)
+    faces_out = GeometryBasics.GLTriangleFace[]
+    positions_out = GeometryBasics.Point{dim,Float32}[]
+    colors_out = Float32[]
     ComputePipeline.register_computation!(graph, [:subd_keys], [:subd_ξ, :subd_faces]) do inputs, changed, cached
         decode_topology!(mesh_buf, inputs.subd_keys, base; groups=cellmap)
-        faces = [GeometryBasics.GLTriangleFace(f[1], f[2], f[3]) for f in mesh_buf.faces]
-        return (copy(mesh_buf.refcoords), faces)
+        resize!(faces_out, length(mesh_buf.faces))
+        @inbounds for i in eachindex(mesh_buf.faces)
+            f = mesh_buf.faces[i]
+            faces_out[i] = GeometryBasics.GLTriangleFace(f[1], f[2], f[3])
+        end
+        return (mesh_buf.refcoords, faces_out)
     end
-    Makie.map!(graph, [:subd_ξ, :subd_u], :subd_positions) do _ξ, _u
+    Makie.map!(graph, [:subd_ξ, :subd_u], :subd_positions) do _ξ, uu
+        _prepare_fields!(warps, ev, used_cells, uu)
         decode_positions!(mesh_buf, base)
-        return _render_positions(mesh_buf.positions, Val(dim))
+        return _render_positions!(positions_out, mesh_buf.positions)
     end
     if ev === nothing
         colornode = SP.color   # plain color, converted by the mesh child
     else
-        colors = Float32[]
         Makie.map!(graph, [:subd_ξ, :subd_u], :subd_color) do _ξ, u
-            _transfer_at!(colors, ev, cellmap, mesh_buf, u; reduce)
-            return copy(colors)
+            _prepare_fields!(warps, ev, used_cells, u)
+            return _transfer_at!(colors_out, ev, cellmap, mesh_buf, u; reduce)
         end
         colornode = SP.subd_color
     end

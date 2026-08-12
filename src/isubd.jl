@@ -393,18 +393,28 @@ end
 # keeps neighbouring levels within one of each other, which an error estimator
 # on rough data does not.
 #
-# `key_neighbour` answers "which triangle at the same level lies across edge e"
-# purely from the key and the base table, by recursing to the root. Its
-# well-definedness rests on the compatibility invariant (split edges pair with
-# split edges, legs with legs), which the recursion preserves at every level:
-#
-#   child 0 = (v1, m, v2)   split = parent's left leg
-#   child 1 = (v2, m, v3)   split = parent's right leg
-#   both     legs           = halves of the parent's split edge, or the new
-#                             interior edge shared by the two children
-#
-# A GPU port replaces the base table lookup with the same recursion over a
-# concurrent binary tree; nothing here needs the leaf set to be materialized.
+"""
+    key_neighbour(base, key, edge) -> (key, edge, reversed) | nothing
+
+Which triangle at `key`'s own level lies across `edge`
+(`EDGE_S`/`EDGE_L`/`EDGE_R`), which of *its* edges that is, and whether the
+two traverse the shared segment in opposite directions — or `nothing` when
+the edge is a boundary.
+
+Answered purely from the key and the base adjacency table, by recursing to
+the root:
+
+    child 0 = (v1, m, v2)   split edge = parent's left leg
+    child 1 = (v2, m, v3)   split edge = parent's right leg
+    both     legs           = halves of the parent's split edge, or the new
+                              interior edge shared by the two children
+
+Well-definedness rests on the compatibility invariant — split edges pair only
+with split edges, legs only with legs — which this recursion preserves at
+every level, and which the base table is built to satisfy. A GPU port
+replaces the base lookup with the same recursion over a concurrent binary
+tree; nothing here needs the leaf set to be materialized.
+"""
 function key_neighbour(base::IsubdBase, k::UInt64, e::Int)
     if key_depth(k) == 0
         b, e2, rev = base.adjacency[key_base(k)][e]

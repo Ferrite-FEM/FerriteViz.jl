@@ -40,13 +40,29 @@ FerriteViz.vonmises
 
 ## Representations
 
+Each recipe comes as a plotting function, its mutating variant, and the plot
+type Makie associates with them; the attributes are documented on the
+function.
+
 ```@docs
 FerriteViz.solutionplot
+FerriteViz.solutionplot!
+FerriteViz.SolutionPlot
 FerriteViz.cellplot
+FerriteViz.cellplot!
+FerriteViz.CellPlot
 FerriteViz.meshplot
+FerriteViz.meshplot!
+FerriteViz.MeshPlot
 FerriteViz.arrowplot
+FerriteViz.arrowplot!
+FerriteViz.ArrowPlot
 FerriteViz.surfaceplot
+FerriteViz.surfaceplot!
+FerriteViz.SurfacePlot
 FerriteViz.elementinfo
+FerriteViz.elementinfo!
+FerriteViz.Elementinfo
 ```
 
 ## Composable viewer

@@ -41,10 +41,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    tessellating every facet of every visible cell, so it draws a closed
    manifold with several times fewer triangles than the static path.
    Benchmarked against uniform `Refine` at matched geometry *and* solution
-   error: a localized feature needs 3–10× fewer triangles adaptively, while a
-   globally smooth field (where uniform refinement is near optimal) saves only
-   about 12 % — at a per-update cost currently dominated by the estimators'
-   pointwise FE evaluations.
+   error (`benchmarks/adaptive_vs_uniform.jl`): a localized feature needs
+   3–10× fewer triangles adaptively, while a globally smooth field (where
+   uniform refinement is near optimal) saves only about 12 %. Updates cost
+   3–9× less than the first working version — field values are summed
+   straight from the reference shape functions instead of through
+   `PointValues` (3×, and again that much for vectorized interpolations), the
+   estimators sample four points instead of sixteen, decoded vertices are
+   shared within a cell (5× fewer), and connectivity is a separate graph node
+   from the values it carries. What remains is dominated by pointwise FE
+   evaluation inside the estimators: deciding a mesh costs about 30 field
+   evaluations per triangle against the ~1 that filling a fixed one needs, so
+   the adaptive path is not yet faster in wall clock even where it draws far
+   fewer triangles.
    The whole chain (solution →
    subdivision keys → decoded triangles → per-vertex field evaluation) lives
    in the plot's ComputeGraph and follows `FerriteViz.update!`; the camera is

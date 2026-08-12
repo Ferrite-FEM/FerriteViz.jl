@@ -224,11 +224,20 @@ end
 # is only sound because conformity is enforced structurally (see
 # `force_split!`) — while split decisions had to agree between the two
 # triangles sharing an edge, only shared-edge quantities could be used.
+# Where the linear interpolation is checked: the midpoint of every edge — the
+# vertices a full subdivision would introduce, and the worst points of a
+# smooth function along them — plus the centroid for deviation that lives in
+# the face rather than on its boundary.
+#
+# This criterion is *the* hot path (every leaf, every update, an FE evaluation
+# per sample), so the temptation is to keep only the split edge and the
+# centroid. Don't: a multilinear field is *exactly linear along element
+# edges* and curves only across the fan diagonals, which are the legs. On a
+# trilinear field over hexahedra that reduction stopped the refinement
+# altogether — zero deviation on every edge it still looked at. The quarter
+# points, on the other hand, add nothing measurable and are not sampled.
 const DEVIATION_SAMPLES = (
-    (0.75, 0.25, 0.0), (0.5, 0.5, 0.0), (0.25, 0.75, 0.0),
-    (0.0, 0.75, 0.25), (0.0, 0.5, 0.5), (0.0, 0.25, 0.75),
-    (0.75, 0.0, 0.25), (0.5, 0.0, 0.5), (0.25, 0.0, 0.75),
-    (1 / 3, 1 / 3, 1 / 3), (0.5, 0.25, 0.25), (0.25, 0.5, 0.25), (0.25, 0.25, 0.5),
+    (0.5, 0.0, 0.5), (0.5, 0.5, 0.0), (0.0, 0.5, 0.5), (1 / 3, 1 / 3, 1 / 3),
 )
 
 """
@@ -577,50 +586,99 @@ function refine_keys!(keys::Vector{UInt64}, scratch::Vector{UInt64}, base::Isubd
 end
 
 """
-    decode_keys!(mesh::IsubdMesh, keys, base) -> mesh
+    decode_keys!(mesh::IsubdMesh, keys, base; groups=nothing) -> mesh
 
-Emit the key buffer as a triangle soup: three fresh vertices per key (matching
-`FEData`'s duplicated-vertex layout, so discontinuous data stays representable)
-with their reference coordinates, mapped through `base.mapping`. Buffers are
-resized in place, so a steady key count re-renders without allocating. Each
-bisection flips the triangle's handedness, so odd depths emit the face
-reversed to keep a consistent winding.
+Emit the key buffer as a drawable mesh: positions, their reference
+coordinates, and one face per key, with each bisection's handedness flip
+undone so the winding stays consistent.
+
+Vertices are shared within a `groups` class and duplicated across classes.
+`FEData` passes the owning cell, which shares everything inside a cell —
+where the drawn field is continuous — while keeping element boundaries
+duplicated, so discontinuous (L2/DG) fields keep their jumps exactly as in
+the static tessellation. A conforming mesh has about half as many vertices as
+triangles, against three per triangle unshared, and every vertex costs a
+geometry evaluation here and a field evaluation downstream. With
+`groups=nothing` each base triangle forms its own class, sharing within its
+own subtree and duplicating along base edges.
+
+Buffers (including the lookup table) are emptied rather than reallocated, so
+re-decoding a steady mesh does not grow the heap.
 """
-function decode_keys!(mesh, keys::Vector{UInt64}, base::IsubdBase)
-    n = length(keys)
-    resize!(mesh.positions, 3n)
-    resize!(mesh.refcoords, 3n)
-    resize!(mesh.faces, n)
+function decode_keys!(mesh, keys::Vector{UInt64}, base::IsubdBase; groups=nothing)
+    decode_topology!(mesh, keys, base; groups)
+    return decode_positions!(mesh, base)
+end
+
+"""
+    decode_topology!(mesh, keys, base; groups=nothing) -> mesh
+
+The connectivity half of [`decode_keys!`](@ref): reference coordinates, their
+owning base triangle, and the faces. This is the part that depends only on the
+key set, so a consumer whose mesh is unchanged can re-run just
+[`decode_positions!`](@ref) and skip the vertex-sharing lookups entirely.
+"""
+function decode_topology!(mesh, keys::Vector{UInt64}, base::IsubdBase; groups=nothing)
+    empty!(mesh.refcoords)
+    empty!(mesh.vertex_base)
+    empty!(mesh.lut)
+    resize!(mesh.faces, length(keys))
     for (i, k) in enumerate(keys)
         c1, c2, c3 = key_corners(base, k)
         b = key_base(k)
-        j = 3 * (i - 1)
-        mesh.refcoords[j + 1] = c1
-        mesh.refcoords[j + 2] = c2
-        mesh.refcoords[j + 3] = c3
-        mesh.positions[j + 1] = base.mapping(b, c1)
-        mesh.positions[j + 2] = base.mapping(b, c2)
-        mesh.positions[j + 3] = base.mapping(b, c3)
-        mesh.faces[i] = isodd(key_depth(k)) ? Int32.((j + 3, j + 2, j + 1)) :
-                        Int32.((j + 1, j + 2, j + 3))
+        g = Int32(groups === nothing ? b : groups[b])
+        i1 = _vertex!(mesh, b, g, c1)
+        i2 = _vertex!(mesh, b, g, c2)
+        i3 = _vertex!(mesh, b, g, c3)
+        mesh.faces[i] = isodd(key_depth(k)) ? (i3, i2, i1) : (i1, i2, i3)
     end
     return mesh
+end
+
+"""
+    decode_positions!(mesh, base) -> mesh
+
+Map the vertices laid out by [`decode_topology!`](@ref) through
+`base.mapping`. Cheap to repeat: it touches one point per vertex and no
+lookup table, which is what an unchanged mesh under a changing solution
+needs.
+"""
+function decode_positions!(mesh, base::IsubdBase)
+    resize!(mesh.positions, length(mesh.refcoords))
+    @inbounds for v in eachindex(mesh.refcoords)
+        mesh.positions[v] = base.mapping(Int(mesh.vertex_base[v]), mesh.refcoords[v])
+    end
+    return mesh
+end
+
+@inline function _vertex!(mesh, b::Int, g::Int32, ξ)
+    # reference coordinates are dyadic (corner averages), so they compare
+    # exactly — no rounding, no tolerance
+    idx = get(mesh.lut, (g, ξ), Int32(0))
+    idx == 0 || return idx
+    push!(mesh.refcoords, ξ)
+    push!(mesh.vertex_base, Int32(b))
+    new_idx = Int32(length(mesh.refcoords))
+    mesh.lut[(g, ξ)] = new_idx
+    return new_idx
 end
 
 """
     IsubdMesh(base::IsubdBase)
 
 The reusable output buffers of [`decode_keys!`](@ref): vertex positions (in
-the mapping's image space), per-vertex reference coordinates, and one face
-per key.
+the mapping's image space), per-vertex reference coordinates and owning base
+triangle, one face per key, and the lookup table backing vertex sharing.
 """
 struct IsubdMesh{P,RV}
     positions::Vector{P}
     refcoords::Vector{RV}
+    vertex_base::Vector{Int32}
     faces::Vector{NTuple{3,Int32}}
+    lut::Dict{Tuple{Int32,RV},Int32}
 end
 
 function IsubdMesh(base::IsubdBase{RV}) where {RV}
     P = typeof(base.mapping(1, base.corners[1][1]))
-    return IsubdMesh(P[], RV[], NTuple{3,Int32}[])
+    return IsubdMesh(P[], RV[], Int32[], NTuple{3,Int32}[], Dict{Tuple{Int32,RV},Int32}())
 end

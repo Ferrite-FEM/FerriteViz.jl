@@ -25,11 +25,19 @@
 # key sets (mismatched buffers rendered as dropped triangles).
 
 # One dof field, evaluated at arbitrary (cell, ξ) — the continuous-geometry
-# and per-vertex-color workhorse. PointValues are reinitialized per query, the
-# same cost profile as transfer_solution (#153 notes the potential speedup).
-struct FieldEvaluator{PV}
-    pvs::Vector{PV}                   # one PointValues per subdofhandler with the field
-    sdh_of_cell::Vector{Int}          # cell -> index into pvs, 0 when the field is absent
+# and per-vertex-colour workhorse, and the hot path of everything adaptive
+# (the error estimators query it far more often than the rendering does).
+#
+# The value is summed straight from the reference shape functions, the way
+# `geometric_map` does, rather than through `PointValues`: for H1 (Lagrange)
+# fields the value mapping is the identity, so `reinit!`'s machinery — which
+# evaluates every shape function into a buffer for `function_value` to read
+# back — is pure overhead, worth a measured 3x. Fields whose values are
+# mapped (Piola, i.e. H(curl)/H(div)) would need the real thing; they are
+# unsupported here as in the rest of the package (#151).
+struct FieldEvaluator{IP}
+    ips::Vector{IP}                   # one interpolation per subdofhandler with the field
+    sdh_of_cell::Vector{Int}          # cell -> index into ips, 0 when the field is absent
     celldofs_field::Vector{Vector{Int}}  # cell -> global dofs of the field, empty when absent
     ncomps::Int
 end
@@ -40,9 +48,7 @@ function FieldEvaluator(dh::Ferrite.DofHandler, field::Symbol)
     ip_field = Ferrite.getfieldinterpolation(first(sdhs), field)
     ξ0 = Ferrite.Vec(ntuple(d -> 0.0, Ferrite.getrefdim(ip_field)))
     ncomps = length(Ferrite.reference_shape_value(ip_field, ξ0, 1))
-    pvs = [Ferrite.PointValues(Ferrite.getfieldinterpolation(sdh, field),
-                               Ferrite.geometric_interpolation(Ferrite.getcelltype(sdh));
-                               update_gradients=false) for sdh in sdhs]
+    ips = [Ferrite.getfieldinterpolation(sdh, field) for sdh in sdhs]
     ncells = Ferrite.getncells(Ferrite.get_grid(dh))
     sdh_of_cell = zeros(Int, ncells)
     celldofs_field = [Int[] for _ in 1:ncells]
@@ -53,17 +59,42 @@ function FieldEvaluator(dh::Ferrite.DofHandler, field::Symbol)
             celldofs_field[cell_idx] = Ferrite.celldofs(dh, cell_idx)[rng]
         end
     end
-    return FieldEvaluator(pvs, sdh_of_cell, celldofs_field, ncomps)
+    return FieldEvaluator(ips, sdh_of_cell, celldofs_field, ncomps)
 end
 
 # Evaluate at one reference point of one cell; `nothing` outside the field's
-# subdomain. `cellcoords` are the cell's node coordinates (caller-cached).
-function evaluate_at(ev::FieldEvaluator, cell_idx::Int, cellcoords, ξ, u::AbstractVector)
+# subdomain.
+function evaluate_at(ev::FieldEvaluator, cell_idx::Int, ξ, u::AbstractVector)
     si = ev.sdh_of_cell[cell_idx]
     si == 0 && return nothing
-    pv = ev.pvs[si]
-    Ferrite.reinit!(pv, cellcoords, ξ)
-    return Ferrite.function_value(pv, 1, @views(u[ev.celldofs_field[cell_idx]]))
+    return _sum_shape_values(ev.ips[si], ev.celldofs_field[cell_idx], ξ, u)
+end
+
+# function barrier: the interpolation is only abstractly typed in the vector
+# above, and this loop must specialize on it
+function _sum_shape_values(ip, dofs::Vector{Int}, ξ, u::AbstractVector)
+    val = Ferrite.reference_shape_value(ip, ξ, 1) * u[dofs[1]]
+    @inbounds for i in 2:length(dofs)
+        val += Ferrite.reference_shape_value(ip, ξ, i) * u[dofs[i]]
+    end
+    return val
+end
+
+# A vectorized interpolation's basis functions are the scalar ones repeated
+# once per component, and asking for each of them re-evaluates the scalar
+# underneath — so a displacement field costs `vdim` times what it needs to.
+# Evaluate the scalar basis once instead and gather the components (Ferrite
+# numbers them consecutively per scalar base function).
+function _sum_shape_values(ip::Ferrite.VectorizedInterpolation{vdim}, dofs::Vector{Int},
+                           ξ, u::AbstractVector) where {vdim}
+    sip = ip.ip
+    val = zero(Tensors.Vec{vdim,Float64})
+    @inbounds for i in 1:Ferrite.getnbasefunctions(sip)
+        N = Ferrite.reference_shape_value(sip, ξ, i)
+        o = (i - 1) * vdim
+        val += N * Tensors.Vec{vdim}(ntuple(c -> u[dofs[o + c]], vdim))
+    end
+    return val
 end
 
 # Global identity of every tessellation vertex of a cell, so that shared base
@@ -227,7 +258,7 @@ function _isubd_mapping(ds::FEData{dim}, cellmap::Vector{Int}, cellcoords) where
         cell_id = cellmap[base_id]
         x = geometric_map(gips[cell_id], cellcoords[cell_id], ξ)
         for (ev, scale) in warps
-            d = evaluate_at(ev, cell_id, cellcoords[cell_id], ξ, u_obs[])
+            d = evaluate_at(ev, cell_id, ξ, u_obs[])
             d === nothing && continue
             x += Float64(scale[]) * d
         end
@@ -251,23 +282,13 @@ end
 # Per-vertex field values at the decoded reference coordinates: the adaptive
 # counterpart of transfer_solution, evaluating at the sub-triangle vertices
 # instead of the static tessellation vertices.
-function _transfer_at!(out::Vector{Float32}, ev::FieldEvaluator, ds::FEData, cellmap::Vector{Int},
-                       keys::Vector{UInt64}, ξs, u::AbstractVector; reduce::Bool)
-    grid = Ferrite.get_grid(ds.dh)
-    resize!(out, length(ξs))
-    local_coords = Ferrite.getcoordinates(grid, 1)
-    lastcell = 0
-    for (i, k) in enumerate(keys)
-        cell_id = cellmap[key_base(k)]
-        if cell_id != lastcell
-            Ferrite.getcoordinates!(local_coords, grid, cell_id)
-            lastcell = cell_id
-        end
-        for j in (3i - 2):(3i)
-            val = evaluate_at(ev, cell_id, local_coords, ξs[j], u)
-            out[j] = val === nothing ? NaN32 :
-                     reduce ? Float32(LinearAlgebra.norm(val)) : Float32(val[1])
-        end
+function _transfer_at!(out::Vector{Float32}, ev::FieldEvaluator, cellmap::Vector{Int},
+                       mesh, u::AbstractVector; reduce::Bool)
+    resize!(out, length(mesh.refcoords))
+    @inbounds for v in eachindex(mesh.refcoords)
+        val = evaluate_at(ev, cellmap[mesh.vertex_base[v]], mesh.refcoords[v], u)
+        out[v] = val === nothing ? NaN32 :
+                 reduce ? Float32(LinearAlgebra.norm(val)) : Float32(val[1])
     end
     return out
 end
@@ -277,7 +298,7 @@ end
 function _scalar_probe(ev::FieldEvaluator, cellmap::Vector{Int}, cellcoords, u::AbstractVector; reduce::Bool)
     function probe(base_id::Int, ξ)
         cell_id = cellmap[base_id]
-        val = evaluate_at(ev, cell_id, cellcoords[cell_id], ξ, u)
+        val = evaluate_at(ev, cell_id, ξ, u)
         val === nothing && return 0.0
         return reduce ? Float64(LinearAlgebra.norm(val)) : Float64(val[1])
     end
@@ -378,21 +399,32 @@ function _adaptive_solutionplot!(SP, ds::FEData{dim}) where {dim}
     # resolved against different key sets. positions/faces enter Makie's mesh
     # internals, which may retain them: hand over fresh arrays. The reference
     # coordinates stay in-graph, so the buffer is shared.
+    # Connectivity and values are separate nodes: the vertex layout depends
+    # only on the key set, so a solution change on an unchanged mesh skips the
+    # vertex-sharing lookups and re-evaluates one point per vertex — the same
+    # work the static path does. Values still cannot disagree with the mesh
+    # they belong to, because they are computed *from* the layout node's
+    # output rather than beside it.
+    #
+    # Vertices are shared within a cell (where the drawn field is continuous)
+    # and duplicated across cells, so element-boundary jumps survive.
     mesh_buf = IsubdMesh(base)
+    ComputePipeline.register_computation!(graph, [:subd_keys], [:subd_ξ, :subd_faces]) do inputs, changed, cached
+        decode_topology!(mesh_buf, inputs.subd_keys, base; groups=cellmap)
+        faces = [GeometryBasics.GLTriangleFace(f[1], f[2], f[3]) for f in mesh_buf.faces]
+        return (copy(mesh_buf.refcoords), faces)
+    end
+    Makie.map!(graph, [:subd_ξ, :subd_u], :subd_positions) do _ξ, _u
+        decode_positions!(mesh_buf, base)
+        return _render_positions(mesh_buf.positions, Val(dim))
+    end
     if ev === nothing
-        ComputePipeline.register_computation!(graph, [:subd_keys], [:subd_positions, :subd_ξ, :subd_faces]) do inputs, changed, cached
-            decode_keys!(mesh_buf, inputs.subd_keys, base)
-            faces = [GeometryBasics.GLTriangleFace(f[1], f[2], f[3]) for f in mesh_buf.faces]
-            return (_render_positions(mesh_buf.positions, Val(dim)), mesh_buf.refcoords, faces)
-        end
         colornode = SP.color   # plain color, converted by the mesh child
     else
         colors = Float32[]
-        ComputePipeline.register_computation!(graph, [:subd_keys, :subd_u], [:subd_positions, :subd_ξ, :subd_faces, :subd_color]) do inputs, changed, cached
-            decode_keys!(mesh_buf, inputs.subd_keys, base)
-            _transfer_at!(colors, ev, ds, cellmap, inputs.subd_keys, mesh_buf.refcoords, inputs.subd_u; reduce)
-            faces = [GeometryBasics.GLTriangleFace(f[1], f[2], f[3]) for f in mesh_buf.faces]
-            return (_render_positions(mesh_buf.positions, Val(dim)), mesh_buf.refcoords, faces, copy(colors))
+        Makie.map!(graph, [:subd_ξ, :subd_u], :subd_color) do _ξ, u
+            _transfer_at!(colors, ev, cellmap, mesh_buf, u; reduce)
+            return copy(colors)
         end
         colornode = SP.subd_color
     end

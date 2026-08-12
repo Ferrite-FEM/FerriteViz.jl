@@ -15,7 +15,8 @@
     fig, ax, sp = solutionplot(ds; adaptive=true, solution_tol=5e-3, max_depth=8)
     keys0 = length(sp.subd_keys[])
     @test keys0 > nbase                  # the curved field asks for refinement
-    @test length(sp.subd_positions[]) == 3 * keys0 == length(sp.subd_color[])
+    @test length(sp.subd_positions[]) == length(sp.subd_color[]) == length(sp.subd_ξ[])
+    @test length(sp.subd_positions[]) < 3 * keys0        # vertices are shared within a cell
     @test length(sp.subd_faces[]) == keys0
 
     # no camera in the graph unless px_target is set
@@ -122,7 +123,7 @@ end
     coords1 = Ferrite.getcoordinates(grid, cell1_id)
     gip = Ferrite.geometric_interpolation(typeof(Ferrite.getcells(grid)[cell1_id]))
     base_x = FerriteViz.geometric_map(gip, coords1, ξ1)
-    disp = FerriteViz.evaluate_at(ev, cell1_id, coords1, ξ1, wds.u[])
+    disp = FerriteViz.evaluate_at(ev, cell1_id, ξ1, wds.u[])
     expected = base_x + 1.5 * disp
     @test isapprox(collect(p2[1]), collect(expected); atol=1e-4)
 end
@@ -238,6 +239,10 @@ end
     s = survey(conf)
     @test s.tj == 0 && s.open == 0 && s.over == 0
     @test s.n < length(ds.all_triangles)
+    # the refinement is non-uniform (so the control below is not vacuous) and
+    # the unconforming variant does leave hanging nodes behind
+    depths = [FerriteViz.key_depth(k) for k in conf.subd_keys[]]
+    @test maximum(depths) > minimum(depths)
     _, _, free = solutionplot(ds; kw..., conforming = false)
     @test survey(free).tj > 0
 end
@@ -297,9 +302,8 @@ end
     @test length(krestored) >= keys0
     @test sort(copy(sp.subd_keys[])) == krestored          # stable
     # and the retained keys still tile the domain exactly (no overlap, no holes)
-    ξs = sp.subd_ξ[]
-    area = sum(abs((ξs[3i - 1][1] - ξs[3i - 2][1]) * (ξs[3i][2] - ξs[3i - 2][2]) -
-                   (ξs[3i][1] - ξs[3i - 2][1]) * (ξs[3i - 1][2] - ξs[3i - 2][2])) / 2
-               for i in 1:length(sp.subd_keys[]))
+    ξs, fs = sp.subd_ξ[], sp.subd_faces[]
+    area = sum(abs((ξs[f[2]][1] - ξs[f[1]][1]) * (ξs[f[3]][2] - ξs[f[1]][2]) -
+                   (ξs[f[3]][1] - ξs[f[1]][1]) * (ξs[f[2]][2] - ξs[f[1]][2])) / 2 for f in fs)
     @test area ≈ 4.0 * Ferrite.getncells(grid) rtol = 1e-6  # each ref quad has area 4
 end

@@ -394,7 +394,10 @@ end
     FV.refine_keys!(keys, scratch, base, FV.UniformLoD(2))
     mesh = FV.IsubdMesh(base)
     FV.decode_keys!(mesh, keys, base)
-    @test length(mesh.positions) == 3 * length(keys) == length(mesh.refcoords)
+    # vertices are shared within each base triangle's subtree
+    @test length(mesh.positions) == length(mesh.refcoords) == length(mesh.vertex_base)
+    @test length(mesh.positions) < 3 * length(keys)
+    @test length(mesh.faces) == length(keys)
     @test all(mesh.positions[i] ≈ bump(0, mesh.refcoords[i]) for i in eachindex(mesh.positions))
     # faces have consistent winding in reference space despite the depth-parity flip
     refarea(f) = _signed_area(mesh.refcoords[f[1]], mesh.refcoords[f[2]], mesh.refcoords[f[3]])

@@ -100,10 +100,13 @@ FerriteViz.IsubdMesh
 FerriteViz.update_keys!
 FerriteViz.refine_keys!
 FerriteViz.decode_keys!
+FerriteViz.decode_topology!
+FerriteViz.decode_positions!
 FerriteViz.UniformLoD
 FerriteViz.ScreenSpaceLoD
 FerriteViz.DeviationLoD
 FerriteViz.CombinedLoD
+FerriteViz.CachedLoD
 FerriteViz.excess_levels
 FerriteViz.key_neighbour
 FerriteViz.diamond_partner

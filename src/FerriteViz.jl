@@ -20,6 +20,7 @@ include("dataset.jl")
 include("gradient.jl")
 include("filters.jl")
 include("representations.jl")
+include("adaptive.jl")
 include("viewer.jl")
 
 export FEData, apply

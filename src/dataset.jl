@@ -87,6 +87,12 @@ struct FEData{dim,DH<:Ferrite.AbstractDofHandler,T1,TOP<:Union{Nothing,Ferrite.A
     mesh::M                             # coords_buffer + vis_triangles, handed to Makie as is
     point_data::Dict{Symbol,Makie.Observable}  # arrays on the tessellation vertices
     cell_data::Dict{Symbol,Makie.Observable}   # arrays on the cells
+    # Deformation provenance: one (field, scale) per WarpByVector applied
+    # upstream, in application order. The displaced coordinates are baked into
+    # `coords`, but consumers that need the deformation as a *continuous*
+    # function of the reference coordinate (adaptive tessellation evaluates
+    # geometry at arbitrary ξ) reconstruct it from this record.
+    deformation::Vector{Tuple{Makie.Observable{Symbol},Makie.Observable}}
 end
 
 function _default_topology(grid)
@@ -196,7 +202,8 @@ function _build_dataset(dh::Ferrite.AbstractDofHandler, u::Makie.Observable, sou
         all_triangles, vis_triangles, triangle_cell_map, cell_triangle_offsets,
         cell_vertex_offsets, all_edges, edge_cell_map, cell_edge_offsets,
         reference_coords, mesh,
-        Dict{Symbol,Makie.Observable}(), Dict{Symbol,Makie.Observable}())
+        Dict{Symbol,Makie.Observable}(), Dict{Symbol,Makie.Observable}(),
+        Tuple{Makie.Observable{Symbol},Makie.Observable}[])
 end
 
 function _instantiate_cell!(physical_coords::Vector{GeometryBasics.Point{sdim,Float32}}, reference_coords,

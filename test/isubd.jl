@@ -17,9 +17,11 @@ _signed_area(a, b, c) = 0.5 * ((b[1] - a[1]) * (c[2] - a[2]) - (c[1] - a[1]) * (
 
 # A drawn edge is cracked when some vertex of the mesh sits exactly at its
 # midpoint: the neighbour across the edge is finer and its corner opens a
-# T-junction on our straight edge.
-function count_tjunctions(mesh)
-    key(p) = (round(p[1]; digits = 9), round(p[2]; digits = 9))
+# T-junction on our straight edge. Exact only where the mapping is affine per
+# cell (curved cells displace the mapped reference midpoint off the straight
+# edge by O(h²)) — run it on linear geometry.
+function count_tjunctions(mesh; digits = 9)
+    key(p) = (round(p[1]; digits = digits), round(p[2]; digits = digits))
     verts = Set(key(p) for p in mesh.positions)
     cracks = 0
     for f in mesh.faces

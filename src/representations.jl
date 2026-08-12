@@ -136,12 +136,29 @@ Contour plot of a scalar data array on the finite element mesh.
 Deformation is an upstream concern: `solutionplot(ds |> WarpByVector(:u, 2.0))`.
 """
 Makie.@recipe SolutionPlot (dataset,) begin
+    """
+    Experimental: view-adaptive tessellation (#161). Instead of drawing the
+    dataset's static tessellation, the visible cells are re-tessellated
+    continuously by camera-driven longest-edge bisection: curved geometry and
+    warps refine where they are large on screen and coarsen as the camera
+    retreats. The color must be a dof field name (or a plain color) — it is
+    evaluated at the refined vertices. Read once at plot creation.
+    """
+    adaptive = false
+    "Adaptive tessellation: target split-edge size in pixels (smaller = finer)."
+    px_target = 24.0
+    "Adaptive tessellation: maximum bisection depth per base triangle."
+    max_depth = 10
     base_fe_attributes()...
 end
 
 function Makie.plot!(SP::SolutionPlot{<:Tuple{<:FEData}})
     ds = SP.dataset[]
-    _mesh!(SP, ds, color=_graph_color!(SP, ds))
+    if SP.adaptive[]
+        _adaptive_solutionplot!(SP, ds)
+    else
+        _mesh!(SP, ds, color=_graph_color!(SP, ds))
+    end
     return SP
 end
 

@@ -912,6 +912,8 @@ end
     @test FerriteViz._buffer_data([1, 2]) == [1, 2]
 end
 
+include("adaptive.jl")
+
 @testset "source hygiene" begin
     src = joinpath(@__DIR__, "..", "src")
     for f in readdir(src; join=true)

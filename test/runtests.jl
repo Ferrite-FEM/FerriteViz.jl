@@ -173,6 +173,8 @@ end
     end
 end
 
+include("isubd.jl")
+
 @testset "tessellation defaults" begin
     @test FerriteViz.ntriangles(Triangle((1,2,3))) == 1
     @test FerriteViz.ntriangles(Quadrilateral((1,2,3,4))) == 4

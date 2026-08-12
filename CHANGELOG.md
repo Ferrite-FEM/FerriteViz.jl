@@ -21,6 +21,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    keyword to a recipe is now an error instead of being silently ignored.
 
 ### Added
+ - Internal (unexported) CPU core for view-adaptive tessellation via implicit
+   longest-edge bisection (`src/isubd.jl`, in the spirit of jdupuy's
+   demo-isubd-terrain, #161): `UInt64` subdivision keys, a split/merge/keep
+   streaming pass with an isotropic screen-space LoD criterion, and a
+   buffer-reusing triangle-soup decode carrying per-vertex reference
+   coordinates. Not yet wired into any recipe.
  - `ReferenceTessellation` now carries the wireframe edge segments of its
    reference shape (from `Ferrite.reference_edges`) next to the surface
    triangles, and `FEData` instantiates them per cell like the triangles:

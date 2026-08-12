@@ -2,6 +2,19 @@
 
 Note that these functions could be removed or change in behavior between minor version changes! Use and dispatch on these with care!
 
+## Implicit adaptive subdivision (isubd)
+
+`src/isubd.jl` holds the CPU core of view-adaptive tessellation via implicit
+longest-edge bisection, in the spirit of
+[demo-isubd-terrain](https://github.com/jdupuy/opengl-framework/tree/master/demo-isubd-terrain):
+a persistent buffer of `UInt64` subdivision keys (base triangle id · bisection
+path), a split/merge/keep streaming pass ([`FerriteViz.update_keys!`](@ref))
+driven by a level-of-detail criterion, and a triangle-soup emission pass
+([`FerriteViz.decode_keys!`](@ref)). It is Makie-free and unexported; the
+adaptive recipes wire it into the plots' compute graphs. Every hot function is
+an element-wise pass over flat buffers, so a GPU port (KernelAbstractions
+kernel / Mantle compute pass) is a lowering, not a rewrite.
+
 ## Architecture
 
 FerriteViz is structured in three layers, following the ParaView model:
@@ -67,6 +80,15 @@ Cell-data arrays are per-cell `Vector`s of arbitrary element type.
 ## Reference
 
 ```@docs
+FerriteViz.IsubdBase
+FerriteViz.IsubdMesh
+FerriteViz.update_keys!
+FerriteViz.refine_keys!
+FerriteViz.decode_keys!
+FerriteViz.UniformLoD
+FerriteViz.ScreenSpaceLoD
+FerriteViz.excess_levels
+FerriteViz.leb_order
 FerriteViz.ReferenceTessellation
 FerriteViz.reference_tessellation
 FerriteViz.facet_based_tessellation

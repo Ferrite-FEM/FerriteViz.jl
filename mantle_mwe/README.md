@@ -8,14 +8,16 @@ image a GPU implementation has to reproduce.
 
 ```
 julia --project=. isubd_mwe.jl      # writes out_*.ppm next to the script
+julia --project=. convergence.jl    # what per-fragment evaluation is worth
 ```
 
 ## The problem, in one picture
 
 `out_geomonly_vertex.ppm` and `out_geomonly_fragment.ppm` are the *same*
 70-triangle mesh, shaded two ways. Per-vertex colours (what a pipeline without
-per-cell coefficients can do) show the field as facets and streaks; per-fragment
-evaluation shows it exactly. The mesh only has to resolve the *silhouette*.
+per-cell coefficients can do) show the field as facets and streaks;
+per-fragment evaluation shows it smooth, leaving only the silhouette polygonal
+— on this mesh, a peak difference of 0.117 on a 0–1 colour scale.
 
 That split is the whole design:
 
@@ -24,7 +26,39 @@ That split is the whole design:
 | **geometry** — curved cells, deformation | subdividing triangles | a compute pass that rewrites the index/vertex buffer per frame |
 | **solution** — the field's colour | evaluating the polynomial per pixel | a per-cell coefficient buffer bound to the fragment stage |
 
-Adding triangles to resolve the *field* is what we want to stop doing.
+### What per-fragment evaluation does and does not buy
+
+It is tempting to say "triangles are for the geometry, not for the solution".
+That is half true, and `convergence.jl` measures which half.
+
+A fragment gets its reference coordinate ξ by interpolating the triangle's
+corner ξs *linearly*. On an **affine** cell that interpolation is exact, so the
+polynomial is evaluated exactly where it should be and the colour is right at
+any triangle count — the field's own curvature never asks for a triangle. On a
+**curved** cell the drawn triangle is a chord of the true surface, so ξ is off
+by the geometry's approximation error and the colour inherits it: the colour
+still improves with refinement, but bounded by the *geometry* tolerance rather
+than by the field's curvature.
+
+```
+CURVED cells                          AFFINE cells, same curved field
+geo_tol  tris  per-frag  per-vertex   geo_tol  tris  per-frag  per-vertex
+3e-02      52   0.02578     0.11581   3e-02       8   0.00000     0.12021
+1e-02     120   0.01516     0.11581   1e-02       8   0.00000     0.12021
+3e-03     472   0.00437     0.02904   3e-03       8   0.00000     0.12021
+1e-03    1382   0.00203     0.01593   1e-03       8   0.00000     0.12021
+```
+
+(worst colour difference against a 27660-triangle reference, 0–1 scale;
+refinement driven by geometry only, so nothing here refines *for* the field)
+
+The consequence for the design is the useful part: **with per-fragment
+evaluation the refinement criterion needs only its geometry term.** The
+solution term — which is what FerriteViz's CPU path spends most of its time on
+— exists only because per-vertex colours have to resolve the field themselves.
+On the affine rows that is stark: per-vertex is stuck at 0.12 forever, because
+geometry-driven refinement never adds a triangle, while per-fragment is exact
+from the base mesh.
 
 ## The three passes
 

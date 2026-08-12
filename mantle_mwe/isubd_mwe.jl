@@ -321,6 +321,7 @@ end
 function render(pos, xi, cellid, cf; width = 700, height = 700,
                 bounds = (-1.05, 1.05, -0.35, 1.25), per_fragment = true)
     img = fill((1.0, 1.0, 1.0), height, width)
+    covered = falses(height, width)
     x0, x1, y0, y1 = bounds
     px(x) = (x - x0) / (x1 - x0) * width
     py(y) = (1 - (y - y0) / (y1 - y0)) * height
@@ -341,6 +342,7 @@ function render(pos, xi, cellid, cf; width = 700, height = 700,
                 w2 = ((cx_ - x) * (ay - y) - (ax - x) * (cy_ - y)) / area
                 w3 = 1 - w1 - w2
                 (w1 < -1e-9 || w2 < -1e-9 || w3 < -1e-9) && continue
+                covered[i, j] = true
                 img[i, j] = if per_fragment
                     shade(cf, cell, w1 * ξa[1] + w2 * ξb[1] + w3 * ξc[1],
                                     w1 * ξa[2] + w2 * ξb[2] + w3 * ξc[2])
@@ -352,7 +354,7 @@ function render(pos, xi, cellid, cf; width = 700, height = 700,
             end
         end
     end
-    return img
+    return img, covered
 end
 
 function write_ppm(path, img)
@@ -382,16 +384,16 @@ function main()
         @printf("%-7s geo_tol=%.0e fld_tol=%.0e → %5d triangles, depths %d–%d\n",
                 label, geo_tol, fld_tol, length(keys), minimum(depths), maximum(depths))
         write_ppm(joinpath(here, "out_$(label)_fragment.ppm"),
-                  render(pos, xi, cellid, cf; per_fragment = true))
+                  first(render(pos, xi, cellid, cf; per_fragment = true)))
         write_ppm(joinpath(here, "out_$(label)_vertex.ppm"),
-                  render(pos, xi, cellid, cf; per_fragment = false))
+                  first(render(pos, xi, cellid, cf; per_fragment = false)))
     end
 
     # what the fragment path is worth: the same mesh, shaded both ways
     keys = refine(backend, cx, cy, cf; geo_tol = 2.0e-2, fld_tol = 1.0e9)  # geometry only
     pos, xi, cellid = decode(backend, keys, cx, cy)
-    a = render(pos, xi, cellid, cf; per_fragment = true)
-    b = render(pos, xi, cellid, cf; per_fragment = false)
+    a, _ = render(pos, xi, cellid, cf; per_fragment = true)
+    b, _ = render(pos, xi, cellid, cf; per_fragment = false)
     diff = maximum(maximum(abs.(x .- y)) for (x, y) in zip(a, b))
     @printf("geometry-only mesh: %d triangles; max per-pixel colour difference\n", length(keys))
     @printf("  between per-fragment and per-vertex shading: %.3f (0–1 scale)\n", diff)

@@ -45,22 +45,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    number of segments per edge. Paired with an adaptive `solutionplot` at the
    same `geometry_tol`, every wireframe segment is an edge of the drawn
    surface exactly, so the lines cannot drift off the surface they trace.
-   Benchmarked against uniform `Refine` at matched geometry *and* solution
-   error (`benchmarks/adaptive_vs_uniform.jl`): a localized feature needs
-   3–10× fewer triangles adaptively, while a globally smooth field (where
-   uniform refinement is near optimal) saves only about 12 %. Updates cost
-   3–9× less than the first working version — field values are summed
-   straight from the reference shape functions instead of through
-   `PointValues` (3×, and again that much for vectorized interpolations), the
-   estimators sample four points instead of sixteen, decoded vertices are
-   shared within a cell (5× fewer), connectivity is a separate graph node from
-   the values it carries, the nodes hand out their buffers instead of copies,
-   and every field is rewritten once per update into per-cell monomial
-   coefficients so a sample is a few multiply-adds. What remains is dominated
-   by pointwise evaluation inside the estimators: deciding a mesh costs about
-   30 field evaluations per triangle against the ~1 that filling a fixed one
-   needs, so the adaptive path is not yet faster in wall clock even where it
-   draws far fewer triangles.
    The whole chain (solution →
    subdivision keys → decoded triangles → per-vertex field evaluation) lives
    in the plot's ComputeGraph and follows `FerriteViz.update!`; the camera is
@@ -74,6 +58,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    arbitrary reference coordinates, and a `solid` field recording which cells
    make up the body (as opposed to `visible`, the cells contributing surface)
    so the surface facets can be identified after a clip.
+   Benchmarked against uniform `Refine` at matched geometry *and* solution
+   error (`benchmarks/adaptive_vs_uniform.jl`): a localized feature needs
+   3–10× fewer triangles adaptively, while a globally smooth field (where
+   uniform refinement is near optimal) saves only about 12 %. Updates cost
+   3–9× less than the first working version — field values are summed straight
+   from the reference shape functions instead of through `PointValues` (3×,
+   and again that much for vectorized interpolations), the estimators sample
+   four points instead of sixteen, decoded vertices are shared within a cell
+   (5× fewer), connectivity is a separate graph node from the values it
+   carries, the nodes hand out their buffers instead of copies, and every
+   field is rewritten once per update into per-cell monomial coefficients so a
+   sample is a few multiply-adds. What remains is dominated by pointwise
+   evaluation inside the estimators: deciding a mesh costs about 30 field
+   evaluations per triangle against the ~1 that filling a fixed one needs, so
+   the adaptive path is not yet faster in wall clock even where it draws far
+   fewer triangles.
  - `mantle_mwe/`: a self-contained example of the adaptive pipeline with no
    FerriteViz, Ferrite or Makie dependency — two hard-coded curved cells, the
    key-update and decode passes as KernelAbstractions kernels, per-cell

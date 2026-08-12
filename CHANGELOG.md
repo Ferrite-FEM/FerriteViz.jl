@@ -36,6 +36,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    estimators additionally measure every triangle edge, so the residual
    deviation of any drawn edge is bounded by the tolerance. Pass
    `conforming=false` for the cheaper independent-per-triangle refinement.
+   In 3D the adaptive path extracts the actual surface — the facets whose
+   neighbour is missing or was removed by a [`CrinkleClip`](@ref) — instead of
+   tessellating every facet of every visible cell, so it draws a closed
+   manifold with several times fewer triangles than the static path.
    The whole chain (solution →
    subdivision keys → decoded triangles → per-vertex field evaluation) lives
    in the plot's ComputeGraph and follows `FerriteViz.update!`; the camera is
@@ -46,7 +50,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    (registered point-data arrays live on the static tessellation and cannot
    be resampled). `FEData` records upstream `WarpByVector` applications in a
    new `deformation` field so the displaced geometry can be evaluated at
-   arbitrary reference coordinates.
+   arbitrary reference coordinates, and a `solid` field recording which cells
+   make up the body (as opposed to `visible`, the cells contributing surface)
+   so the surface facets can be identified after a clip.
  - Internal (unexported) CPU core for view-adaptive tessellation via implicit
    longest-edge bisection (`src/isubd.jl`, in the spirit of jdupuy's
    demo-isubd-terrain, #161): `UInt64` subdivision keys, a split/merge/keep

@@ -165,8 +165,7 @@ Makie.@recipe SolutionPlot (dataset,) begin
     triangles together with the leaf across their split edge. Disabling it
     refines each triangle independently, which is cheaper but leaves gaps and
     colour seams at refinement-level boundaries (bounded by the tolerances).
-    Only takes effect where the base tessellation supports it — in 3D that is
-    within each facet. Read once at plot creation.
+    Read once at plot creation.
     """
     conforming = true
     base_fe_attributes()...

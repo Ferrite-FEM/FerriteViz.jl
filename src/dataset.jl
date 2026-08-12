@@ -93,6 +93,12 @@ struct FEData{dim,DH<:Ferrite.AbstractDofHandler,T1,TOP<:Union{Nothing,Ferrite.A
     # function of the reference coordinate (adaptive tessellation evaluates
     # geometry at arbitrary ξ) reconstruct it from this record.
     deformation::Vector{Tuple{Makie.Observable{Symbol},Makie.Observable}}
+    # Which cells make up the body, as opposed to `visible`, which marks the
+    # cells contributing surface. In 3D an interior cell is solid but not
+    # visible; a cell removed by CrinkleClip is neither. The distinction is
+    # what identifies the surface facets — those whose neighbour is missing or
+    # not solid — for consumers that extract the boundary surface themselves.
+    solid::Vector{Bool}
 end
 
 function _default_topology(grid)
@@ -203,7 +209,7 @@ function _build_dataset(dh::Ferrite.AbstractDofHandler, u::Makie.Observable, sou
         cell_vertex_offsets, all_edges, edge_cell_map, cell_edge_offsets,
         reference_coords, mesh,
         Dict{Symbol,Makie.Observable}(), Dict{Symbol,Makie.Observable}(),
-        Tuple{Makie.Observable{Symbol},Makie.Observable}[])
+        Tuple{Makie.Observable{Symbol},Makie.Observable}[], fill(true, ncells))
 end
 
 function _instantiate_cell!(physical_coords::Vector{GeometryBasics.Point{sdim,Float32}}, reference_coords,

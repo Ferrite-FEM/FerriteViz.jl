@@ -193,6 +193,86 @@ end
     @test length(conf.subd_keys[]) == length(base.corners)
 end
 
+@testset "adaptive solutionplot: 3D surface is a closed manifold" begin
+    grid = generate_grid(Hexahedron, (3, 3, 3))
+    dh = DofHandler(grid)
+    add!(dh, :p, Lagrange{RefHexahedron,1}())
+    close!(dh)
+    u = zeros(ndofs(dh))
+    Ferrite.apply_analytical!(u, dh, :p, x -> exp(-6 * ((x[1] - 1)^2 + x[2]^2 + x[3]^2)))
+    ds = FEData(dh, u)
+    @test all(ds.solid)                      # an unclipped body is solid everywhere
+
+    # the base is built from the *surface* facets only — six per corner cell of
+    # a 3×3×3 block down to one per face-centre cell, fanned into four each
+    base, _, _ = FerriteViz._isubd_base(ds)
+    nfacets = 6 * 9    # the cube's six sides, nine cells each
+    @test length(base.corners) == 4 * nfacets
+    @test length(base.corners) < length(ds.all_triangles)   # far fewer than the static path
+    # a closed surface: every base triangle has all three neighbours, and every
+    # element edge on it carries a diamond
+    @test all(t -> all(e -> e[1] != 0, base.adjacency[t]), 1:length(base.corners))
+    @test all(t -> FerriteViz.diamond_partner(base, FerriteViz.root_key(t)) !== nothing,
+              1:length(base.corners))
+
+    # every drawn edge is shared by exactly two triangles: watertight and closed
+    function survey(sp)
+        pos, faces = sp.subd_positions[], sp.subd_faces[]
+        rk(p) = ntuple(i -> round(Float64(p[i]); digits = 6), 3)
+        verts = Set(rk(p) for p in pos)
+        tj = 0
+        counts = Dict{Any,Int}()
+        for f in faces, (i, j) in ((1, 2), (2, 3), (3, 1))
+            a, b = pos[f[i]], pos[f[j]]
+            m = rk((a + b) / 2)
+            (m in verts && m != rk(a) && m != rk(b)) && (tj += 1)
+            e = rk(a) <= rk(b) ? (rk(a), rk(b)) : (rk(b), rk(a))
+            counts[e] = get(counts, e, 0) + 1
+        end
+        return (; tj, open = count(==(1), values(counts)), over = count(>(2), values(counts)),
+                n = length(faces))
+    end
+
+    kw = (; adaptive = true, solution_tol = 5e-3, max_depth = 5)
+    _, _, conf = solutionplot(ds; kw..., conforming = true)
+    s = survey(conf)
+    @test s.tj == 0 && s.open == 0 && s.over == 0
+    @test s.n < length(ds.all_triangles)
+    _, _, free = solutionplot(ds; kw..., conforming = false)
+    @test survey(free).tj > 0
+end
+
+@testset "adaptive solutionplot: CrinkleClip keeps the surface closed" begin
+    grid = generate_grid(Hexahedron, (3, 3, 3))
+    dh = DofHandler(grid)
+    add!(dh, :p, Lagrange{RefHexahedron,1}())
+    close!(dh)
+    u = zeros(ndofs(dh))
+    Ferrite.apply_analytical!(u, dh, :p, x -> x[1] + x[2] + x[3])
+    ds = FEData(dh, u)
+    clipped = ds |> CrinkleClip(FerriteViz.ClipPlane(Ferrite.Vec(1.0, 1.0, 1.0), 0.3))
+
+    # the clip records the body it kept; filters pass the record on
+    @test count(clipped.solid) < Ferrite.getncells(grid)
+    @test all(clipped.visible .<= clipped.solid)    # a visible cell is part of the body
+    @test isempty(ds.deformation) && all(ds.solid)  # the input is untouched
+    @test (clipped |> Gradient(:p)).solid == clipped.solid
+
+    # the cut exposes new surface, and it is closed just like the outer one
+    base, _, _ = FerriteViz._isubd_base(clipped)
+    @test all(t -> all(e -> e[1] != 0, base.adjacency[t]), 1:length(base.corners))
+    _, _, sp = solutionplot(clipped; adaptive = true, solution_tol = 5e-3, max_depth = 4)
+    pos, faces = sp.subd_positions[], sp.subd_faces[]
+    rk(p) = ntuple(i -> round(Float64(p[i]); digits = 6), 3)
+    counts = Dict{Any,Int}()
+    for f in faces, (i, j) in ((1, 2), (2, 3), (3, 1))
+        a, b = rk(pos[f[i]]), rk(pos[f[j]])
+        e = a <= b ? (a, b) : (b, a)
+        counts[e] = get(counts, e, 0) + 1
+    end
+    @test count(==(1), values(counts)) == 0 && count(>(2), values(counts)) == 0
+end
+
 @testset "adaptive solutionplot: optional screen-space criterion" begin
     grid = generate_grid(Quadrilateral, (3, 3))
     dh = DofHandler(grid)

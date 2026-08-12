@@ -95,11 +95,39 @@ end
 # triangles it replaces the single base triangle, whose split edge (the longest
 # reference edge) would generally meet a neighbour's leg.
 #
-# In 3D the base stays the reference tessellation's triangles: the surface is
-# assembled from facets whose edges are shared by more than two tessellation
-# triangles of the same cell, so no facet-crossing diamond exists. Conformity
-# then holds within each facet and T-vertices remain possible along element
-# edges — see the `adaptive` docs.
+# In 3D the same construction applies per *surface facet*: a facet is on the
+# surface when the cell across it is missing or not part of the body (see
+# `FEData.solid`), and it is fanned from its centre, so a base triangle's split
+# edge is again an element edge — now shared by exactly the two surface facets
+# meeting there. Note this draws strictly less than the static path, which
+# tessellates every facet of every visible cell including the ones buried
+# inside the body.
+# Is this facet of the cell part of the drawn surface? It is when nothing sits
+# across it, or what sits there is not part of the body (an interior cell of a
+# solid mesh is, a cell a CrinkleClip removed is not). Without topology every
+# facet is taken, which is the 2D case and the pre-topology fallback.
+function _is_surface_facet(ds::FEData, cell_id::Int, facet::Int)
+    ds.topology === nothing && return true
+    neighbours = ds.topology.face_face_neighbor[cell_id, facet]
+    isempty(neighbours) && return true
+    return !ds.solid[first(neighbours)[1]]
+end
+
+# One centre fan of a convex polygon given by its rim vertices in order:
+# (v[i+1], centre, v[i]) keeps the rim's winding while making the rim edge the
+# triangle's split edge, which is what the conforming refinement needs.
+function _push_fan!(corners, cornergids, cellmap, cell_id, rim, rimgids, counter)
+    centre = sum(rim) / length(rim)
+    centre_gid = (counter[] -= 1)
+    for i in eachindex(rim)
+        j = mod1(i + 1, length(rim))
+        push!(corners, (rim[j], centre, rim[i]))
+        push!(cornergids, (rimgids[j], centre_gid, rimgids[i]))
+        push!(cellmap, cell_id)
+    end
+    return nothing
+end
+
 function _isubd_base_triangles(ds::FEData)
     grid = Ferrite.get_grid(ds.dh)
     cells = Ferrite.getcells(grid)
@@ -112,10 +140,12 @@ function _isubd_base_triangles(ds::FEData)
         ds.visible[cell_id] || continue
         Ferrite.getrefdim(Ferrite.geometric_interpolation(typeof(cell))) == refdim ||
             error("adaptive tessellation requires a single reference dimension across the grid")
-        tess = reference_tessellation(getrefshape(cell))
+        refshape = getrefshape(cell)
+        tess = reference_tessellation(refshape)
         isempty(tess.triangles) && continue     # e.g. line cells carry no surface
-        gids = _vertex_gids(cell, tess.coords, counter)
         if refdim == 2 && !isempty(tess.edges)
+            gids = _vertex_gids(cell, tess.coords, counter)
+            # the element edges, in whatever order the tessellation lists them
             rim = unique(Iterators.flatten(tess.edges))
             centre = sum(tess.coords[i] for i in rim) / length(rim)
             centre_gid = (counter[] -= 1)
@@ -126,7 +156,16 @@ function _isubd_base_triangles(ds::FEData)
                 push!(cornergids, (gids[b], centre_gid, gids[a]))
                 push!(cellmap, cell_id)
             end
+        elseif refdim == 3
+            vcoords = Ferrite.reference_coordinates(Ferrite.Lagrange{refshape,1}())
+            vgids = _vertex_gids(cell, vcoords, counter)
+            for (f, face) in enumerate(Ferrite.reference_faces(refshape))
+                _is_surface_facet(ds, cell_id, f) || continue
+                _push_fan!(corners, cornergids, cellmap, cell_id,
+                           [vcoords[v] for v in face], [vgids[v] for v in face], counter)
+            end
         else
+            gids = _vertex_gids(cell, tess.coords, counter)
             for tri in tess.triangles
                 c = leb_order((tess.coords[tri[1]], tess.coords[tri[2]], tess.coords[tri[3]]))
                 # recover the permutation leb_order applied, to keep the ids aligned

@@ -23,8 +23,12 @@ with the leaf across its split edge — its
 [`FerriteViz.diamond_partner`](@ref), located by pure key algebra
 ([`FerriteViz.key_neighbour`](@ref)) over a base-adjacency table — so the
 drawn surface stays watertight. The base table is built from exact global
-vertex ids, and in 2D from a fan over the cells' element edges, which is what
-makes every split edge an element edge shared by exactly two base triangles.
+vertex ids, and from a fan over the cells' element edges (2D) or the surface
+facets' element edges (3D), which is what makes every split edge an element
+edge shared by exactly two base triangles. The 3D surface facets are those
+whose neighbouring cell is missing or not part of the body (`FEData.solid`),
+so the adaptive path draws a closed manifold rather than every facet of every
+visible cell.
 
 ## Architecture
 

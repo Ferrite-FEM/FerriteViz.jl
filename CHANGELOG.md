@@ -74,6 +74,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    arbitrary reference coordinates, and a `solid` field recording which cells
    make up the body (as opposed to `visible`, the cells contributing surface)
    so the surface facets can be identified after a clip.
+ - `mantle_mwe/`: a self-contained example of the adaptive pipeline with no
+   FerriteViz, Ferrite or Makie dependency — two hard-coded curved cells, the
+   key-update and decode passes as KernelAbstractions kernels, per-cell
+   coefficient buffers, per-fragment field evaluation, and a software
+   rasterizer producing the reference image. Written for prototyping the
+   pipeline against a GPU backend; its README states exactly which primitives
+   the backend has to provide.
  - Internal (unexported) CPU core for view-adaptive tessellation via implicit
    longest-edge bisection (`src/isubd.jl`, in the spirit of jdupuy's
    demo-isubd-terrain, #161): `UInt64` subdivision keys, a split/merge/keep

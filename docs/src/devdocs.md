@@ -31,7 +31,14 @@ FerriteViz is structured in three layers, following the ParaView model:
    coordinates and triangles live in `ShaderAbstractions.Buffer`s shared into a
    `GeometryBasics.Mesh` — updates mutate GPU data in place without rebuilding.
 3. **Representations** (`src/representations.jl`): thin Makie recipes that take
-   an `FEData` and the *name* of the array to color by.
+   an `FEData` and the *name* of the array to color by. The recipes are
+   new-style (declared attribute blocks) and compute derived values in the
+   plot's `ComputeGraph`: `FEData`'s Observables enter the graph via
+   `ComputePipeline.add_input!`, transformations are `map!` edges, and the
+   child plots draw from graph nodes. Following a *named* data array when the
+   name attribute changes stays Observable-side (see `resolve_color`) — which
+   array a plot listens to is a structural change, and a graph edge's
+   dependencies are fixed at registration.
 
 ## Adding support for a custom cell type
 

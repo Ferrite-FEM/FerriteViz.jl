@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+ - The Makie recipes were migrated to the new-style `@recipe` with declared,
+   documented attribute blocks, and compute derived values in the plot's
+   `ComputeGraph` (Makie ≥ 0.24 / ComputePipeline) instead of Observable
+   lift chains: `FEData`'s Observables enter the graph via `add_input!`,
+   transformations are `map!` edges, and child plots draw from graph nodes.
+   User-facing API is unchanged; recipe defaults are now visible to Makie
+   (e.g. a spec-linked `Colorbar` resolves the recipe's colormap by itself),
+   the plots' attribute docstrings are auto-generated, and common Makie
+   attributes (`alpha`, `colorscale`, `lowclip`/`highclip`, `transparency`,
+   `visible`, …) now forward to the drawn primitives. Passing an *unknown*
+   keyword to a recipe is now an error instead of being silently ignored.
+
 ### Added
  - `ReferenceTessellation` now carries the wireframe edge segments of its
    reference shape (from `Ferrite.reference_edges`) next to the surface

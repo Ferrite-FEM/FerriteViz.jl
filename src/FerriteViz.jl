@@ -8,6 +8,8 @@ import GeometryBasics
 import ShaderAbstractions
 import LinearAlgebra
 
+const ComputePipeline = Makie.ComputePipeline
+
 abstract type AbstractPlotter end
 abstract type AbstractFilter end
 

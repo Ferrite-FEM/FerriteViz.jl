@@ -40,6 +40,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    neighbour is missing or was removed by a [`CrinkleClip`](@ref) — instead of
    tessellating every facet of every visible cell, so it draws a closed
    manifold with several times fewer triangles than the static path.
+   Benchmarked against uniform `Refine` at matched geometry *and* solution
+   error: a localized feature needs 3–10× fewer triangles adaptively, while a
+   globally smooth field (where uniform refinement is near optimal) saves only
+   about 12 % — at a per-update cost currently dominated by the estimators'
+   pointwise FE evaluations.
    The whole chain (solution →
    subdivision keys → decoded triangles → per-vertex field evaluation) lives
    in the plot's ComputeGraph and follows `FerriteViz.update!`; the camera is

@@ -216,39 +216,47 @@ function excess_levels(lod::ScreenSpaceLoD, base::IsubdBase, k::UInt64)
     return log2(max(px, 1e-9) / lod.px_target)
 end
 
+# Where a triangle's linear interpolation is checked against the truth, in
+# barycentric coordinates. The edge samples bound the deviation of the *drawn
+# edges*, which is what a gap or colour seam between refinement levels would
+# be; the interior samples bound what is actually rendered across the face,
+# which for a smooth bump is where the deviation peaks. Measuring the interior
+# is only sound because conformity is enforced structurally (see
+# `force_split!`) — while split decisions had to agree between the two
+# triangles sharing an edge, only shared-edge quantities could be used.
+const DEVIATION_SAMPLES = (
+    (0.75, 0.25, 0.0), (0.5, 0.5, 0.0), (0.25, 0.75, 0.0),
+    (0.0, 0.75, 0.25), (0.0, 0.5, 0.5), (0.0, 0.25, 0.75),
+    (0.75, 0.0, 0.25), (0.5, 0.0, 0.5), (0.25, 0.0, 0.75),
+    (1 / 3, 1 / 3, 1 / 3), (0.5, 0.25, 0.25), (0.25, 0.5, 0.25), (0.25, 0.25, 0.5),
+)
+
 """
     DeviationLoD(f, tol)
 
-Split until linear interpolation along *every edge* of a triangle
-approximates `f(base_id, ξ)` to within `tol`: the deviation is sampled at
-each edge's quarter points and midpoint against the linear interpolant of its
-endpoint values, and `excess_levels` is `log2(deviation / tol)` — the
-deviation of a smooth function under linear interpolation is O(h²) and
-bisection halves an edge every *second* level, so each level buys a factor 2.
-`f` may return points (geometry error: pass the base's `mapping`) or scalars
-(solution error: pass the color evaluation); `tol` is absolute, in the units
-of `norm` of `f`'s values.
+Split until the triangle's linear interpolation approximates `f(base_id, ξ)`
+to within `tol`. The deviation is sampled over the whole triangle — along
+every edge and across the interior (see `DEVIATION_SAMPLES`) — against the
+barycentric interpolation of the corner values, and `excess_levels` is
+`log2(deviation / tol)`: the deviation of a smooth function under linear
+interpolation is O(h²) and bisection halves an edge every *second* level, so
+each level buys a factor 2. `f` may return points (geometry error: pass the
+base's `mapping`) or scalars (solution error: pass the colour evaluation);
+`tol` is absolute, in the units of `norm` of `f`'s values.
 
-All three edges are measured — not just the split edge — because on *curved*
-data reference-space conformity is not what keeps the picture closed: wherever
-two leaves of different depth meet, the finer side passes through the exact
-midpoint while the coarser side draws its chord, and the visible gap (a
-geometric sliver, or a color seam) is exactly that edge's deviation. Bounding
-the deviation of every leaf edge by `tol` bounds every such gap by `tol`,
-whether or not the two sides agreed on splitting. The price is that split
-decisions are triangle-local rather than a symmetric function of the shared
-edge, so reference-space T-vertices can occur even where the demo's scheme
-would forbid them — with their gaps bounded by `tol`, and on affine cells with
-exact (zero-width) fits. Truly conforming refinement (RTIN/CBT-style forced
-splits propagated to edge neighbours) is the known upgrade path.
+Sampling the interior is what makes the criterion bound what is actually
+drawn — for curved geometry the deviation peaks in the middle of a face, and
+an edge-only criterion happily leaves it there. Keeping the edge samples as
+well bounds the width of any gap or colour seam at a refinement-level
+boundary, which matters when conformity is disabled.
 
-The criterion is not monotone in depth (an edge's deviation can vanish while
-a descendant edge's does not — e.g. a bilinear field is linear along a quad's
-outer edges but curved along the fan diagonals), which makes the refined
-state mildly path-dependent: a state merged down from finer keys may stay
-finer than one refined up from the roots, because [`update_keys!`](@ref)
-never discards detail whose deviation still exceeds the tolerance. The finer
-of the two states is the more accurate one.
+The criterion is not monotone in depth (a triangle's deviation can vanish
+while a descendant's does not — e.g. a bilinear field is linear along a
+quad's outer edges but curved along the fan diagonals), which makes the
+refined state mildly path-dependent: a state merged down from finer keys may
+stay finer than one refined up from the roots, because the passes never
+discard detail whose deviation still exceeds the tolerance. The finer of the
+two states is the more accurate one.
 """
 struct DeviationLoD{F,T} <: AbstractLoD
     f::F
@@ -256,20 +264,37 @@ struct DeviationLoD{F,T} <: AbstractLoD
 end
 
 function excess_levels(lod::DeviationLoD, base::IsubdBase, k::UInt64)
-    corners = key_corners(base, k)
+    c1, c2, c3 = key_corners(base, k)
     b = key_base(k)
+    f1, f2, f3 = lod.f(b, c1), lod.f(b, c2), lod.f(b, c3)
     err = 0.0
-    for (i, j) in ((1, 3), (1, 2), (2, 3))
-        ξa, ξb = corners[i], corners[j]
-        fa, fb = lod.f(b, ξa), lod.f(b, ξb)
-        for t in (0.25, 0.5, 0.75)
-            exact = lod.f(b, ξa + t * (ξb - ξa))
-            linear = fa + t * (fb - fa)
-            err = max(err, Float64(LinearAlgebra.norm(exact - linear)))
-        end
+    for (a1, a2, a3) in DEVIATION_SAMPLES
+        exact = lod.f(b, a1 * c1 + a2 * c2 + a3 * c3)
+        linear = a1 * f1 + a2 * f2 + a3 * f3
+        err = max(err, Float64(LinearAlgebra.norm(exact - linear)))
     end
     return log2(max(err, 1e-16) / max(lod.tol, 1e-16))
 end
+
+"""
+    CachedLoD(inner)
+
+Memoize a criterion per key. For a fixed solution the excess is a pure
+function of the key, but the passes ask for the same keys again and again —
+every refinement round re-tests the surviving leaves, and the conforming
+closure additionally asks about parents and neighbours. With an FE evaluation
+behind every query (a `PointValues` reinit per sample point) that repetition
+dominates; [`refine_keys!`](@ref) therefore wraps its criterion in this for
+the duration of the call.
+"""
+struct CachedLoD{L<:AbstractLoD} <: AbstractLoD
+    inner::L
+    cache::Dict{UInt64,Float64}
+end
+CachedLoD(inner::AbstractLoD) = CachedLoD(inner, Dict{UInt64,Float64}())
+
+excess_levels(lod::CachedLoD, base::IsubdBase, k::UInt64) =
+    get!(() -> excess_levels(lod.inner, base, k), lod.cache, k)
 
 """
     CombinedLoD(lods...)
@@ -530,6 +555,7 @@ refinement-level boundaries leave gaps bounded by the criterion's tolerance.
 function refine_keys!(keys::Vector{UInt64}, scratch::Vector{UInt64}, base::IsubdBase, lod::AbstractLoD;
                       max_depth::Int=LEB_MAX_DEPTH, hysteresis::Float64=0.0,
                       max_passes::Int=max_depth + 1, conforming::Bool=is_conformable(base))
+    lod = lod isa CachedLoD ? lod : CachedLoD(lod)
     if conforming
         leaves = Set(keys)
         for _ in 1:max_passes

@@ -178,6 +178,109 @@ end
     @test count_tjunctions(mesh) == 0
 end
 
+# A deliberately non-smooth criterion: deep refinement left of x = 0.7, none
+# to the right — level jumps far beyond 1 between neighbouring triangles.
+struct StepLoD <: FV.AbstractLoD
+    target::Int
+end
+function FV.excess_levels(lod::StepLoD, base::FV.IsubdBase, k::UInt64)
+    c = FV.key_corners(base, k)
+    mid = (c[1] + c[3]) / 2
+    return mid[1] < 0.7 ? Float64(lod.target - FV.key_depth(k)) : Float64(-FV.key_depth(k))
+end
+
+@testset "isubd deviation and combined criteria" begin
+    # paraboloid: linear interpolation error is O(h²), nonzero everywhere
+    bump = (b, ξ) -> Vec((ξ[1], ξ[2], ξ[1] * (1 - ξ[1]) + ξ[2] * (1 - ξ[2])))
+    base = diamond_base(bump)
+    keys, scratch = FV.root_keys(base), UInt64[]
+
+    # a linear (flat) mapping never asks for refinement
+    flat = diamond_base((b, ξ) -> Vec((ξ[1], ξ[2], 0.3 * ξ[1] + 0.7 * ξ[2])))
+    kflat = FV.root_keys(flat)
+    FV.refine_keys!(kflat, scratch, flat, FV.DeviationLoD(flat.mapping, 1e-6))
+    @test sort(kflat) == sort(FV.root_keys(flat))
+
+    # the deviation is O(h²) and the split edge halves every second level, so
+    # a 16× tighter tolerance buys about four more levels
+    FV.refine_keys!(keys, scratch, base, FV.DeviationLoD(bump, 1e-3))
+    d1 = maximum(FV.key_depth, keys)
+    n1 = length(keys)
+    FV.refine_keys!(keys, scratch, base, FV.DeviationLoD(bump, 1e-3 / 16))
+    d2 = maximum(FV.key_depth, keys)
+    @test n1 > 2 && d2 - d1 in 3:5
+    # at the steady state, every leaf's split-edge deviation is within tolerance
+    for k in keys
+        c = FV.key_corners(base, k)
+        fa, fb = bump(0, c[1]), bump(0, c[3])
+        for t in (0.25, 0.5, 0.75)
+            dev = norm(bump(0, c[1] + t * (c[3] - c[1])) - (fa + t * (fb - fa)))
+            @test dev <= 1e-3 / 16 + 1e-12
+        end
+    end
+    # crack-free
+    mesh = FV.IsubdMesh(base)
+    FV.decode_keys!(mesh, keys, base)
+    @test count_tjunctions(mesh) == 0
+
+    # combined: the maximum excess wins
+    kc = FV.root_keys(base)
+    FV.refine_keys!(kc, scratch, base, FV.CombinedLoD(FV.UniformLoD(2), FV.UniformLoD(0)))
+    @test all(k -> FV.key_depth(k) == 2, kc)
+
+    # On curved data, wherever leaves of different depth meet, the visible gap
+    # is the coarse edge's deviation — bounded by tol because every leaf edge
+    # is measured. Force unequal depths with a step criterion and check every
+    # reference-space T-vertex's physical gap.
+    tol = 1e-3
+    kg = FV.root_keys(base)
+    # the step must out-refine the deviation criterion (uniform depth 9 here)
+    # somewhere, or no unequal-depth boundaries exist
+    FV.refine_keys!(kg, scratch, base, FV.CombinedLoD(FV.DeviationLoD(bump, tol), StepLoD(12)); max_depth=14)
+    meshg = FV.IsubdMesh(base)
+    FV.decode_keys!(meshg, kg, base)
+    rk(p) = (round(p[1]; digits = 12), round(p[2]; digits = 12))
+    refverts = Set(rk(p) for p in meshg.refcoords)
+    ntv, maxgap = 0, 0.0
+    for (fi, f) in enumerate(meshg.faces), (i, j) in ((1, 2), (2, 3), (3, 1))
+        a, b = meshg.refcoords[f[i]], meshg.refcoords[f[j]]
+        mid = (a + b) / 2
+        if rk(mid) in refverts && rk(mid) != rk(a) && rk(mid) != rk(b)
+            ntv += 1
+            chord = (meshg.positions[f[i]] + meshg.positions[f[j]]) / 2
+            maxgap = max(maxgap, norm(bump(FV.key_base(kg[fi]), mid) - chord))
+        end
+    end
+    @test ntv > 0                 # the step forces unequal-depth boundaries
+    @test maxgap <= tol + 1e-12
+end
+
+@testset "isubd merge under sharp level jumps" begin
+    base = diamond_base()
+    mesh = FV.IsubdMesh(base)
+    refarea(keys) = (FV.decode_keys!(mesh, keys, base);
+                     sum(_area(mesh.refcoords[f[1]], mesh.refcoords[f[2]], mesh.refcoords[f[3]])
+                         for f in mesh.faces))
+    keys, scratch = FV.root_keys(base), UInt64[]
+    FV.refine_keys!(keys, scratch, base, StepLoD(6))
+    # exact tiling: no overlaps, no holes, even across the sharp jump
+    @test refarea(keys) ≈ 1.0
+    @test maximum(FV.key_depth, keys) == 6 && minimum(FV.key_depth, keys) <= 2
+    # collapsing back through wildly unequal sibling depths reaches the roots
+    FV.refine_keys!(keys, scratch, base, FV.UniformLoD(0))
+    @test sort(keys) == sort(FV.root_keys(base))
+    # and every intermediate pass conserves the tiling
+    FV.refine_keys!(keys, scratch, base, StepLoD(6))
+    lod0 = FV.UniformLoD(0)
+    for _ in 1:8
+        FV.update_keys!(scratch, keys, base, lod0)
+        sort!(scratch)
+        copy!(keys, scratch)
+        @test refarea(keys) ≈ 1.0
+    end
+    @test sort(keys) == sort(FV.root_keys(base))
+end
+
 @testset "isubd decode buffers and mapping" begin
     # a curved (paraboloid) mapping: decode must evaluate it per vertex
     bump = (b, ξ) -> Vec((ξ[1], ξ[2], ξ[1] * (1 - ξ[1]) + ξ[2] * (1 - ξ[2])))

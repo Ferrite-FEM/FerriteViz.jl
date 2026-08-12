@@ -21,17 +21,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    keyword to a recipe is now an error instead of being silently ignored.
 
 ### Added
- - Experimental view-adaptive tessellation for `solutionplot` (#161):
-   `solutionplot(ds; adaptive=true, px_target=24, max_depth=10)` re-tessellates
-   the visible cells continuously by camera-driven longest-edge bisection —
-   curved geometry and warps refine where they are large on screen and coarsen
-   as the camera retreats, crack-free, with the whole chain (camera →
-   subdivision keys → decoded triangles → per-vertex field evaluation) living
-   in the plot's ComputeGraph: a static camera recomputes nothing. The color
-   must be a dof field name or a plain color (registered point-data arrays
-   live on the static tessellation and cannot be resampled). `FEData` records
-   upstream `WarpByVector` applications in a new `deformation` field so the
-   displaced geometry can be evaluated at arbitrary reference coordinates.
+ - Experimental error-adaptive tessellation for `solutionplot` (#161):
+   `solutionplot(ds; adaptive=true)` re-tessellates the visible cells by
+   longest-edge bisection driven by two interpolation-error estimators —
+   how badly the flat triangles approximate the exact geometry (dofhandler
+   interpolation, including warps; `geometry_tol`, relative to the grid's
+   bounding-box diagonal) and how badly the linear vertex colors approximate
+   the exact field polynomial (`solution_tol`, relative to the field's value
+   span) — refining where either asks. The estimators measure the deviation
+   of every triangle edge, which bounds any gap or color seam between
+   refinement levels on curved geometry by the tolerance (truly conforming
+   refinement via forced splits is future work). The whole chain (solution →
+   subdivision keys → decoded triangles → per-vertex field evaluation) lives
+   in the plot's ComputeGraph and follows `FerriteViz.update!`; the camera is
+   not an input unless the optional screen-space criterion is enabled with
+   `px_target`. Geometry, connectivity and colors are emitted by a single
+   graph edge, so rapid event bursts can never render them against different
+   refinement states. The color must be a dof field name or a plain color
+   (registered point-data arrays live on the static tessellation and cannot
+   be resampled). `FEData` records upstream `WarpByVector` applications in a
+   new `deformation` field so the displaced geometry can be evaluated at
+   arbitrary reference coordinates.
  - Internal (unexported) CPU core for view-adaptive tessellation via implicit
    longest-edge bisection (`src/isubd.jl`, in the spirit of jdupuy's
    demo-isubd-terrain, #161): `UInt64` subdivision keys, a split/merge/keep

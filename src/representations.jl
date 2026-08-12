@@ -137,17 +137,28 @@ Deformation is an upstream concern: `solutionplot(ds |> WarpByVector(:u, 2.0))`.
 """
 Makie.@recipe SolutionPlot (dataset,) begin
     """
-    Experimental: view-adaptive tessellation (#161). Instead of drawing the
-    dataset's static tessellation, the visible cells are re-tessellated
-    continuously by camera-driven longest-edge bisection: curved geometry and
-    warps refine where they are large on screen and coarsen as the camera
-    retreats. The color must be a dof field name (or a plain color) — it is
-    evaluated at the refined vertices. Read once at plot creation.
+    Experimental: error-adaptive tessellation (#161). Instead of drawing the
+    dataset's static tessellation, the visible cells are re-tessellated by
+    longest-edge bisection until the flat triangles approximate the exact
+    geometry (dofhandler interpolation, including warps) to within
+    `geometry_tol` *and* the linear vertex-color interpolation approximates
+    the exact field polynomial to within `solution_tol` — refinement happens
+    where either estimator asks for it, and follows [`FerriteViz.update!`](@ref).
+    The color must be a dof field name (or a plain color) — it is evaluated
+    at the refined vertices. Read once at plot creation.
     """
     adaptive = false
-    "Adaptive tessellation: target split-edge size in pixels (smaller = finer)."
-    px_target = 24.0
-    "Adaptive tessellation: maximum bisection depth per base triangle."
+    "Adaptive: geometry-error tolerance, as a fraction of the grid's bounding-box diagonal."
+    geometry_tol = 1.0e-3
+    "Adaptive: solution-error tolerance, as a fraction of the color field's value span."
+    solution_tol = 5.0e-3
+    """
+    Adaptive: optional additional screen-space criterion — target split-edge
+    size in pixels. Setting it wires the camera into the plot's compute graph
+    (refinement then follows zooming). `nothing` disables it.
+    """
+    px_target = nothing
+    "Adaptive: maximum bisection depth per base triangle."
     max_depth = 10
     base_fe_attributes()...
 end

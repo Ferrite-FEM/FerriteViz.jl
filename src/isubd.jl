@@ -191,6 +191,74 @@ function excess_levels(lod::ScreenSpaceLoD, base::IsubdBase, k::UInt64)
     return log2(max(px, 1e-9) / lod.px_target)
 end
 
+"""
+    DeviationLoD(f, tol)
+
+Split until linear interpolation along *every edge* of a triangle
+approximates `f(base_id, ξ)` to within `tol`: the deviation is sampled at
+each edge's quarter points and midpoint against the linear interpolant of its
+endpoint values, and `excess_levels` is `log2(deviation / tol)` — the
+deviation of a smooth function under linear interpolation is O(h²) and
+bisection halves an edge every *second* level, so each level buys a factor 2.
+`f` may return points (geometry error: pass the base's `mapping`) or scalars
+(solution error: pass the color evaluation); `tol` is absolute, in the units
+of `norm` of `f`'s values.
+
+All three edges are measured — not just the split edge — because on *curved*
+data reference-space conformity is not what keeps the picture closed: wherever
+two leaves of different depth meet, the finer side passes through the exact
+midpoint while the coarser side draws its chord, and the visible gap (a
+geometric sliver, or a color seam) is exactly that edge's deviation. Bounding
+the deviation of every leaf edge by `tol` bounds every such gap by `tol`,
+whether or not the two sides agreed on splitting. The price is that split
+decisions are triangle-local rather than a symmetric function of the shared
+edge, so reference-space T-vertices can occur even where the demo's scheme
+would forbid them — with their gaps bounded by `tol`, and on affine cells with
+exact (zero-width) fits. Truly conforming refinement (RTIN/CBT-style forced
+splits propagated to edge neighbours) is the known upgrade path.
+
+The criterion is not monotone in depth (an edge's deviation can vanish while
+a descendant edge's does not — e.g. a bilinear field is linear along a quad's
+outer edges but curved along the fan diagonals), which makes the refined
+state mildly path-dependent: a state merged down from finer keys may stay
+finer than one refined up from the roots, because [`update_keys!`](@ref)
+never discards detail whose deviation still exceeds the tolerance. The finer
+of the two states is the more accurate one.
+"""
+struct DeviationLoD{F,T} <: AbstractLoD
+    f::F
+    tol::T
+end
+
+function excess_levels(lod::DeviationLoD, base::IsubdBase, k::UInt64)
+    corners = key_corners(base, k)
+    b = key_base(k)
+    err = 0.0
+    for (i, j) in ((1, 3), (1, 2), (2, 3))
+        ξa, ξb = corners[i], corners[j]
+        fa, fb = lod.f(b, ξa), lod.f(b, ξb)
+        for t in (0.25, 0.5, 0.75)
+            exact = lod.f(b, ξa + t * (ξb - ξa))
+            linear = fa + t * (fb - fa)
+            err = max(err, Float64(LinearAlgebra.norm(exact - linear)))
+        end
+    end
+    return log2(max(err, 1e-16) / max(lod.tol, 1e-16))
+end
+
+"""
+    CombinedLoD(lods...)
+
+Split when *any* member criterion wants to: the excess is the member maximum.
+"""
+struct CombinedLoD{T<:Tuple} <: AbstractLoD
+    lods::T
+end
+CombinedLoD(lods::AbstractLoD...) = CombinedLoD(lods)
+
+excess_levels(lod::CombinedLoD, base::IsubdBase, k::UInt64) =
+    maximum(l -> excess_levels(l, base, k), lod.lods)
+
 ##########
 # Passes #
 ##########
@@ -198,8 +266,8 @@ end
 """
     update_keys!(out, keys, base, lod; max_depth=LEB_MAX_DEPTH, hysteresis=0.0)
 
-One split/merge/keep streaming pass over the key buffer (the GPU compute
-pass of the demo): every key either emits its two children (its
+One split/merge/keep streaming pass over the *sorted* key buffer (the GPU
+compute pass of the demo): every key either emits its two children (its
 [`excess_levels`](@ref) is positive), its parent (the *parent's* excess is
 at most `-hysteresis`; only child 0 emits it, so the pair collapses to one
 key), or itself. Refinement moves at most one level per pass — drive it with
@@ -212,20 +280,39 @@ steady state is a true fixed point. A positive `hysteresis` additionally
 keeps keys whose parent hovers around excess 0 from toggling under camera
 jitter, at the price of the merged state lagging the split state by up to
 that many levels.
+
+A pair merges only when *both* siblings are present as leaves, which the
+sorted order makes an adjacent-element check. The demo omits this and relies
+on its LoD never jumping levels between siblings; under a criterion with
+sharp spatial variation (an error estimator on rough data), the unguarded
+merge lets a parent overlap its sibling's still-deeper subtree, or drops a
+child while the sibling subtree persists — converging to a state that
+double-covers or holes the domain. (A GPU port checks sibling presence on the
+concurrent-binary-tree bitfield instead of the sorted buffer.)
 """
 function update_keys!(out::Vector{UInt64}, keys::Vector{UInt64}, base::IsubdBase, lod::AbstractLoD;
                       max_depth::Int=LEB_MAX_DEPTH, hysteresis::Float64=0.0)
     max_depth <= LEB_MAX_DEPTH || throw(ArgumentError("max_depth must be ≤ $LEB_MAX_DEPTH"))
+    issorted(keys) || throw(ArgumentError("update_keys! requires a sorted key buffer"))
     empty!(out)
-    for k in keys
+    for (i, k) in enumerate(keys)
         d = key_depth(k)
         if d < max_depth && excess_levels(lod, base, k) > 0
             c0, c1 = key_children(k)
             push!(out, c0, c1)
         elseif d > 0 && excess_levels(lod, base, key_parent(k)) <= -hysteresis
-            # both children evaluate the same parent predicate, so exactly one
-            # of them (child 0) re-emits the parent and the other vanishes
-            is_child0(k) && push!(out, key_parent(k))
+            # the pair collapses only when the sibling is a leaf too and does
+            # not itself want splitting — evaluated symmetrically from both
+            # sides, so child 0 emits the parent exactly when child 1 drops
+            sib_idx = is_child0(k) ? i + 1 : i - 1
+            sib = is_child0(k) ? k + 1 : k - 1
+            mergeable = checkbounds(Bool, keys, sib_idx) && keys[sib_idx] == sib &&
+                        !(d < max_depth && excess_levels(lod, base, sib) > 0)
+            if !mergeable
+                push!(out, k)
+            elseif is_child0(k)
+                push!(out, key_parent(k))
+            end
         else
             push!(out, k)
         end

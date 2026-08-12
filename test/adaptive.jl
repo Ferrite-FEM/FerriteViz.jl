@@ -344,3 +344,54 @@ end
         end
     end
 end
+
+@testset "adaptive meshplot: the wireframe is the surface's own edges" begin
+    grid = generate_grid(QuadraticQuadrilateral, (4, 4))
+    dh = DofHandler(grid)
+    add!(dh, :u, Lagrange{RefQuadrilateral,2}()^2)
+    close!(dh)
+    u = zeros(ndofs(dh))
+    Ferrite.apply_analytical!(u, dh, :u,
+        x -> Ferrite.Vec(0.18 * sin(pi * x[1]) * sin(pi * x[2]),
+                         0.22 * sin(pi * x[1]) * cos(0.5pi * x[2])))
+    wds = FEData(dh, u) |> WarpByVector(:u, 1.0)
+
+    # the fixed subdivision does not react to the tolerance; the adaptive one does
+    _, _, static = meshplot(wds)
+    nstatic = length(static.edge_lines[]) ÷ 2
+    counts = map((1.0e-3, 1.0e-4, 1.0e-5)) do tol
+        _, _, wp = meshplot(wds; adaptive = true, geometry_tol = tol, max_depth = 12)
+        length(wp.edge_lines[]) ÷ 2
+    end
+    @test issorted(counts)
+    @test counts[1] < nstatic < counts[3]
+
+    # at one geometry tolerance and without solution refinement, wireframe and
+    # surface come from the same key set — so every drawn segment must be an
+    # edge of the drawn surface, exactly
+    kw = (; adaptive = true, geometry_tol = 1.0e-4, max_depth = 12)
+    _, _, sp = solutionplot(wds; color = :red, kw...)
+    _, _, wp = meshplot(wds; kw...)
+    key(p) = (round(Float64(p[1]); digits = 6) + 0.0, round(Float64(p[2]); digits = 6) + 0.0)
+    pos, faces = sp.subd_positions[], sp.subd_faces[]
+    surface_edges = Set{Any}()
+    for f in faces, (i, j) in ((1, 2), (2, 3), (3, 1))
+        a, b = key(pos[f[i]]), key(pos[f[j]])
+        push!(surface_edges, a <= b ? (a, b) : (b, a))
+    end
+    segs = wp.edge_lines[]
+    nseg = length(segs) ÷ 2
+    @test nseg > 0
+    @test all(1:nseg) do i
+        a, b = key(segs[2i - 1]), key(segs[2i])
+        (a <= b ? (a, b) : (b, a)) in surface_edges
+    end
+
+    # element edges are drawn once, not once per adjacent cell
+    @test nseg < 2 * length(unique(map(i -> key(segs[2i - 1]), 1:nseg)))
+
+    # and it follows the solution like everything else
+    before = copy(wp.edge_lines[])
+    FerriteViz.update!(wds, 2 .* u)
+    @test wp.edge_lines[] != before
+end

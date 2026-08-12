@@ -40,6 +40,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    neighbour is missing or was removed by a [`CrinkleClip`](@ref) — instead of
    tessellating every facet of every visible cell, so it draws a closed
    manifold with several times fewer triangles than the static path.
+   [`meshplot`](@ref) takes the same `adaptive` flag: the wireframe is then
+   the element edges as the refinement subdivided them, rather than a fixed
+   number of segments per edge. Paired with an adaptive `solutionplot` at the
+   same `geometry_tol`, every wireframe segment is an edge of the drawn
+   surface exactly, so the lines cannot drift off the surface they trace.
    Benchmarked against uniform `Refine` at matched geometry *and* solution
    error (`benchmarks/adaptive_vs_uniform.jl`): a localized feature needs
    3–10× fewer triangles adaptively, while a globally smooth field (where

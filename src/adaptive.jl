@@ -410,6 +410,65 @@ function _grid_diagonal(grid)
     return LinearAlgebra.norm(hi - lo)
 end
 
+# The wireframe of an adaptively refined mesh: the element edges, subdivided
+# exactly as the surface subdivided them.
+#
+# An element edge *is* a base triangle's split edge (that is what the fan
+# construction guarantees), and a point lies on it precisely when its
+# barycentric weight for the apex vanishes — which `key_xform` gives exactly,
+# since the bisection weights are dyadic. So a leaf contributes a wireframe
+# segment when two of its corners have zero apex weight, and conformity
+# guarantees the two triangles sharing an element edge subdivide it
+# identically. Each edge is therefore emitted once, by the base triangle with
+# the smaller id of the pair.
+function _element_edge_segments!(out::Vector{PT}, keys::Vector{UInt64}, base::IsubdBase) where {PT}
+    empty!(out)
+    for k in keys
+        b = key_base(k)
+        nb = base.adjacency[b][EDGE_S]
+        (nb[1] != 0 && nb[1] < b) && continue   # the partner draws this one
+        X = key_xform(k)
+        on = (X[2, 1] == 0.0, X[2, 2] == 0.0, X[2, 3] == 0.0)
+        (count(on) == 2) || continue            # a leaf touches the edge with at most one of its own
+        c = key_corners(base, k)
+        for (i, j) in ((1, 2), (2, 3), (3, 1))
+            (on[i] && on[j]) || continue
+            push!(out, PT(base.mapping(b, c[i])...), PT(base.mapping(b, c[j])...))
+        end
+    end
+    return out
+end
+
+# The adaptive branch of meshplot's plot!: same refinement machinery as the
+# surface, but only the geometry criterion — a wireframe has no field to
+# resolve, only a curve to follow.
+function _adaptive_wireframe!(WF, ds::FEData{dim}) where {dim}
+    graph = WF.attributes
+    ComputePipeline.add_input!(graph, :subd_u, ds.u)
+    base, cellmap, _, warps = _isubd_base(ds)
+    conforming = WF.conforming[] && is_conformable(base)
+    used_cells = unique(cellmap)
+    state = (keys=root_keys(base), prev=UInt64[], scratch=UInt64[])
+    diag = _grid_diagonal(Ferrite.get_grid(ds.dh))
+    ComputePipeline.register_computation!(graph, [:subd_u, :geometry_tol, :max_depth],
+                                          [:subd_keys]) do inputs, changed, cached
+        _prepare_fields!(warps, nothing, used_cells, inputs.subd_u)
+        lod = DeviationLoD(base.mapping, Float64(inputs.geometry_tol) * diag)
+        refine_keys!(state.keys, state.scratch, base, lod;
+                     max_depth=Int(inputs.max_depth), conforming)
+        cached !== nothing && state.keys == state.prev && return nothing
+        copy!(state.prev, state.keys)
+        return (state.keys,)
+    end
+    # Makie draws 2D/3D points; pad 1D grids with a zero y-coordinate
+    segments = GeometryBasics.Point{max(dim, 2),Float32}[]
+    Makie.map!(graph, [:subd_keys, :subd_u], :edge_lines) do keys, u
+        _prepare_fields!(warps, nothing, used_cells, u)
+        return _element_edge_segments!(segments, keys, base)
+    end
+    return nothing
+end
+
 # The adaptive branch of solutionplot's plot!. The dataset, its visibility and
 # the color resolution are read eagerly (as everywhere in the recipes); the
 # solution and the tolerances drive the graph.

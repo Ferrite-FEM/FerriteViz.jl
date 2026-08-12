@@ -40,6 +40,13 @@ whose neighbouring cell is missing or not part of the body (`FEData.solid`),
 so the adaptive path draws a closed manifold rather than every facet of every
 visible cell.
 
+That split-edge identity is also what gives [`meshplot`](@ref) an adaptive
+wireframe: a point lies on an element edge exactly when its barycentric weight
+for the base triangle's apex vanishes — which the key's transform gives
+exactly, the bisection weights being dyadic — so the drawn segments fall out
+of the same key set and coincide with the surface's own edges rather than
+approximating them.
+
 ## Architecture
 
 FerriteViz is structured in three layers, following the ParaView model:

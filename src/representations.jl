@@ -253,6 +253,21 @@ Makie.@recipe MeshPlot (dataset,) begin
     celllabelcolor = :darkred
     "Color cells by their cellset association."
     cellsets = false
+    """
+    Experimental: draw the wireframe from an error-adaptive re-tessellation
+    (#161) instead of the dataset's fixed one, so the element edges follow the
+    curved geometry to a tolerance rather than to a fixed subdivision count.
+    Pair it with `solutionplot(...; adaptive=true)` — both then resolve the
+    geometry to `geometry_tol` and stay on top of each other. Read once at
+    plot creation.
+    """
+    adaptive = false
+    "Adaptive: geometry-error tolerance, as a fraction of the grid's bounding-box diagonal."
+    geometry_tol = 1.0e-3
+    "Adaptive: maximum bisection depth per base triangle."
+    max_depth = 10
+    "Adaptive: keep the refinement conforming, so the wireframe matches the surface."
+    conforming = true
     Makie.filter_attributes(Makie.mixin_generic_plot_attributes(); exclude = (:depth_shift,))...
     "Depth shift drawing the wireframe in front of surface plots."
     depth_shift = -0.0001f0
@@ -271,8 +286,12 @@ function Makie.plot!(WF::MeshPlot{<:Tuple{<:FEData{dim}}}) where {dim}
     # visible cells' edge segments. The index list is static; every dynamic
     # concern (deformation, curved geometry, refinement) is already baked into
     # ds.coords by the upstream pipeline, and clipping into ds.visible.
-    edge_indices = _visible_edge_indices(ds)
-    Makie.map!(cs -> [topoint(cs[i]) for i in edge_indices], graph, :ds_coords, :edge_lines)
+    if WF.adaptive[]
+        _adaptive_wireframe!(WF, ds)
+    else
+        edge_indices = _visible_edge_indices(ds)
+        Makie.map!(cs -> [topoint(cs[i]) for i in edge_indices], graph, :ds_coords, :edge_lines)
+    end
     # cellset coloring (depth_shift is meant for the wireframe, not this mesh)
     cellset_u = cellset_data(grid)
     colorrange = (0, max(1, isempty(cellset_u) ? 1 : maximum(cellset_u)))

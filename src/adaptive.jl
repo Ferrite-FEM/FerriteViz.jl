@@ -66,27 +66,110 @@ function evaluate_at(ev::FieldEvaluator, cell_idx::Int, cellcoords, ξ, u::Abstr
     return Ferrite.function_value(pv, 1, @views(u[ev.celldofs_field[cell_idx]]))
 end
 
-# The isubd base domain of a dataset: the *unsubdivided* reference tessellation
-# of every visible cell, one LEB-ordered corner triple per base triangle, and
-# the triangle -> cell map. Static per plot, like the visibility mask.
+# Global identity of every tessellation vertex of a cell, so that shared base
+# edges can be matched *exactly* — by integer id, never by comparing floating
+# point coordinates. A vertex coinciding with one of the cell's geometric nodes
+# takes that node's global id (which is how two cells recognize their shared
+# edge, and how two facets of one cell recognize theirs); anything else is
+# cell-interior (a fan centre) and gets a fresh negative id that nobody else
+# can collide with.
+function _vertex_gids(cell, coords, counter::Base.RefValue{Int})
+    refcoords = Ferrite.reference_coordinates(Ferrite.geometric_interpolation(typeof(cell)))
+    nodes = cell.nodes
+    return map(coords) do ξ
+        j = findfirst(rc -> isapprox(rc, ξ; atol=1e-12), refcoords)
+        j === nothing ? (counter[] -= 1) : Int(nodes[j])
+    end
+end
+
+# The isubd base domain of a dataset: one LEB-ordered corner triple per base
+# triangle, the triangle -> cell map, and a global vertex id per corner (for
+# the adjacency table). Static per plot, like the visibility mask.
+#
+# In 2D the base is built as a fan from each cell's centre over its *element
+# edges*, so a base triangle's split edge is always an element edge. That is
+# what makes the base compatible in the sense conforming refinement needs:
+# element edges are shared by exactly two base triangles which both treat them
+# as their split edge (a "diamond"), while the fan's interior edges are legs on
+# both sides. For quadrilaterals this reproduces the existing centre fan; for
+# triangles it replaces the single base triangle, whose split edge (the longest
+# reference edge) would generally meet a neighbour's leg.
+#
+# In 3D the base stays the reference tessellation's triangles: the surface is
+# assembled from facets whose edges are shared by more than two tessellation
+# triangles of the same cell, so no facet-crossing diamond exists. Conformity
+# then holds within each facet and T-vertices remain possible along element
+# edges — see the `adaptive` docs.
 function _isubd_base_triangles(ds::FEData)
     grid = Ferrite.get_grid(ds.dh)
     cells = Ferrite.getcells(grid)
     refdim = Ferrite.getrefdim(Ferrite.geometric_interpolation(typeof(first(cells))))
     corners = NTuple{3,Ferrite.Vec{refdim,Float64}}[]
+    cornergids = NTuple{3,Int}[]
     cellmap = Int[]
+    counter = Ref(0)
     for (cell_id, cell) in enumerate(cells)
         ds.visible[cell_id] || continue
         Ferrite.getrefdim(Ferrite.geometric_interpolation(typeof(cell))) == refdim ||
             error("adaptive tessellation requires a single reference dimension across the grid")
         tess = reference_tessellation(getrefshape(cell))
-        for tri in tess.triangles
-            push!(corners, leb_order((tess.coords[tri[1]], tess.coords[tri[2]], tess.coords[tri[3]])))
-            push!(cellmap, cell_id)
+        isempty(tess.triangles) && continue     # e.g. line cells carry no surface
+        gids = _vertex_gids(cell, tess.coords, counter)
+        if refdim == 2 && !isempty(tess.edges)
+            rim = unique(Iterators.flatten(tess.edges))
+            centre = sum(tess.coords[i] for i in rim) / length(rim)
+            centre_gid = (counter[] -= 1)
+            for (a, b) in tess.edges
+                # (b, centre, a) keeps the fan's winding while making the
+                # element edge (b, a) the triangle's split edge
+                push!(corners, (tess.coords[b], centre, tess.coords[a]))
+                push!(cornergids, (gids[b], centre_gid, gids[a]))
+                push!(cellmap, cell_id)
+            end
+        else
+            for tri in tess.triangles
+                c = leb_order((tess.coords[tri[1]], tess.coords[tri[2]], tess.coords[tri[3]]))
+                # recover the permutation leb_order applied, to keep the ids aligned
+                perm = map(x -> findfirst(i -> tess.coords[i] === x, tri), c)
+                push!(corners, c)
+                push!(cornergids, (gids[tri[perm[1]]], gids[tri[perm[2]]], gids[tri[perm[3]]]))
+                push!(cellmap, cell_id)
+            end
         end
     end
     isempty(corners) && error("adaptive tessellation found no visible cells to tessellate")
-    return corners, cellmap
+    return corners, cornergids, cellmap
+end
+
+# Pair up base triangles along shared edges. Only exact 2-triangle matches
+# become neighbours, and only when both sides agree on the edge's role: a split
+# edge may pair with a split edge and a leg with a leg, never across. Anything
+# else stays a boundary, which costs conformity along that edge and nothing
+# else (see `key_neighbour`).
+function _base_adjacency(cornergids::Vector{NTuple{3,Int}})
+    edges = Dict{Tuple{Int,Int},Vector{Tuple{Int,Int,Bool}}}()
+    for (t, g) in enumerate(cornergids)
+        for (e, (i, j)) in enumerate(((1, 3), (1, 2), (2, 3)))   # EDGE_S, EDGE_L, EDGE_R
+            a, b = g[i], g[j]
+            forward = a < b
+            push!(get!(Vector{Tuple{Int,Int,Bool}}, edges, forward ? (a, b) : (b, a)),
+                  (t, e, forward))
+        end
+    end
+    adjacency = [(NO_NEIGHBOR, NO_NEIGHBOR, NO_NEIGHBOR) for _ in cornergids]
+    incompatible = 0
+    for entries in values(edges)
+        length(entries) == 2 || continue                     # boundary, or a non-manifold edge
+        (t1, e1, f1), (t2, e2, f2) = entries
+        if (e1 == EDGE_S) != (e2 == EDGE_S)
+            incompatible += 1
+            continue
+        end
+        reversed = f1 != f2
+        adjacency[t1] = Base.setindex(adjacency[t1], (t2, e2, reversed), e1)
+        adjacency[t2] = Base.setindex(adjacency[t2], (t1, e1, reversed), e2)
+    end
+    return adjacency, incompatible
 end
 
 # Continuous geometry x(ξ) [+ Σ scaleᵢ · fieldᵢ(ξ) for upstream warps] of one
@@ -118,10 +201,12 @@ _render_positions(ps, ::Val{dim}) where {dim} =
     [GeometryBasics.Point{dim,Float32}(p...) for p in ps]
 
 function _isubd_base(ds::FEData)
-    corners, cellmap = _isubd_base_triangles(ds)
+    corners, cornergids, cellmap = _isubd_base_triangles(ds)
+    adjacency, _ = _base_adjacency(cornergids)
     grid = Ferrite.get_grid(ds.dh)
     cellcoords = [Ferrite.getcoordinates(grid, i) for i in 1:Ferrite.getncells(grid)]
-    return IsubdBase(corners, _isubd_mapping(ds, cellmap, cellcoords)), cellmap, cellcoords
+    base = IsubdBase(corners, _isubd_mapping(ds, cellmap, cellcoords), adjacency)
+    return base, cellmap, cellcoords
 end
 
 # Per-vertex field values at the decoded reference coordinates: the adaptive
@@ -190,6 +275,7 @@ function _adaptive_solutionplot!(SP, ds::FEData{dim}) where {dim}
     ComputePipeline.add_input!(graph, :subd_u, ds.u)
 
     base, cellmap, cellcoords = _isubd_base(ds)
+    conforming = SP.conforming[] && is_conformable(base)
     state = (keys=root_keys(base), scratch=UInt64[], prev=UInt64[])
 
     # color resolution (eager): a dof field evaluated per vertex, or a plain color
@@ -240,7 +326,8 @@ function _adaptive_solutionplot!(SP, ds::FEData{dim}) where {dim}
                                             (Float64(inputs.subd_resolution[1]), Float64(inputs.subd_resolution[2])),
                                             Float64(inputs.px_target)))
         end
-        refine_keys!(state.keys, state.scratch, base, CombinedLoD(lods); max_depth=Int(inputs.max_depth))
+        refine_keys!(state.keys, state.scratch, base, CombinedLoD(lods);
+                     max_depth=Int(inputs.max_depth), conforming)
         # an update that does not change the key set leaves the output clean,
         # so the decode below is skipped entirely
         cached !== nothing && state.keys == state.prev && return nothing

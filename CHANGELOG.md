@@ -28,10 +28,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    interpolation, including warps; `geometry_tol`, relative to the grid's
    bounding-box diagonal) and how badly the linear vertex colors approximate
    the exact field polynomial (`solution_tol`, relative to the field's value
-   span) — refining where either asks. The estimators measure the deviation
-   of every triangle edge, which bounds any gap or color seam between
-   refinement levels on curved geometry by the tolerance (truly conforming
-   refinement via forced splits is future work). The whole chain (solution →
+   span) — refining where either asks. Refinement is *conforming*: a triangle
+   is always split together with the leaf across its split edge (forced down
+   first when it is coarser), so every drawn edge is a full edge of the
+   triangle on the other side and the rendered surface is watertight — no
+   hanging nodes, gaps or color seams at refinement-level boundaries. The
+   estimators additionally measure every triangle edge, so the residual
+   deviation of any drawn edge is bounded by the tolerance. Pass
+   `conforming=false` for the cheaper independent-per-triangle refinement.
+   The whole chain (solution →
    subdivision keys → decoded triangles → per-vertex field evaluation) lives
    in the plot's ComputeGraph and follows `FerriteViz.update!`; the camera is
    not an input unless the optional screen-space criterion is enabled with

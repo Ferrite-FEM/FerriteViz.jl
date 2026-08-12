@@ -127,6 +127,72 @@ end
     @test isapprox(collect(p2[1]), collect(expected); atol=1e-4)
 end
 
+@testset "adaptive solutionplot: watertight conforming refinement" begin
+    grid = generate_grid(Quadrilateral, (6, 6))
+    dh = DofHandler(grid)
+    add!(dh, :p, Lagrange{RefQuadrilateral,2}())
+    close!(dh)
+    # a sharp peak at the origin: refinement is strongly non-uniform, so
+    # refinement-level boundaries (where T-vertices appear) really do occur
+    u = zeros(ndofs(dh))
+    Ferrite.apply_analytical!(u, dh, :p, x -> exp(-40 * (x[1]^2 + x[2]^2)))
+    ds = FEData(dh, u)
+
+    # count T-vertices and edges that are drawn by only one triangle; on this
+    # straight-sided grid both are exact
+    function survey(sp)
+        pos, faces = sp.subd_positions[], sp.subd_faces[]
+        rk(p) = (round(Float64(p[1]); digits = 7), round(Float64(p[2]); digits = 7))
+        verts = Set(rk(p) for p in pos)
+        tj = 0
+        counts = Dict{Tuple{Any,Any},Int}()
+        for f in faces, (i, j) in ((1, 2), (2, 3), (3, 1))
+            a, b = pos[f[i]], pos[f[j]]
+            m = rk((a + b) / 2)
+            (m in verts && m != rk(a) && m != rk(b)) && (tj += 1)
+            e = rk(a) <= rk(b) ? (rk(a), rk(b)) : (rk(b), rk(a))
+            counts[e] = get(counts, e, 0) + 1
+        end
+        border(p) = any(t -> isapprox(p[1], t; atol = 1e-6) || isapprox(p[2], t; atol = 1e-6), (-1.0, 1.0))
+        holes = count(((e, c),) -> c == 1 && !(border(e[1]) && border(e[2])), counts)
+        over = count(==(3), values(counts)) + count(>(3), values(counts))
+        return (; tj, holes, over, n = length(faces))
+    end
+
+    kw = (; adaptive = true, solution_tol = 2e-3, max_depth = 9)
+    _, _, conf = solutionplot(ds; kw..., conforming = true)
+    _, _, free = solutionplot(ds; kw..., conforming = false)
+
+    # the refinement really is non-uniform (otherwise the test proves nothing)
+    depths = [FerriteViz.key_depth(k) for k in conf.subd_keys[]]
+    @test maximum(depths) - minimum(depths) >= 3
+
+    # conforming: no T-vertices, no holes, no overlaps — watertight
+    s = survey(conf)
+    @test s.tj == 0 && s.holes == 0 && s.over == 0
+    # non-conforming: the level boundaries leave T-vertices behind
+    @test survey(free).tj > 0
+    # and conformity is cheap: forced splits add a modest number of triangles
+    @test s.n < 1.5 * survey(free).n
+
+    # the base adjacency is exact and symmetric
+    base, _, _ = FerriteViz._isubd_base(ds)
+    @test FerriteViz.is_conformable(base)
+    for b in 1:length(base.corners)
+        n = FerriteViz.diamond_partner(base, FerriteViz.root_key(b))
+        n === nothing && continue
+        @test FerriteViz.diamond_partner(base, n) == FerriteViz.root_key(b)
+    end
+    # every quad contributes a four-triangle fan whose split edges are the
+    # element edges: interior element edges pair, boundary ones do not
+    nbound = count(b -> base.adjacency[b][FerriteViz.EDGE_S][1] == 0, 1:length(base.corners))
+    @test nbound == 4 * 6      # the 24 boundary edges of a 6×6 grid
+
+    # coarsening returns to the base tessellation, still conforming
+    Makie.update!(conf, solution_tol = 10.0)
+    @test length(conf.subd_keys[]) == length(base.corners)
+end
+
 @testset "adaptive solutionplot: optional screen-space criterion" begin
     grid = generate_grid(Quadrilateral, (3, 3))
     dh = DofHandler(grid)

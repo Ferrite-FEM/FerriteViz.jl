@@ -36,6 +36,29 @@ function count_tjunctions(mesh; digits = 9)
     return cracks
 end
 
+# Edge bookkeeping on the unit-square diamond: how many interior edges are
+# drawn only once (a hole), how many sit on the domain boundary, and how many
+# are shared by more than two triangles (an overlap).
+function edge_multiplicities(mesh; digits = 9)
+    key(p) = (round(p[1]; digits = digits), round(p[2]; digits = digits))
+    counts = Dict{Tuple{Any,Any},Int}()
+    for f in mesh.faces, (i, j) in ((1, 2), (2, 3), (3, 1))
+        a, b = key(mesh.positions[f[i]]), key(mesh.positions[f[j]])
+        counts[a <= b ? (a, b) : (b, a)] = get(counts, a <= b ? (a, b) : (b, a), 0) + 1
+    end
+    border(p) = isapprox(p[1], 0; atol = 1e-9) || isapprox(p[1], 1; atol = 1e-9) ||
+                isapprox(p[2], 0; atol = 1e-9) || isapprox(p[2], 1; atol = 1e-9)
+    interior_once = boundary_once = over = 0
+    for ((a, b), c) in counts
+        if c == 1
+            (border(a) && border(b)) ? (boundary_once += 1) : (interior_once += 1)
+        elseif c > 2
+            over += 1
+        end
+    end
+    return interior_once, boundary_once, over
+end
+
 # a hand-rolled perspective camera looking at the unit square from `eye`
 function perspective_projview(eye::NTuple{3,Float64}; target = (0.5, 0.5, 0.0))
     # look-at basis
@@ -279,6 +302,88 @@ end
         @test refarea(keys) ≈ 1.0
     end
     @test sort(keys) == sort(FV.root_keys(base))
+end
+
+# the same diamond, with the adjacency that makes it conformable: the two
+# triangles share the diagonal as both their split edges, traversed opposite
+function diamond_base_adj(mapping = (b, ξ) -> ξ)
+    b = diamond_base(mapping)
+    adjacency = [((2, FV.EDGE_S, true), FV.NO_NEIGHBOR, FV.NO_NEIGHBOR),
+                 ((1, FV.EDGE_S, true), FV.NO_NEIGHBOR, FV.NO_NEIGHBOR)]
+    return FV.IsubdBase(b.corners, b.mapping, adjacency)
+end
+
+@testset "isubd neighbour algebra" begin
+    base = diamond_base_adj()
+    @test FV.is_conformable(base)
+    @test !FV.is_conformable(diamond_base())
+    @test FV.diamond_partner(base, FV.root_key(1)) == FV.root_key(2)
+    @test FV.diamond_partner(base, FV.root_key(2)) == FV.root_key(1)
+
+    # the relation is an involution wherever it is defined, at every depth,
+    # and partners always sit at the same level
+    keys = FV.root_keys(base)
+    for _ in 1:6
+        keys = vcat((collect(FV.key_children(k)) for k in keys)...)
+        for k in keys
+            n = FV.diamond_partner(base, k)
+            n === nothing && continue
+            @test FV.key_depth(n) == FV.key_depth(k)
+            @test FV.diamond_partner(base, n) == k
+        end
+    end
+
+    # a partner shares the split edge as a whole — check the endpoints coincide
+    for k in keys[1:17:end]
+        n = FV.diamond_partner(base, k)
+        n === nothing && continue
+        a = FV.key_corners(base, k)
+        b = FV.key_corners(base, n)
+        @test (a[1] ≈ b[1] && a[3] ≈ b[3]) || (a[1] ≈ b[3] && a[3] ≈ b[1])
+    end
+end
+
+@testset "isubd conforming refinement is watertight" begin
+    base = diamond_base_adj()
+    mesh = FV.IsubdMesh(base)
+    scratch = UInt64[]
+    # the step criterion jumps 7 levels across x = 0.7 — the hard case for
+    # conformity, and the one the unguarded scheme leaves full of T-vertices
+    for (lod, name) in ((StepLoD(7), "step"), (FV.UniformLoD(4), "uniform"))
+        keys = FV.root_keys(base)
+        FV.refine_keys!(keys, scratch, base, lod; max_depth = 10, conforming = true)
+        FV.decode_keys!(mesh, keys, base)
+        @test count_tjunctions(mesh) == 0
+        @test sum(_area(mesh.positions[f[1]], mesh.positions[f[2]], mesh.positions[f[3]])
+                  for f in mesh.faces) ≈ 1.0        # exact tiling, no overlap or hole
+        # watertight in the strict sense: every drawn edge is shared by exactly
+        # two triangles unless it lies on the domain boundary
+        interior, boundary, over = edge_multiplicities(mesh)
+        @test interior == 0 && over == 0 && boundary > 0
+    end
+    # the non-conforming pass on the same criterion does leave T-vertices
+    keys = FV.root_keys(base)
+    FV.refine_keys!(keys, scratch, base, StepLoD(7); max_depth = 10, conforming = false)
+    FV.decode_keys!(mesh, keys, base)
+    @test count_tjunctions(mesh) > 0
+
+    # conforming merge collapses whole diamonds and returns to the base
+    keys = FV.root_keys(base)
+    FV.refine_keys!(keys, scratch, base, StepLoD(7); max_depth = 10, conforming = true)
+    FV.refine_keys!(keys, scratch, base, FV.UniformLoD(0); max_depth = 10, conforming = true)
+    @test sort(keys) == sort(FV.root_keys(base))
+    # ... and every intermediate state stays watertight
+    keys = FV.root_keys(base)
+    FV.refine_keys!(keys, scratch, base, StepLoD(7); max_depth = 10, conforming = true)
+    leaves = Set(keys)
+    for _ in 1:12
+        FV.conforming_update!(leaves, base, FV.UniformLoD(0); max_depth = 10) || break
+        FV.decode_keys!(mesh, sort!(collect(leaves)), base)
+        @test count_tjunctions(mesh) == 0
+        @test sum(_area(mesh.positions[f[1]], mesh.positions[f[2]], mesh.positions[f[3]])
+                  for f in mesh.faces) ≈ 1.0
+    end
+    @test sort(collect(leaves)) == sort(FV.root_keys(base))
 end
 
 @testset "isubd decode buffers and mapping" begin

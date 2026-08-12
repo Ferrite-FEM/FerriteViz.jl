@@ -15,6 +15,17 @@ adaptive recipes wire it into the plots' compute graphs. Every hot function is
 an element-wise pass over flat buffers, so a GPU port (KernelAbstractions
 kernel / Mantle compute pass) is a lowering, not a rewrite.
 
+Refinement is driven by interpolation-error estimators
+([`FerriteViz.DeviationLoD`](@ref), combined with
+[`FerriteViz.CombinedLoD`](@ref)) rather than by the camera, and it is
+*conforming*: [`FerriteViz.force_split!`](@ref) splits a triangle together
+with the leaf across its split edge — its
+[`FerriteViz.diamond_partner`](@ref), located by pure key algebra
+([`FerriteViz.key_neighbour`](@ref)) over a base-adjacency table — so the
+drawn surface stays watertight. The base table is built from exact global
+vertex ids, and in 2D from a fan over the cells' element edges, which is what
+makes every split edge an element edge shared by exactly two base triangles.
+
 ## Architecture
 
 FerriteViz is structured in three layers, following the ParaView model:
@@ -87,7 +98,13 @@ FerriteViz.refine_keys!
 FerriteViz.decode_keys!
 FerriteViz.UniformLoD
 FerriteViz.ScreenSpaceLoD
+FerriteViz.DeviationLoD
+FerriteViz.CombinedLoD
 FerriteViz.excess_levels
+FerriteViz.key_neighbour
+FerriteViz.diamond_partner
+FerriteViz.force_split!
+FerriteViz.conforming_update!
 FerriteViz.leb_order
 FerriteViz.ReferenceTessellation
 FerriteViz.reference_tessellation

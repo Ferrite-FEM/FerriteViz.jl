@@ -62,9 +62,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    in FE computations the solution is the object of highest regularity and
    every pointwise-derived quantity is at most as regular, so resolving the
    sources resolves the derived pictures with them, and a solution update
-   moves colors and tessellation together. Only *raw* registered arrays
-   (`set_point_data!`) and quadrature-point data stay bound to the static
-   tessellation and cannot be resampled. Everything the adaptive path
+   moves colors and tessellation together. Quadrature-point data draws
+   adaptively too: [`AddQuadraturePointData`](@ref) records its partition, and
+   `solutionplot(qds; color=:qpdata, adaptive=true)` rebuilds the Voronoi
+   regions as the adaptive base — every region fanned so its rim consists of
+   split edges, which bisection subdivides but never crosses — refined by the
+   *geometry* criterion alone (piecewise-constant data has nothing to say
+   about refinement) and colored by a flat per-region gather from the live
+   `values`. Internal variables on curved or warped cells thus render to
+   `geometry_tol` instead of as fixed chords, with the piecewise-constant
+   jumps exactly on the (curved) region boundaries; the adaptive `meshplot`
+   wireframe keeps drawing element edges only. Because the partition record
+   survives a [`CrinkleClip`](@ref) (the sampled array does not), the
+   adaptive path is also what draws internal variables on the clip surface
+   of a 3D body. Only *raw* registered arrays (`set_point_data!`) stay bound
+   to the static tessellation and cannot be resampled.
+   `AddQuadraturePointData` now drops upstream `WarpByVector` records, which
+   its rebuilt static geometry never honored — apply warps after it, as
+   documented. Everything the adaptive path
    derives from the dataset alone — the base domain and its adjacency, the
    continuous geometry mapping, the field evaluators with their coefficient
    buffers — is built lazily and shared by all adaptive plots of one

@@ -66,6 +66,20 @@ struct DerivedPointData{F}
     inputs::Vector{Any}
 end
 
+# The quadrature-point partition of an `AddQuadraturePointData` stage: the
+# rule (or refshape → rule mapping), the live values, and how a stored entry
+# maps to the plotted value. The filter bakes the partition's *static*
+# tessellation into the dataset's geometry; this record is what lets the
+# adaptive path rebuild the partition as its base domain — each Voronoi
+# region fanned so the piecewise-constant regions survive refinement — and
+# look values up at arbitrary refined vertices.
+struct QPPartition{Q,V<:Makie.Observable,F}
+    qr::Q
+    values::V
+    extract::F
+    output::Symbol
+end
+
 """
     FEData(dh::Ferrite.AbstractDofHandler, u::Vector; topology, adaptive=true)
 
@@ -125,6 +139,11 @@ struct FEData{dim,DH<:Ferrite.AbstractDofHandler,T1,TOP<:Union{Nothing,Ferrite.A
     # Derivation provenance for point-data arrays that have one (see
     # `DerivedPointData`); copied and cleared exactly alongside `point_data`.
     point_derivations::Dict{Symbol,DerivedPointData}
+    # Quadrature-point partition provenance (see `QPPartition`); `nothing`
+    # unless an `AddQuadraturePointData` produced this dataset. Survives
+    # geometry-preserving filters (a CrinkleClip of internal variables is the
+    # main consumer), dropped by geometry-rebuilding ones.
+    qp_partition::Union{Nothing,QPPartition}
     # Deformation provenance: one record per WarpByVector applied upstream, in
     # application order. The displaced coordinates are baked into `coords`, but
     # consumers that need the deformation as a *continuous* function of the
@@ -254,7 +273,7 @@ function _build_dataset(dh::Ferrite.AbstractDofHandler, u::Makie.Observable, sou
         cell_vertex_offsets, all_edges, edge_cell_map, cell_edge_offsets,
         reference_coords, mesh,
         Dict{Symbol,Makie.Observable}(), Dict{Symbol,Makie.Observable}(),
-        Dict{Symbol,DerivedPointData}(),
+        Dict{Symbol,DerivedPointData}(), nothing,
         Deformation[], fill(true, ncells), Ref{Any}(nothing))
 end
 

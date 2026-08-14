@@ -224,7 +224,14 @@ function _push_fan!(corners, cornergids, cellmap, cell_id, rim, rimgids, counter
     return nothing
 end
 
+# The base domain: cell fans normally, Voronoi-region fans on a
+# quadrature-point partition. Returns corners, corner gids, and the per-base-
+# triangle maps (cell, sharing group, quadrature point, element-edge mask).
 function _isubd_base_triangles(ds::FEData)
+    return ds.qp_partition === nothing ? _isubd_base_cells(ds) : _isubd_base_qp(ds, ds.qp_partition)
+end
+
+function _isubd_base_cells(ds::FEData)
     grid = Ferrite.get_grid(ds.dh)
     cells = Ferrite.getcells(grid)
     refdim = Ferrite.getrefdim(Ferrite.geometric_interpolation(typeof(first(cells))))
@@ -273,7 +280,97 @@ function _isubd_base_triangles(ds::FEData)
         end
     end
     isempty(corners) && error("adaptive tessellation found no visible cells to tessellate")
-    return corners, cornergids, cellmap
+    # sharing per cell, no quadrature points, every split edge an element edge
+    return corners, cornergids, cellmap, cellmap, zeros(Int, length(cellmap)),
+           fill(true, length(cellmap))
+end
+
+# The base of a quadrature-point partition: every Voronoi region of every
+# drawn face, fanned from its centroid so the region's rim — the piecewise-
+# constant jumps live there — consists of split edges, which longest-edge
+# bisection subdivides but never crosses. Region-region rims meet as split
+# edges on both sides (a diamond), so the conforming machinery applies
+# unchanged; each region is its own vertex-sharing group, keeping the jumps
+# crisp under refinement.
+#
+# Corner identity: a rim vertex is a geometric node (its global id), a cut
+# point on an *element edge* (an id keyed by the edge's node pair and the
+# parametric position along it, so the two cells sharing the edge — or the
+# two surface facets meeting there in 3D — agree on it whenever their rules
+# cut at the same spots; differing rules degrade to an unpaired boundary,
+# which costs conformity along that edge and nothing else), or interior (a
+# per-cell id from the clipped coordinates, which both adjacent regions of
+# one face compute to well below the rounding).
+function _isubd_base_qp(ds::FEData, qp::QPPartition)
+    grid = Ferrite.get_grid(ds.dh)
+    cells = Ferrite.getcells(grid)
+    refdim = Ferrite.getrefdim(Ferrite.geometric_interpolation(typeof(first(cells))))
+    corners = NTuple{3,Ferrite.Vec{refdim,Float64}}[]
+    cornergids = NTuple{3,Int}[]
+    cellmap = Int[]
+    groupmap = Int[]
+    qpmap = Int[]
+    edgemask = Bool[]
+    counter = Ref(0)
+    edge_cuts = Dict{Tuple{Int,Int,Float64},Int}()
+    regions_cache = Dict{Type,Any}()
+    ngroups = 0
+    for (cell_id, cell) in enumerate(cells)
+        ds.visible[cell_id] || continue
+        Ferrite.getrefdim(Ferrite.geometric_interpolation(typeof(cell))) == refdim ||
+            error("adaptive tessellation requires a single reference dimension across the grid")
+        refshape = getrefshape(cell)
+        regions = get!(() -> _qp_face_regions(refshape, _qr_for(qp.qr, refshape)),
+                       regions_cache, typeof(cell))
+        isempty(regions) && continue                 # e.g. line cells carry no surface
+        refcorners = Ferrite.reference_coordinates(Ferrite.Lagrange{refshape,1}())
+        refedges = Ferrite.reference_edges(refshape)
+        local_pool = Dict{NTuple{refdim,Float64},Int}()
+        for (fi, qpi, poly) in regions
+            refdim == 3 && !_is_surface_facet(ds, cell_id, fi) && continue
+            rimgids = [_qp_vertex_gid(ξ, refcorners, refedges, cell.nodes, local_pool,
+                                      edge_cuts, counter) for ξ in poly]
+            ngroups += 1
+            _push_fan!(corners, cornergids, cellmap, cell_id, poly, rimgids, counter)
+            append!(groupmap, fill(ngroups, length(poly)))
+            append!(qpmap, fill(qpi, length(poly)))
+            for i in eachindex(poly)
+                j = mod1(i + 1, length(poly))
+                push!(edgemask, _on_element_edge((poly[i] + poly[j]) / 2, refcorners, refedges))
+            end
+        end
+    end
+    isempty(corners) && error("adaptive tessellation found no visible cells to tessellate")
+    return corners, cornergids, cellmap, groupmap, qpmap, edgemask
+end
+
+# Nearest classification of a reference point: node id, element-edge cut id,
+# or cell-local interior id (see `_isubd_base_qp`).
+function _qp_vertex_gid(ξ, refcorners, refedges, nodes, local_pool, edge_cuts, counter)
+    j = findfirst(rc -> isapprox(rc, ξ; atol=1e-9), refcorners)
+    j === nothing || return Int(nodes[j])
+    for (a, b) in refedges
+        A, B = refcorners[a], refcorners[b]
+        AB = B - A
+        t = ((ξ - A) ⋅ AB) / sum(abs2, AB)
+        1e-9 < t < 1 - 1e-9 || continue
+        sum(abs2, ξ - (A + t * AB)) <= 1e-18 || continue
+        ga, gb = Int(nodes[a]), Int(nodes[b])
+        key = ga < gb ? (ga, gb, round(t; digits=9) + 0.0) : (gb, ga, round(1 - t; digits=9) + 0.0)
+        return get!(() -> (counter[] -= 1), edge_cuts, key)
+    end
+    key = ntuple(d -> round(ξ[d]; digits=9) + 0.0, length(ξ))
+    return get!(() -> (counter[] -= 1), local_pool, key)
+end
+
+function _on_element_edge(ξ, refcorners, refedges)
+    for (a, b) in refedges
+        A, B = refcorners[a], refcorners[b]
+        AB = B - A
+        t = clamp(((ξ - A) ⋅ AB) / sum(abs2, AB), 0.0, 1.0)
+        sum(abs2, ξ - (A + t * AB)) <= 1e-18 && return true
+    end
+    return false
 end
 
 # Pair up base triangles along shared edges. Only exact 2-triangle matches
@@ -403,6 +500,19 @@ end
 struct IsubdSubstrate{B<:IsubdBase,CC,W<:Vector}
     base::B
     cellmap::Vector{Int}                # base triangle -> cell
+    # base triangle -> vertex-sharing group. Vertices are shared within a
+    # group and duplicated across, so the drawn field may jump at group
+    # boundaries: per cell normally (inter-element jumps of DG fields), per
+    # Voronoi region on a quadrature-point partition (piecewise-constant
+    # regions stay crisp under refinement).
+    groupmap::Vector{Int}
+    qpmap::Vector{Int}                  # base triangle -> quadrature point (0 without a partition)
+    # base triangle -> does its split edge lie on an *element* edge? Always
+    # true for cell fans (their split edges are element edges by
+    # construction); on a quadrature-point partition the region rims also cut
+    # through cell interiors, and the meshplot wireframe draws only the
+    # element-edge part.
+    edgemask::Vector{Bool}
     cellcoords::CC
     warps::W                            # WarpEvals, in application order
     used_cells::Vector{Int}             # cells any base triangle samples
@@ -424,7 +534,7 @@ struct IsubdSubstrate{B<:IsubdBase,CC,W<:Vector}
 end
 
 function _build_substrate(ds::FEData)
-    corners, cornergids, cellmap = _isubd_base_triangles(ds)
+    corners, cornergids, cellmap, groupmap, qpmap, edgemask = _isubd_base_triangles(ds)
     adjacency, _ = _base_adjacency(cornergids)
     grid = Ferrite.get_grid(ds.dh)
     cellcoords = [Ferrite.getcoordinates(grid, i) for i in 1:Ferrite.getncells(grid)]
@@ -442,9 +552,9 @@ function _build_substrate(ds::FEData)
         Makie.on(bump, w.scale)
         Makie.on(bump, w.name)
     end
-    return IsubdSubstrate(base, cellmap, cellcoords, warps, unique(cellmap),
-                          _grid_diagonal(grid), Dict{Symbol,FieldEvaluator}(), epoch,
-                          Dict{Symbol,Dict{UInt64,Float64}}(), Ref(-1))
+    return IsubdSubstrate(base, cellmap, groupmap, qpmap, edgemask, cellcoords, warps,
+                          unique(cellmap), _grid_diagonal(grid), Dict{Symbol,FieldEvaluator}(),
+                          epoch, Dict{Symbol,Dict{UInt64,Float64}}(), Ref(-1))
 end
 
 # The dataset's substrate, built on first use. Deliberately behind a
@@ -682,10 +792,12 @@ end
 # guarantees the two triangles sharing an element edge subdivide it
 # identically. Each edge is therefore emitted once, by the base triangle with
 # the smaller id of the pair.
-function _element_edge_segments!(out::Vector{PT}, keys::Vector{UInt64}, base::IsubdBase) where {PT}
+function _element_edge_segments!(out::Vector{PT}, keys::Vector{UInt64}, base::IsubdBase,
+                                 edgemask::Vector{Bool}) where {PT}
     empty!(out)
     for k in keys
         b = key_base(k)
+        edgemask[b] || continue                 # a Voronoi rim, not an element edge
         nb = base.adjacency[b][EDGE_S]
         (nb[1] != 0 && nb[1] < b) && continue   # the partner draws this one
         X = key_xform(k)
@@ -744,7 +856,7 @@ function _wire_adaptive_wireframe!(WF, ds::FEData{dim}, sub::IsubdSubstrate) whe
     segments = GeometryBasics.Point{max(dim, 2),Float32}[]
     Makie.map!(graph, [:subd_keys, :subd_u, warp_inputs...], :edge_lines) do keys, u, _warps...
         _refresh_all!(sub, nothing, u)
-        return _element_edge_segments!(segments, keys, base)
+        return _element_edge_segments!(segments, keys, base, sub.edgemask)
     end
     return nothing
 end
@@ -755,9 +867,18 @@ end
 function _adaptive_solutionplot!(SP, ds::FEData)
     sub = _substrate(ds)
 
-    # color resolution (eager): a dof field or a recorded derivation of dof
-    # fields, evaluated per vertex — or a plain color
+    # color resolution (eager): a dof field, a recorded derivation of dof
+    # fields, or the dataset's quadrature-point partition, evaluated per
+    # vertex — or a plain color
     colorval = SP.color[]
+    qp = ds.qp_partition
+    if colorval isa Symbol && qp !== nothing && colorval === qp.output
+        v0 = qp.extract(_qp_at(qp.values[], 1, 1))
+        v0 isa Number ||
+            error("adaptive quadrature-point coloring needs a scalar; `extract` yields " *
+                  "$(typeof(v0)) — reduce in `extract` (e.g. extract = s -> vonmises(s.σ))")
+        return _wire_adaptive_qpplot!(SP, ds, sub, qp)
+    end
     ev = nothing
     chain = nothing
     reduce = false
@@ -861,7 +982,7 @@ function _wire_adaptive_solutionplot!(SP, ds::FEData{dim}, sub::IsubdSubstrate, 
     positions_out = GeometryBasics.Point{dim,Float32}[]
     colors_out = Float32[]
     ComputePipeline.register_computation!(graph, [:subd_keys], [:subd_ξ, :subd_faces]) do inputs, changed, cached
-        decode_topology!(mesh_buf, inputs.subd_keys, base; groups=cellmap)
+        decode_topology!(mesh_buf, inputs.subd_keys, base; groups=sub.groupmap)
         resize!(faces_out, length(mesh_buf.faces))
         @inbounds for i in eachindex(mesh_buf.faces)
             f = mesh_buf.faces[i]
@@ -889,4 +1010,62 @@ function _wire_adaptive_solutionplot!(SP, ds::FEData{dim}, sub::IsubdSubstrate, 
     # plain mesh child from graph nodes; the ShaderAbstractions.Buffer path of
     # `_mesh!` is tied to the static tessellation and does not apply here
     return Makie.mesh!(SP, SP.attributes, SP.subd_positions, SP.subd_faces, color=colornode)
+end
+
+# The quadrature-point branch of solutionplot's plot!: the substrate's base is
+# the Voronoi-region fans (see `_isubd_base_qp`), the criterion is geometry
+# only — piecewise-constant data has nothing to say about refinement, its
+# discontinuities would only chase the depth cap, and the region rims are
+# preserved structurally as split edges — and the colors are a flat gather:
+# every vertex takes its base triangle's quadrature-point value. The values
+# observable is a graph input, so updating the internal variables recolors
+# the refined mesh the way `update!` moves a field.
+function _wire_adaptive_qpplot!(SP, ds::FEData{dim}, sub::IsubdSubstrate, qp::QPPartition) where {dim}
+    graph = SP.attributes
+    ComputePipeline.add_input!(graph, :subd_u, ds.u)
+    ComputePipeline.add_input!(graph, :subd_qpvalues, qp.values)
+    warp_inputs = _warp_inputs!(graph, sub)
+    base = sub.base
+    state = (keys=root_keys(base), scratch=UInt64[], prev=UInt64[])
+    diag = sub.diag
+    ComputePipeline.register_computation!(graph, [:subd_u, :geometry_tol, :max_depth, warp_inputs...],
+                                          [:subd_keys]) do inputs, changed, cached
+        _refresh_all!(sub, nothing, inputs.subd_u)
+        lod = DeviationLoD(base.mapping, Float64(inputs.geometry_tol) * diag,
+                           _dev_cache(sub, :geometry))
+        refine_keys!(state.keys, state.scratch, base, lod; max_depth=Int(inputs.max_depth))
+        cached !== nothing && state.keys == state.prev && return nothing
+        copy!(state.prev, state.keys)
+        return (state.keys,)
+    end
+    mesh_buf = IsubdMesh(base)
+    faces_out = GeometryBasics.GLTriangleFace[]
+    positions_out = GeometryBasics.Point{dim,Float32}[]
+    colors_out = Float32[]
+    ComputePipeline.register_computation!(graph, [:subd_keys], [:subd_ξ, :subd_faces]) do inputs, changed, cached
+        decode_topology!(mesh_buf, inputs.subd_keys, base; groups=sub.groupmap)
+        resize!(faces_out, length(mesh_buf.faces))
+        @inbounds for i in eachindex(mesh_buf.faces)
+            f = mesh_buf.faces[i]
+            faces_out[i] = GeometryBasics.GLTriangleFace(f[1], f[2], f[3])
+        end
+        return (mesh_buf.refcoords, faces_out)
+    end
+    Makie.map!(graph, [:subd_ξ, :subd_u, warp_inputs...], :subd_positions) do _ξ, uu, _warps...
+        _refresh_all!(sub, nothing, uu)
+        decode_positions!(mesh_buf, base)
+        return _render_positions!(positions_out, mesh_buf.positions)
+    end
+    ncells = Ferrite.getncells(Ferrite.get_grid(ds.dh))
+    Makie.map!(graph, [:subd_ξ, :subd_qpvalues], :subd_color) do _ξ, vals
+        _qp_ncells(vals) == ncells ||
+            error("quadrature point data must have one entry per cell ($ncells), got $(_qp_ncells(vals))")
+        resize!(colors_out, length(mesh_buf.refcoords))
+        @inbounds for v in eachindex(mesh_buf.refcoords)
+            b = mesh_buf.vertex_base[v]
+            colors_out[v] = Float32(qp.extract(_qp_at(vals, sub.cellmap[b], sub.qpmap[b])))
+        end
+        return colors_out
+    end
+    return Makie.mesh!(SP, SP.attributes, SP.subd_positions, SP.subd_faces, color=SP.subd_color)
 end

@@ -553,6 +553,114 @@ end
     end
 end
 
+@testset "adaptive QP data: higher-order geometry, crisp regions" begin
+    grid = generate_grid(Quadrilateral, (3, 3))
+    dh = DofHandler(grid)
+    add!(dh, :u, Lagrange{RefQuadrilateral,2}()^2)
+    close!(dh)
+    u = zeros(ndofs(dh))
+    Ferrite.apply_analytical!(u, dh, :u, x -> Ferrite.Vec(0.0, 0.2 * sin(pi * (x[1] + 1) / 2)))
+    qr = Ferrite.QuadratureRule{RefQuadrilateral}(2)         # 2x2 Gauss: 4 regions/cell
+    ncells = Ferrite.getncells(grid)
+    states = Makie.Observable([Float64[10i + j for j in 1:4] for i in 1:ncells])
+    qds = FEData(dh, u) |> AddQuadraturePointData(qr, states) |> WarpByVector(:u, 1.0)
+    @test qds.qp_partition !== nothing
+    @test length(qds.deformation) == 1
+
+    _, _, sp = solutionplot(qds; color=:qpdata, adaptive=true, geometry_tol=5e-4, max_depth=8)
+    sub = FerriteViz._substrate(qds)
+    @test length(unique(sub.groupmap)) == 4 * ncells         # one sharing group per region
+    @test length(sp.subd_keys[]) > length(sub.base.corners)  # the warp curves the regions
+
+    # every vertex carries exactly its region's value — nothing is blended
+    pos, col = sp.subd_positions[], copy(sp.subd_color[])
+    allvals = Float32.(reduce(vcat, states[]))
+    @test all(c -> c in allvals, col)
+    # crisp jumps: region-boundary positions appear duplicated with different values
+    rk(p) = (round(Float64(p[1]); digits=5) + 0.0, round(Float64(p[2]); digits=5) + 0.0)
+    bycoord = Dict{Any,Set{Float32}}()
+    for i in eachindex(pos)
+        push!(get!(Set{Float32}, bycoord, rk(pos[i])), col[i])
+    end
+    @test count(s -> length(s) >= 2, values(bycoord)) > 10
+
+    # watertight and exactly tiling: no T-vertices, and the reference areas of
+    # the drawn triangles sum to the full domain (no holes, no overlaps)
+    faces = sp.subd_faces[]
+    @test count_tjunctions((positions=pos, faces=faces); digits=5) == 0
+    ξs = sp.subd_ξ[]
+    area = sum(abs((ξs[f[2]][1] - ξs[f[1]][1]) * (ξs[f[3]][2] - ξs[f[1]][2]) -
+                   (ξs[f[3]][1] - ξs[f[1]][1]) * (ξs[f[2]][2] - ξs[f[1]][2])) / 2 for f in faces)
+    @test area ≈ 4.0 * ncells rtol = 1e-6
+
+    # the geometry answers to the tolerance, and the surface follows the warp
+    _, _, sp2 = solutionplot(qds; color=:qpdata, adaptive=true, geometry_tol=5e-5, max_depth=10)
+    @test length(sp2.subd_keys[]) > length(sp.subd_keys[])
+    @test maximum(p -> p[2], pos) > 1.1
+
+    # updating the internal variables recolors; the mesh has no reason to move
+    k0 = length(sp.subd_keys[])
+    states[] = [2 .* s for s in states[]]
+    @test sp.subd_color[] ≈ 2 .* col rtol = 1e-6
+    @test length(sp.subd_keys[]) == k0
+
+    # non-scalar entries need a reducing extract, said at plot creation
+    tstates = [[Ferrite.Vec(1.0, 2.0) for _ in 1:4] for _ in 1:ncells]
+    tqds = FEData(dh, u) |> AddQuadraturePointData(qr, tstates)
+    @test_throws ErrorException solutionplot(tqds; color=:qpdata, adaptive=true)
+end
+
+@testset "adaptive QP data: wireframe stays on element edges" begin
+    # unwarped linear grid: element edges are the grid lines, Voronoi rims of
+    # a 2x2 Gauss rule are the cell midlines — the wireframe must draw the
+    # former and mask the latter
+    grid = generate_grid(Quadrilateral, (3, 3))
+    dh = DofHandler(grid)
+    add!(dh, :p, Lagrange{RefQuadrilateral,1}())
+    close!(dh)
+    qr = Ferrite.QuadratureRule{RefQuadrilateral}(2)
+    states = [rand(4) for _ in 1:Ferrite.getncells(grid)]
+    qds = FEData(dh, zeros(ndofs(dh))) |> AddQuadraturePointData(qr, states)
+    _, _, wp = meshplot(qds; adaptive=true, geometry_tol=1e-3, max_depth=6)
+    segs = wp.edge_lines[]
+    nseg = length(segs) ÷ 2
+    @test nseg > 0
+    lines = (-1.0, -1 / 3, 1 / 3, 1.0)
+    @test all(1:nseg) do i
+        a, b = segs[2i - 1], segs[2i]
+        (isapprox(a[1], b[1]; atol=1e-6) && any(l -> isapprox(a[1], l; atol=1e-5), lines)) ||
+            (isapprox(a[2], b[2]; atol=1e-6) && any(l -> isapprox(a[2], l; atol=1e-5), lines))
+    end
+end
+
+@testset "adaptive QP data: clipped 3D body renders internal variables" begin
+    grid = generate_grid(Hexahedron, (2, 2, 2))
+    dh = DofHandler(grid)
+    add!(dh, :p, Lagrange{RefHexahedron,1}())
+    close!(dh)
+    qr = Ferrite.QuadratureRule{RefHexahedron}(2)            # 8 QPs
+    states = [Float64[10i + j for j in 1:8] for i in 1:Ferrite.getncells(grid)]
+    qds = FEData(dh, zeros(ndofs(dh))) |> AddQuadraturePointData(qr, states) |>
+          CrinkleClip(FerriteViz.ClipPlane(Ferrite.Vec(1.0, 1.0, 1.0), 0.0))
+    # the clip dropped the static array, but the partition record survives —
+    # the adaptive path is the only way to draw internal variables on the cut
+    @test !haskey(qds.point_data, :qpdata)
+    @test qds.qp_partition !== nothing
+    _, _, sp = solutionplot(qds; color=:qpdata, adaptive=true, geometry_tol=1e-3, max_depth=4)
+    pos, col, faces = sp.subd_positions[], sp.subd_color[], sp.subd_faces[]
+    @test length(faces) > 0
+    @test all(c -> c in Float32.(reduce(vcat, states)), col)
+    # the clipped surface is a closed manifold: every drawn edge shared twice
+    rk3(p) = ntuple(i -> round(Float64(p[i]); digits=5) + 0.0, 3)
+    counts = Dict{Any,Int}()
+    for f in faces, (i, j) in ((1, 2), (2, 3), (3, 1))
+        a, b = rk3(pos[f[i]]), rk3(pos[f[j]])
+        e = a <= b ? (a, b) : (b, a)
+        counts[e] = get(counts, e, 0) + 1
+    end
+    @test count(==(1), values(counts)) == 0 && count(>(2), values(counts)) == 0
+end
+
 @testset "adaptive meshplot: the wireframe is the surface's own edges" begin
     grid = generate_grid(QuadraticQuadrilateral, (4, 4))
     dh = DofHandler(grid)

@@ -28,12 +28,13 @@ make_observable(x::Makie.Observable) = x
 
 # Rebind dh/u on identical geometry (same grid ⇒ identical tessellation).
 function _rebind(ds::FEData{dim}, dh, u::Makie.Observable;
-                 point_data=Dict{Symbol,Makie.Observable}(), cell_data=Dict{Symbol,Makie.Observable}()) where {dim}
+                 point_data=Dict{Symbol,Makie.Observable}(), cell_data=Dict{Symbol,Makie.Observable}(),
+                 derivations=copy(ds.point_derivations)) where {dim}
     return FEData{dim,typeof(dh),eltype(u[]),typeof(ds.topology),typeof(ds.source_u),typeof(ds.mesh),eltype(ds.all_triangles)}(
         dh, u, ds.source_u, ds.topology, ds.visible, ds.gridnodes, ds.coords, ds.coords_buffer,
         ds.all_triangles, ds.vis_triangles, ds.triangle_cell_map, ds.cell_triangle_offsets,
         ds.cell_vertex_offsets, ds.all_edges, ds.edge_cell_map, ds.cell_edge_offsets,
-        ds.reference_coords, ds.mesh, point_data, cell_data, ds.deformation, ds.solid,
+        ds.reference_coords, ds.mesh, point_data, cell_data, derivations, ds.deformation, ds.solid,
         Ref{Any}(nothing))
 end
 
@@ -97,6 +98,7 @@ function apply(w::WarpByVector, ds::FEData{dim}) where {dim}
         ds.all_triangles, ds.vis_triangles, ds.triangle_cell_map, ds.cell_triangle_offsets,
         ds.cell_vertex_offsets, ds.all_edges, ds.edge_cell_map, ds.cell_edge_offsets,
         ds.reference_coords, mesh, copy(ds.point_data), copy(ds.cell_data),
+        copy(ds.point_derivations),
         vcat(ds.deformation, [Deformation(ds.dh, ds.u, fname, scale)]), ds.solid,
         Ref{Any}(nothing))
 end
@@ -181,7 +183,8 @@ function apply(c::CrinkleClip, ds::FEData{3})
         ds.all_triangles, vis_triangles, ds.triangle_cell_map, ds.cell_triangle_offsets,
         ds.cell_vertex_offsets, ds.all_edges, ds.edge_cell_map, ds.cell_edge_offsets,
         ds.reference_coords, mesh,
-        Dict{Symbol,Makie.Observable}(), copy(ds.cell_data), ds.deformation, solid,
+        Dict{Symbol,Makie.Observable}(), copy(ds.cell_data),
+        Dict{Symbol,DerivedPointData}(), ds.deformation, solid,
         Ref{Any}(nothing))
 end
 
@@ -508,6 +511,7 @@ function apply(f::AddQuadraturePointData, ds::FEData{dim}) where {dim}
         cell_vertex_offsets, all_edges, edge_cell_map, cell_edge_offsets,
         reference_coords, mesh,
         same_layout ? copy(ds.point_data) : Dict{Symbol,Makie.Observable}(), copy(ds.cell_data),
+        same_layout ? copy(ds.point_derivations) : Dict{Symbol,DerivedPointData}(),
         ds.deformation, ds.solid, Ref{Any}(nothing))
 
     ncomponents = length(_qp_components(f.extract(_qp_at(values, 1, 1))))
@@ -723,6 +727,27 @@ end
 _inputs(f) = (f.input,)
 _inputs(d::Derive) = Tuple(d.input)
 
+# The symbolic side of a pointwise derivation: how to recompute `vf` at an
+# arbitrary (cell, ξ) — the array registered by `_apply_derivation` only knows
+# the static tessellation's vertices. Inputs resolve to dof fields (captured
+# with their handler and solution, like a warp's `Deformation`) or to earlier
+# records; an input with no pointwise meaning — a raw registered array,
+# quadrature-point data — returns `nothing`, and the derived quantity stays
+# bound to the static tessellation (the adaptive path keeps refusing it).
+function _derivation_record(ds::FEData, vf, names)
+    inputs = Any[]
+    for name in names
+        if name in Ferrite.getfieldnames(ds.dh)
+            push!(inputs, FieldSource(ds.dh, ds.u, name))
+        elseif haskey(ds.point_derivations, name)
+            push!(inputs, ds.point_derivations[name])
+        else
+            return nothing
+        end
+    end
+    return DerivedPointData(vf, inputs)
+end
+
 function _apply_derivation(f, ds::FEData{dim}) where {dim}
     names = map(n -> _resolve_name(ds, n), _inputs(f))
     assocs = map(n -> _data_association(ds, n), names)
@@ -734,15 +759,18 @@ function _apply_derivation(f, ds::FEData{dim}) where {dim}
               join(("$n => $a" for (n, a) in zip(names, assocs)), ", "))
     pd = copy(ds.point_data)
     cd = copy(ds.cell_data)
+    dv = copy(ds.point_derivations)
     vf = _valfun(f)
     if first(assocs) === :point
         pd[f.output] = Makie.lift((As...) -> _rows_to_matrix(vf, As, dim),
                                   map(n -> point_data(ds, n), names)...)
+        rec = _derivation_record(ds, vf, names)
+        rec === nothing ? delete!(dv, f.output) : (dv[f.output] = rec)
     else
         cd[f.output] = Makie.lift((vs...) -> map(vf, vs...),
                                   map(n -> cell_data(ds, n), names)...)
     end
-    return _rebind(ds, ds.dh, ds.u; point_data=pd, cell_data=cd)
+    return _rebind(ds, ds.dh, ds.u; point_data=pd, cell_data=cd, derivations=dv)
 end
 
 """
@@ -773,11 +801,14 @@ function apply(t::Threshold, ds::FEData)
     assoc === :none && error("no data named :$input; available: $(_available_data(ds))")
     pd = copy(ds.point_data)
     cd = copy(ds.cell_data)
+    dv = copy(ds.point_derivations)
     clampnan(x) = t.min <= x <= t.max ? Float64(x) : NaN
     if assoc === :point
         pd[t.output] = Makie.lift(A -> map(clampnan, A), point_data(ds, input))
+        rec = _derivation_record(ds, clampnan, (input,))
+        rec === nothing ? delete!(dv, t.output) : (dv[t.output] = rec)
     else
         cd[t.output] = Makie.lift(v -> map(clampnan, v), cell_data(ds, input))
     end
-    return _rebind(ds, ds.dh, ds.u; point_data=pd, cell_data=cd)
+    return _rebind(ds, ds.dh, ds.u; point_data=pd, cell_data=cd, derivations=dv)
 end

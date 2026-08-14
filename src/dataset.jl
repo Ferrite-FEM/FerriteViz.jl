@@ -44,6 +44,28 @@ struct Deformation{DH<:Ferrite.AbstractDofHandler,UO<:Makie.Observable,SO<:Makie
     scale::SO
 end
 
+# A dof field captured together with the handler and solution it lives on (a
+# later filter may rebind both), as the leaf of a derivation chain.
+struct FieldSource{DH<:Ferrite.AbstractDofHandler,UO<:Makie.Observable}
+    dh::DH
+    u::UO
+    name::Symbol
+end
+
+# The symbolic side of a pointwise derivation (VonMises, Derive, ...): the
+# closure and its inputs, recorded alongside the sampled array the filter
+# registers as point data. The array knows the static tessellation's vertices
+# and nothing else; the record is what lets the adaptive path re-evaluate the
+# quantity at arbitrary (cell, ξ) — and, following the regularity principle
+# (a derived quantity is at most as regular as its sources), what names the
+# dof fields the refinement criterion should sample. Inputs are `FieldSource`
+# leaves or nested `DerivedPointData` (untyped vector: the chain is walked
+# once at plot creation, never per vertex).
+struct DerivedPointData{F}
+    f::F
+    inputs::Vector{Any}
+end
+
 """
     FEData(dh::Ferrite.AbstractDofHandler, u::Vector; topology, adaptive=true)
 
@@ -100,6 +122,9 @@ struct FEData{dim,DH<:Ferrite.AbstractDofHandler,T1,TOP<:Union{Nothing,Ferrite.A
     mesh::M                             # coords_buffer + vis_triangles, handed to Makie as is
     point_data::Dict{Symbol,Makie.Observable}  # arrays on the tessellation vertices
     cell_data::Dict{Symbol,Makie.Observable}   # arrays on the cells
+    # Derivation provenance for point-data arrays that have one (see
+    # `DerivedPointData`); copied and cleared exactly alongside `point_data`.
+    point_derivations::Dict{Symbol,DerivedPointData}
     # Deformation provenance: one record per WarpByVector applied upstream, in
     # application order. The displaced coordinates are baked into `coords`, but
     # consumers that need the deformation as a *continuous* function of the
@@ -229,6 +254,7 @@ function _build_dataset(dh::Ferrite.AbstractDofHandler, u::Makie.Observable, sou
         cell_vertex_offsets, all_edges, edge_cell_map, cell_edge_offsets,
         reference_coords, mesh,
         Dict{Symbol,Makie.Observable}(), Dict{Symbol,Makie.Observable}(),
+        Dict{Symbol,DerivedPointData}(),
         Deformation[], fill(true, ncells), Ref{Any}(nothing))
 end
 

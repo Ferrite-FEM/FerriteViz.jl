@@ -51,8 +51,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    move a static one; the camera is never an input. Geometry, connectivity
    and colors are emitted by a single graph edge, so rapid event bursts can
    never render them against different refinement states. The color must be a
-   dof field name or a plain color (registered point-data arrays live on the
-   static tessellation and cannot be resampled). Everything the adaptive path
+   dof field name, a *derived* quantity, or a plain color. The derivation
+   filters ([`Derive`](@ref), [`VonMises`](@ref), [`Magnitude`](@ref),
+   [`ExtractComponent`](@ref), [`Threshold`](@ref), ...) record the function
+   they apply alongside the array they register, so an adaptive plot
+   re-evaluates e.g. an elastic von Mises stress
+   (`ds |> Gradient(:u) |> Derive(∇u -> vonmises(σ(∇u)))`) at the refined
+   vertices instead of refusing it. The refinement criterion samples the
+   chain's *source fields* (`u`, `:gradient`), not the derived quantity —
+   in FE computations the solution is the object of highest regularity and
+   every pointwise-derived quantity is at most as regular, so resolving the
+   sources resolves the derived pictures with them, and a solution update
+   moves colors and tessellation together. Only *raw* registered arrays
+   (`set_point_data!`) and quadrature-point data stay bound to the static
+   tessellation and cannot be resampled. Everything the adaptive path
    derives from the dataset alone — the base domain and its adjacency, the
    continuous geometry mapping, the field evaluators with their coefficient
    buffers — is built lazily and shared by all adaptive plots of one

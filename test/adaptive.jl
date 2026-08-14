@@ -423,6 +423,79 @@ end
     scale[] = 1.0
 end
 
+@testset "adaptive: derived quantities follow their source fields" begin
+    # the elastic chain: Q2 displacement -> Gradient -> Derive(vonmises ∘ σ).
+    # The criterion samples the *source* (:gradient); the colors re-apply the
+    # recorded closures at the refined vertices.
+    grid = generate_grid(Quadrilateral, (4, 4))
+    dh = DofHandler(grid)
+    add!(dh, :u, Lagrange{RefQuadrilateral,2}()^2)
+    close!(dh)
+    disp(x) = Ferrite.Vec(0.1 * x[1]^2 * x[2], 0.2 * x[1] * x[2]^2)
+    σ(∇u) = 2.0 * dev(symmetric(∇u)) + tr(∇u) * one(symmetric(∇u))
+    u = zeros(ndofs(dh))
+    Ferrite.apply_analytical!(u, dh, :u, disp)
+    ds = FEData(dh, u)
+    vds = ds |> Gradient(:u) |> Derive(∇u -> FerriteViz.vonmises(σ(∇u)); input=:gradient, output=:σvM)
+    @test haskey(vds.point_derivations, :σvM)
+
+    nbase = 4 * Ferrite.getncells(grid)
+    fig, ax, sp = solutionplot(vds; color=:σvM, adaptive=true, solution_tol=1e-3, max_depth=8)
+    @test length(sp.subd_keys[]) > nbase          # the source field drove refinement
+
+    # colors are the recorded closures re-applied to the same :gradient field
+    # the static path samples: where a refined vertex coincides with a static
+    # tessellation vertex, the values must agree (the reference here is the
+    # static array, not the analytic gradient — Gradient's projection into its
+    # DG space is its own, separately tested concern)
+    pos, col = sp.subd_positions[], copy(sp.subd_color[])
+    rk(p) = (round(Float64(p[1]); digits=6) + 0.0, round(Float64(p[2]); digits=6) + 0.0)
+    static_vals = Dict{Tuple{Float64,Float64},Float64}()
+    A = FerriteViz.point_data(vds, :σvM)[]
+    for (i, p) in enumerate(vds.coords[])
+        static_vals[rk(p)] = A[i, 1]
+    end
+    matched = 0
+    for i in eachindex(col)
+        v = get(static_vals, rk(pos[i]), nothing)
+        v === nothing && continue
+        matched += 1
+        @test col[i] ≈ v atol = 1e-5
+    end
+    @test matched > 100   # plenty of coincident vertices to make that meaningful
+
+    # u -> colors AND tessellation: a pure scaling doubles the (1-homogeneous)
+    # colors on the same key set (the solution tolerance is span-relative)...
+    k0 = sort(copy(sp.subd_keys[]))
+    FerriteViz.update!(ds, 2 .* u)
+    @test sort(copy(sp.subd_keys[])) == k0
+    @test sp.subd_color[] ≈ 2 .* col rtol = 1e-4
+    # ...and a shape change moves the tessellation
+    u2 = zeros(ndofs(dh))
+    Ferrite.apply_analytical!(u2, dh, :u, x -> Ferrite.Vec(0.0, 0.2 * exp(-30 * sum(abs2, x))))
+    FerriteViz.update!(ds, u2)
+    @test sort(copy(sp.subd_keys[])) != k0
+    FerriteViz.update!(ds, u)
+
+    # Threshold rides the chain: clipped range renders as NaN
+    tds = vds |> Threshold(input=:σvM, min=0.5 * maximum(col))
+    _, _, spt = solutionplot(tds; color=:threshold, adaptive=true, solution_tol=1e-3, max_depth=8)
+    ct = spt.subd_color[]
+    @test any(isnan, ct) && any(!isnan, ct)
+    @test all(isnan(ct[i]) || ct[i] >= 0.5 * maximum(col) - 1e-6 for i in eachindex(ct))
+
+    # a tensor-valued derivation cannot color, and says so at plot creation
+    dds = ds |> Gradient(:u) |> Deviator(input=:gradient)
+    @test_throws ErrorException solutionplot(dds; color=:deviator, adaptive=true)
+
+    # a derivation of a raw registered array has no pointwise meaning: no
+    # record, and the adaptive path keeps refusing it
+    FerriteViz.set_point_data!(ds, :raw, rand(FerriteViz.num_vertices(ds)))
+    rds = ds |> Magnitude(input=:raw)
+    @test !haskey(rds.point_derivations, :magnitude)
+    @test_throws ErrorException solutionplot(rds; color=:magnitude, adaptive=true)
+end
+
 @testset "adaptive: solution span comes from the dof values" begin
     # a peak at an edge-midpoint node is invisible to every base-triangle
     # corner (element vertices and fan centres): sampling the span there once

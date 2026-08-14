@@ -493,6 +493,111 @@ function _refresh_all!(sub::IsubdSubstrate, ev, u::AbstractVector)
     return nothing
 end
 
+# One leaf of a derivation chain, ready to evaluate: the dof field's evaluator
+# with the solution it is defined on (which need not be the plotted dataset's
+# — cf. WarpEval), plus the deviation-memo key its criterion term uses.
+struct SourceEval{EV<:FieldEvaluator,UO<:Makie.Observable}
+    ev::EV
+    u::UO
+    name::Symbol
+    term::Symbol
+end
+
+# A pointwise-derived color, resolved from a `DerivedPointData` record: `fun`
+# re-applies the derivation closures at arbitrary (cell, ξ), and `sources`
+# names the dof-field leaves. Following the regularity principle — a derived
+# quantity is at most as regular as its sources — the refinement criterion
+# samples the *sources* (their spans, their deviations, their memos), never
+# the derived quantity itself: the mesh follows u, and the colors follow the
+# mesh.
+struct ChainEvaluator{S<:Tuple,F}
+    sources::S
+    fun::F        # (cell, ξ) -> derived value; `nothing` outside a subdomain
+end
+
+# FieldEvaluator hands back scalars and flat component vectors; the derivation
+# closures expect what the static path's `_wrap_row` gives them (a gradient
+# row as a Tensor{2}, ...). Matrixized interpolations already evaluate to
+# tensors and pass through.
+_wrap_value(v::Number, ::Val) = v
+_wrap_value(v::Tensors.Vec, ::Val{sdim}) where {sdim} = _wrap_row(v, sdim)
+_wrap_value(v, ::Val) = v
+
+function _chain_node(sub::IsubdSubstrate, ds::FEData, src::FieldSource, ::Val{sdim}) where {sdim}
+    local se
+    if src.dh === ds.dh
+        se = SourceEval(_field_evaluator(sub, ds.dh, src.name), src.u, src.name, src.name)
+    else
+        # a source rebound away by a later filter: private evaluator, and a
+        # memo key that cannot collide with a field of the plotted handler
+        term = Symbol(src.name, :_, string(objectid(src.dh); base=16))
+        se = SourceEval(FieldEvaluator(src.dh, src.name), src.u, src.name, term)
+        # its solution must invalidate the shared epoch too (duplicate
+        # listeners from several plots only advance the counter faster)
+        src.u === ds.u || Makie.on(_ -> (sub.epoch[] += 1; nothing), src.u)
+    end
+    leaf = function (cell::Int, ξ)
+        v = evaluate_at(se.ev, cell, ξ, se.u[])
+        return v === nothing ? nothing : _wrap_value(v, Val(sdim))
+    end
+    return (se,), leaf
+end
+
+function _chain_node(sub::IsubdSubstrate, ds::FEData, rec::DerivedPointData, v::Val)
+    children = map(inp -> _chain_node(sub, ds, inp, v), Tuple(rec.inputs))
+    sources = reduce((acc, c) -> (acc..., c[1]...), children; init=())  # flatten the leaf tuples
+    funs = map(c -> c[2], children)
+    f = rec.f
+    node = function (cell::Int, ξ)
+        vals = map(g -> g(cell, ξ), funs)
+        any(x -> x === nothing, vals) && return nothing
+        return f(vals...)
+    end
+    return sources, node
+end
+
+function _chain_evaluator(sub::IsubdSubstrate, ds::FEData{dim}, rec::DerivedPointData) where {dim}
+    sources, fun = _chain_node(sub, ds, rec, Val(dim))
+    return ChainEvaluator(sources, fun)
+end
+
+_refresh_chain!(::IsubdSubstrate, ::Nothing) = nothing
+function _refresh_chain!(sub::IsubdSubstrate, ch::ChainEvaluator)
+    epoch = sub.epoch[]
+    for s in ch.sources
+        _refresh!(s.ev, sub.used_cells, s.u[], epoch)
+    end
+    return nothing
+end
+
+# Per-vertex derived values at the decoded reference coordinates — the chain
+# counterpart of `_transfer_at!`. The chain's output must be a scalar, which
+# `_validate_chain` established at plot creation.
+function _transfer_chain_at!(out::Vector{Float32}, ch::ChainEvaluator, cellmap::Vector{Int}, mesh)
+    resize!(out, length(mesh.refcoords))
+    @inbounds for v in eachindex(mesh.refcoords)
+        val = ch.fun(cellmap[mesh.vertex_base[v]], mesh.refcoords[v])
+        out[v] = val === nothing ? NaN32 : Float32(val)
+    end
+    return out
+end
+
+# Eager scalar check: evaluate the chain once, at the centroid of the first
+# base triangle whose cell carries all sources, and fail at plot creation
+# rather than mid-render.
+function _validate_chain(ch::ChainEvaluator, sub::IsubdSubstrate, fname::Symbol)
+    _refresh_chain!(sub, ch)
+    for b in 1:length(sub.base.corners)
+        c = sub.base.corners[b]
+        val = ch.fun(sub.cellmap[b], (c[1] + c[2] + c[3]) / 3)
+        val === nothing && continue
+        val isa Number && return nothing
+        error("adaptive coloring by the derived :$fname needs a scalar; its record evaluates to " *
+              "$(typeof(val)) — reduce it first (e.g. Magnitude, VonMises, ExtractComponent)")
+    end
+    return nothing   # nowhere defined: rendered as NaN, like the static path
+end
+
 # Per-vertex field values at the decoded reference coordinates: the adaptive
 # counterpart of transfer_solution, evaluating at the sub-triangle vertices
 # instead of the static tessellation vertices.
@@ -650,30 +755,38 @@ end
 function _adaptive_solutionplot!(SP, ds::FEData)
     sub = _substrate(ds)
 
-    # color resolution (eager): a dof field evaluated per vertex, or a plain color
+    # color resolution (eager): a dof field or a recorded derivation of dof
+    # fields, evaluated per vertex — or a plain color
     colorval = SP.color[]
     ev = nothing
+    chain = nothing
     reduce = false
+    fname = :none
     if colorval isa Symbol && (colorval === :default || _data_association(ds, colorval) !== :none)
         fname = _resolve_name(ds, colorval)
-        fname in Ferrite.getfieldnames(ds.dh) ||
-            error("adaptive solutionplot colors by evaluating a dof field at the refined vertices; " *
-                  ":$fname is a registered data array on the static tessellation and cannot be resampled. " *
-                  "Color by a dof field or a plain color, or use adaptive=false.")
-        ev = _field_evaluator(sub, ds.dh, fname)
-        reduce = colorval === :default && ev.ncomps > 1
-        reduce || ev.ncomps == 1 ||
-            error("field :$fname has $(ev.ncomps) components; adaptive coloring needs a scalar " *
-                  "(or :default, which reduces to the magnitude)")
+        if fname in Ferrite.getfieldnames(ds.dh)
+            ev = _field_evaluator(sub, ds.dh, fname)
+            reduce = colorval === :default && ev.ncomps > 1
+            reduce || ev.ncomps == 1 ||
+                error("field :$fname has $(ev.ncomps) components; adaptive coloring needs a scalar " *
+                      "(or :default, which reduces to the magnitude)")
+        elseif haskey(ds.point_derivations, fname)
+            chain = _chain_evaluator(sub, ds, ds.point_derivations[fname])
+            _validate_chain(chain, sub, fname)
+        else
+            error("adaptive solutionplot colors by evaluating a dof field — or a derivation of dof " *
+                  "fields (Derive, VonMises, ...) — at the refined vertices; :$fname is a raw data " *
+                  "array on the static tessellation and cannot be resampled. " *
+                  "Color by a dof field, a derived quantity or a plain color, or use adaptive=false.")
+        end
     end
 
     # barrier past the dataset's untyped substrate cache: everything below
-    # specializes on the substrate's (and the evaluator's) concrete types
-    fname = ev === nothing ? :none : _resolve_name(ds, colorval)
-    return _wire_adaptive_solutionplot!(SP, ds, sub, ev, fname, reduce)
+    # specializes on the substrate's (and the evaluators') concrete types
+    return _wire_adaptive_solutionplot!(SP, ds, sub, ev, chain, fname, reduce)
 end
 
-function _wire_adaptive_solutionplot!(SP, ds::FEData{dim}, sub::IsubdSubstrate, ev, fname::Symbol,
+function _wire_adaptive_solutionplot!(SP, ds::FEData{dim}, sub::IsubdSubstrate, ev, chain, fname::Symbol,
                                       reduce::Bool) where {dim}
     graph = SP.attributes
     ComputePipeline.add_input!(graph, :subd_u, ds.u)
@@ -683,9 +796,11 @@ function _wire_adaptive_solutionplot!(SP, ds::FEData{dim}, sub::IsubdSubstrate, 
     state = (keys=root_keys(base), scratch=UInt64[], prev=UInt64[])
     diag = sub.diag
     span = Ref(NaN)
+    spans = chain === nothing ? Float64[] : fill(NaN, length(chain.sources))
     keyinputs = [:subd_u, :geometry_tol, :solution_tol, :max_depth, warp_inputs...]
     ComputePipeline.register_computation!(graph, keyinputs, [:subd_keys]) do inputs, changed, cached
         _refresh_all!(sub, ev, inputs.subd_u)
+        _refresh_chain!(sub, chain)
         geo = DeviationLoD(base.mapping, Float64(inputs.geometry_tol) * diag,
                            _dev_cache(sub, :geometry))
         lods = (geo,)
@@ -697,6 +812,22 @@ function _wire_adaptive_solutionplot!(SP, ds::FEData{dim}, sub::IsubdSubstrate, 
             # a (near-)constant field never asks for refinement
             tol = max(Float64(inputs.solution_tol) * span[], 1e-12)
             lods = (lods..., DeviationLoD(probe, tol, _dev_cache(sub, fname)))
+        elseif chain !== nothing
+            # the regularity principle: the criterion samples the chain's dof
+            # field *sources* (a vector source through its magnitude), not the
+            # derived quantity — the mesh follows u, the colors follow the mesh
+            if isnan(spans[1]) || changed.subd_u
+                for (i, s) in enumerate(chain.sources)
+                    spans[i] = _field_span(s.ev, sub.used_cells, s.u[]; reduce=s.ev.ncomps > 1)
+                end
+            end
+            src_lods = ntuple(length(chain.sources)) do i
+                s = chain.sources[i]
+                tol = max(Float64(inputs.solution_tol) * spans[i], 1e-12)
+                DeviationLoD(_scalar_probe(s.ev, cellmap, s.u[]; reduce=s.ev.ncomps > 1), tol,
+                             _dev_cache(sub, s.term))
+            end
+            lods = (lods..., src_lods...)
         end
         refine_keys!(state.keys, state.scratch, base, CombinedLoD(lods);
                      max_depth=Int(inputs.max_depth))
@@ -743,12 +874,14 @@ function _wire_adaptive_solutionplot!(SP, ds::FEData{dim}, sub::IsubdSubstrate, 
         decode_positions!(mesh_buf, base)
         return _render_positions!(positions_out, mesh_buf.positions)
     end
-    if ev === nothing
+    if ev === nothing && chain === nothing
         colornode = SP.color   # plain color, converted by the mesh child
     else
         Makie.map!(graph, [:subd_ξ, :subd_u], :subd_color) do _ξ, u
             _refresh_all!(sub, ev, u)
-            return _transfer_at!(colors_out, ev, cellmap, mesh_buf, u; reduce)
+            _refresh_chain!(sub, chain)
+            return chain === nothing ? _transfer_at!(colors_out, ev, cellmap, mesh_buf, u; reduce) :
+                   _transfer_chain_at!(colors_out, chain, cellmap, mesh_buf)
         end
         colornode = SP.subd_color
     end

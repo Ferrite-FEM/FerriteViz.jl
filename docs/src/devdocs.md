@@ -121,6 +121,7 @@ FerriteViz.decode_topology!
 FerriteViz.decode_positions!
 FerriteViz.UniformLoD
 FerriteViz.DeviationLoD
+FerriteViz.deviation
 FerriteViz.CombinedLoD
 FerriteViz.CachedLoD
 FerriteViz.excess_levels

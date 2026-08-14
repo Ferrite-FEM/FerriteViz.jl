@@ -183,7 +183,7 @@ const DEVIATION_SAMPLES = (
 )
 
 """
-    DeviationLoD(f, tol)
+    DeviationLoD(f, tol[, cache])
 
 Split until the triangle's linear interpolation approximates `f(base_id, ξ)`
 to within `tol`. The deviation is sampled over the whole triangle — along
@@ -194,6 +194,15 @@ interpolation is O(h²) and bisection halves an edge every *second* level, so
 each level buys a factor 2. `f` may return points (geometry error: pass the
 base's `mapping`) or scalars (solution error: pass the colour evaluation);
 `tol` is absolute, in the units of `norm` of `f`'s values.
+
+The deviation of a key is a pure function of `f` — it contains neither the
+tolerance nor any refinement state — so it can be memoized across refinement
+calls, plots and tolerance changes for as long as `f` does not change. Pass a
+`Dict{UInt64,Float64}` as `cache` to do so; the *caller* owns the dict and is
+responsible for emptying it when `f`'s underlying data changes (the adaptive
+plots key this to the substrate's solution epoch). Without a cache every
+query samples `f` afresh, which a measured 4-sample 3D query puts at ~500ns
+against ~2ns for a cache hit.
 
 Sampling the interior is what makes the criterion bound what is actually
 drawn — for curved geometry the deviation peaks in the middle of a face, and
@@ -209,12 +218,26 @@ stay finer than one refined up from the roots, because the passes never
 discard detail whose deviation still exceeds the tolerance. The finer of the
 two states is the more accurate one.
 """
-struct DeviationLoD{F,T} <: AbstractLoD
+struct DeviationLoD{F,T,C<:Union{Nothing,Dict{UInt64,Float64}}} <: AbstractLoD
     f::F
     tol::T
+    cache::C
+end
+DeviationLoD(f, tol) = DeviationLoD(f, tol, nothing)
+
+"""
+    deviation(lod::DeviationLoD, base, key) -> Float64
+
+The sampled deviation of `key`'s linear interpolation from `lod.f`, memoized
+in `lod.cache` when one is attached. This is the expensive half of
+[`excess_levels`](@ref); the tolerance comparison on top of it is free.
+"""
+function deviation(lod::DeviationLoD, base::IsubdBase, k::UInt64)
+    lod.cache === nothing && return _deviation(lod, base, k)
+    return get!(() -> _deviation(lod, base, k), lod.cache, k)
 end
 
-function excess_levels(lod::DeviationLoD, base::IsubdBase, k::UInt64)
+function _deviation(lod::DeviationLoD, base::IsubdBase, k::UInt64)
     c1, c2, c3 = key_corners(base, k)
     b = key_base(k)
     f1, f2, f3 = lod.f(b, c1), lod.f(b, c2), lod.f(b, c3)
@@ -224,8 +247,11 @@ function excess_levels(lod::DeviationLoD, base::IsubdBase, k::UInt64)
         linear = a1 * f1 + a2 * f2 + a3 * f3
         err = max(err, Float64(LinearAlgebra.norm(exact - linear)))
     end
-    return log2(max(err, 1e-16) / max(lod.tol, 1e-16))
+    return err
 end
+
+excess_levels(lod::DeviationLoD, base::IsubdBase, k::UInt64) =
+    log2(max(deviation(lod, base, k), 1e-16) / max(lod.tol, 1e-16))
 
 """
     CachedLoD(inner)

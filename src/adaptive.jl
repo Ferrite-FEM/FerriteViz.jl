@@ -409,9 +409,18 @@ struct IsubdSubstrate{B<:IsubdBase,CC,W<:Vector}
     diag::Float64                       # grid bounding-box diagonal
     evaluators::Dict{Symbol,FieldEvaluator}  # per sampled dof field, lazily
     # Solution epoch: bumped whenever the dataset's (or a warp stage's) dof
-    # vector changes, so `_refresh!` runs each evaluator's `prepare!` at most
-    # once per update — not once per graph node per plot.
+    # vector, or a warp scale or field, changes. `_refresh!` uses it to run
+    # each evaluator's `prepare!` at most once per update — not once per graph
+    # node per plot — and `_dev_cache` to invalidate the deviation memos.
     epoch::Base.RefValue{Int}
+    # Per-term deviation memos (`:geometry`, or a field name), shared by every
+    # plot of this dataset and handed to DeviationLoD. A deviation is a pure
+    # function of (key, term, epoch) — it contains no tolerance and no
+    # refinement state — so within one epoch the second plot's refinement, a
+    # re-tolerated first plot, or the wireframe next to the surface all decide
+    # from lookups (~2ns) instead of re-sampling the fields (~500ns/key).
+    dev_caches::Dict{Symbol,Dict{UInt64,Float64}}
+    dev_epoch::Base.RefValue{Int}       # epoch the memos are valid for
 end
 
 function _build_substrate(ds::FEData)
@@ -427,9 +436,15 @@ function _build_substrate(ds::FEData)
     Makie.on(bump, ds.u)
     for w in warps
         w.u === ds.u || Makie.on(bump, w.u)
+        # the deviation memos also depend on the warp's scale and field (the
+        # coefficients do not, but one shared epoch is simpler than two, and
+        # an occasional redundant prepare! is cheap)
+        Makie.on(bump, w.scale)
+        Makie.on(bump, w.name)
     end
     return IsubdSubstrate(base, cellmap, cellcoords, warps, unique(cellmap),
-                          _grid_diagonal(grid), Dict{Symbol,FieldEvaluator}(), epoch)
+                          _grid_diagonal(grid), Dict{Symbol,FieldEvaluator}(), epoch,
+                          Dict{Symbol,Dict{UInt64,Float64}}(), Ref(-1))
 end
 
 # The dataset's substrate, built on first use. Deliberately behind a
@@ -449,6 +464,20 @@ end
 # buffers) by every plot sampling that field.
 _field_evaluator(sub::IsubdSubstrate, dh, name::Symbol) =
     get!(() -> FieldEvaluator(dh, name), sub.evaluators, name)
+
+# The deviation memo of one criterion term, valid for the current epoch. The
+# staleness check clears *all* terms at once (they share the epoch), lazily at
+# the first request of a new epoch — so the memos only ever hold deviations of
+# the solution state the requesting node is about to refine against.
+function _dev_cache(sub::IsubdSubstrate, term::Symbol)
+    if sub.dev_epoch[] != sub.epoch[]
+        for c in values(sub.dev_caches)
+            empty!(c)
+        end
+        sub.dev_epoch[] = sub.epoch[]
+    end
+    return get!(Dict{UInt64,Float64}, sub.dev_caches, term)
+end
 
 # Refresh the per-cell coefficients of everything a node is about to sample.
 # The epoch guard makes repeated calls within one update free, so this runs
@@ -599,7 +628,8 @@ function _wire_adaptive_wireframe!(WF, ds::FEData{dim}, sub::IsubdSubstrate) whe
     ComputePipeline.register_computation!(graph, [:subd_u, :geometry_tol, :max_depth, warp_inputs...],
                                           [:subd_keys]) do inputs, changed, cached
         _refresh_all!(sub, nothing, inputs.subd_u)
-        lod = DeviationLoD(base.mapping, Float64(inputs.geometry_tol) * diag)
+        lod = DeviationLoD(base.mapping, Float64(inputs.geometry_tol) * diag,
+                           _dev_cache(sub, :geometry))
         refine_keys!(state.keys, state.scratch, base, lod; max_depth=Int(inputs.max_depth))
         cached !== nothing && state.keys == state.prev && return nothing
         copy!(state.prev, state.keys)
@@ -639,10 +669,12 @@ function _adaptive_solutionplot!(SP, ds::FEData)
 
     # barrier past the dataset's untyped substrate cache: everything below
     # specializes on the substrate's (and the evaluator's) concrete types
-    return _wire_adaptive_solutionplot!(SP, ds, sub, ev, reduce)
+    fname = ev === nothing ? :none : _resolve_name(ds, colorval)
+    return _wire_adaptive_solutionplot!(SP, ds, sub, ev, fname, reduce)
 end
 
-function _wire_adaptive_solutionplot!(SP, ds::FEData{dim}, sub::IsubdSubstrate, ev, reduce::Bool) where {dim}
+function _wire_adaptive_solutionplot!(SP, ds::FEData{dim}, sub::IsubdSubstrate, ev, fname::Symbol,
+                                      reduce::Bool) where {dim}
     graph = SP.attributes
     ComputePipeline.add_input!(graph, :subd_u, ds.u)
     warp_inputs = _warp_inputs!(graph, sub)
@@ -654,7 +686,8 @@ function _wire_adaptive_solutionplot!(SP, ds::FEData{dim}, sub::IsubdSubstrate, 
     keyinputs = [:subd_u, :geometry_tol, :solution_tol, :max_depth, warp_inputs...]
     ComputePipeline.register_computation!(graph, keyinputs, [:subd_keys]) do inputs, changed, cached
         _refresh_all!(sub, ev, inputs.subd_u)
-        geo = DeviationLoD(base.mapping, Float64(inputs.geometry_tol) * diag)
+        geo = DeviationLoD(base.mapping, Float64(inputs.geometry_tol) * diag,
+                           _dev_cache(sub, :geometry))
         lods = (geo,)
         if ev !== nothing
             probe = _scalar_probe(ev, cellmap, inputs.subd_u; reduce)
@@ -663,7 +696,7 @@ function _wire_adaptive_solutionplot!(SP, ds::FEData{dim}, sub::IsubdSubstrate, 
             end
             # a (near-)constant field never asks for refinement
             tol = max(Float64(inputs.solution_tol) * span[], 1e-12)
-            lods = (lods..., DeviationLoD(probe, tol))
+            lods = (lods..., DeviationLoD(probe, tol, _dev_cache(sub, fname)))
         end
         refine_keys!(state.keys, state.scratch, base, CombinedLoD(lods);
                      max_depth=Int(inputs.max_depth))

@@ -350,6 +350,79 @@ end
     @test length(sp.subd_keys[]) > 4 * Ferrite.getncells(grid)
 end
 
+@testset "adaptive: deviations are memoized on the substrate" begin
+    grid = generate_grid(QuadraticQuadrilateral, (4, 4))
+    dh = DofHandler(grid)
+    add!(dh, :p, Lagrange{RefQuadrilateral,2}())
+    close!(dh)
+    u = zeros(ndofs(dh))
+    Ferrite.apply_analytical!(u, dh, :p, x -> sin(pi * x[1]) * sin(pi * x[2]))
+    ds = FEData(dh, u)
+
+    _, _, sp1 = solutionplot(ds; adaptive=true, solution_tol=5e-3, max_depth=8)
+    keys1 = sort(sp1.subd_keys[])
+    sub = FerriteViz._substrate(ds)
+    # a memo entry is written per evaluated key, so the sizes count evaluations
+    ngeo, nsol = length(sub.dev_caches[:geometry]), length(sub.dev_caches[:p])
+    @test ngeo > 0 && nsol > 0
+
+    # a second identical plot decides the same mesh from lookups alone
+    _, _, sp2 = solutionplot(ds; adaptive=true, solution_tol=5e-3, max_depth=8)
+    @test sort(sp2.subd_keys[]) == keys1
+    @test length(sub.dev_caches[:geometry]) == ngeo
+    @test length(sub.dev_caches[:p]) == nsol
+
+    # loosening a tolerance re-decides without a single new evaluation (every
+    # key the merge pass asks about was once a leaf, hence memoized)
+    Makie.update!(sp2, solution_tol=5e-2)
+    @test length(sp2.subd_keys[]) < length(keys1)
+    @test length(sub.dev_caches[:p]) == nsol
+    # tightening evaluates only the genuinely new, deeper keys
+    Makie.update!(sp2, solution_tol=5e-4)
+    @test length(sp2.subd_keys[]) > length(keys1)
+    @test length(sub.dev_caches[:p]) > nsol
+    # ...and leaves the other plot's mesh alone (keys stay per plot)
+    @test sort(sp1.subd_keys[]) == keys1
+
+    # a solution update invalidates the memos: cleared, then refilled for the
+    # new state — and the plots re-refine against fresh deviations
+    n_tight = length(sub.dev_caches[:p])
+    FerriteViz.update!(ds, 2 .* u)
+    sp1.subd_keys[]; sp2.subd_keys[]
+    @test sub.dev_epoch[] == sub.epoch[]
+    @test 0 < length(sub.dev_caches[:p]) <= n_tight
+end
+
+@testset "adaptive: wireframe and surface share the geometry memo" begin
+    grid = generate_grid(Quadrilateral, (4, 4))
+    dh = DofHandler(grid)
+    add!(dh, :u, Lagrange{RefQuadrilateral,2}()^2)
+    close!(dh)
+    u = zeros(ndofs(dh))
+    Ferrite.apply_analytical!(u, dh, :u, x -> Ferrite.Vec(0.0, 0.15 * sin(pi * x[1])))
+    scale = Makie.Observable(1.0)
+    wds = FEData(dh, u) |> WarpByVector(:u, scale)
+
+    _, _, sp = solutionplot(wds; adaptive=true, color=:red, geometry_tol=1e-3, max_depth=8)
+    sp.subd_keys[]
+    sub = FerriteViz._substrate(wds)
+    ngeo = length(sub.dev_caches[:geometry])
+    @test ngeo > 0
+    _, _, wp = meshplot(wds; adaptive=true, geometry_tol=1e-3, max_depth=8)
+    @test length(wp.edge_lines[]) > 0
+    @test length(sub.dev_caches[:geometry]) == ngeo   # decided from the memo
+
+    # a warp-scale change is a new epoch: the stale geometry deviations are
+    # dropped, not reused — the flattened plot re-evaluates and coarsens
+    nwarped = length(sp.subd_keys[])
+    e0 = sub.epoch[]
+    scale[] = 0.0
+    @test sub.epoch[] > e0
+    @test length(sp.subd_keys[]) < nwarped   # flat geometry coarsens
+    @test sub.dev_epoch[] == sub.epoch[]     # the memo was rebuilt for the new state
+    scale[] = 1.0
+end
+
 @testset "adaptive: solution span comes from the dof values" begin
     # a peak at an edge-midpoint node is invisible to every base-triangle
     # corner (element vertices and fan centres): sampling the span there once

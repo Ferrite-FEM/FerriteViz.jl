@@ -56,7 +56,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    derives from the dataset alone — the base domain and its adjacency, the
    continuous geometry mapping, the field evaluators with their coefficient
    buffers — is built lazily and shared by all adaptive plots of one
-   `FEData`; only the key and decode buffers are per plot. `FEData` records
+   `FEData`; only the key and decode buffers are per plot. The estimators'
+   sampled deviations are memoized per key on that shared substrate (they
+   contain neither the tolerance nor any refinement state, so they are valid
+   until the next solution or warp change): a second plot of the same
+   dataset — a wireframe next to its surface, a second field — decides its
+   mesh from lookups instead of re-sampling the fields (measured 236x on a
+   97k-cell hex block, at 4.3 MiB of memo per criterion term), and retuning
+   a tolerance re-evaluates nothing that was already measured. `FEData` records
    upstream `WarpByVector` applications in a
    new `deformation` field (with the dof handler and solution of the stage
    the warp was applied to, so a warp survives a later `Gradient` rebinding

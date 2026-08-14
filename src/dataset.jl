@@ -179,6 +179,11 @@ end
 function _default_topology(grid)
     return Ferrite.getspatialdim(grid) > 2 ? Ferrite.ExclusiveTopology(grid) : nothing
 end
+# ExclusiveTopology matches raw node sets, which across a 2:1 refinement
+# interface match nothing — every AMR interface would read as "boundary". The
+# adaptive path pairs facets conformity-aware instead (`_amr_interior_facets`);
+# consumers that require a topology (CrinkleClip) error cleanly for now.
+_default_topology(::Ferrite.NonConformingGrid) = nothing
 
 # `:default` is the sentinel every filter and representation resolves to the
 # *first* field of the dof handler (see `_resolve_name`). A dof field actually
@@ -209,8 +214,17 @@ function FEData(dh::Ferrite.AbstractDofHandler, u::Makie.Observable;
 
     visible = zeros(Bool, ncells)
     if sdim > 2
-        boundaryfaces = findall(isempty, topology.face_face_neighbor)
-        visible[Ferrite.getindex.(boundaryfaces, 1)] .= true
+        if grid isa Ferrite.NonConformingGrid
+            # conformity-aware boundary detection (see _default_topology)
+            interior = _amr_interior_facets(grid)
+            for (cell_id, cell) in enumerate(Ferrite.getcells(grid))
+                nfaces = length(Ferrite.reference_faces(getrefshape(cell)))
+                visible[cell_id] = any(f -> !((cell_id, f) in interior), 1:nfaces)
+            end
+        else
+            boundaryfaces = findall(isempty, topology.face_face_neighbor)
+            visible[Ferrite.getindex.(boundaryfaces, 1)] .= true
+        end
     else
         visible .= true
     end

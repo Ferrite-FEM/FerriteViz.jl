@@ -33,6 +33,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    their next update and keep animating; static plots made before the regrid
    hold the old state (stale but alive) and are recreated; derived datasets
    re-apply their filter chain to the regridded root.
+ - Non-conforming (`ForestBWG`/AMR) grids draw watertight: the adaptive base
+   splits every fan rim at the grid's hanging nodes (via `conformity_info`),
+   so both sides of a 2:1 interface carry the same rim segments with the same
+   node ids and the conforming machinery closes the interface like any other
+   edge; a hanging face centre becomes its facet's fan centre. Surface
+   detection on these grids is conformity-aware (a fine facet whose hanging
+   nodes are replaced by their masters matches the coarse facet across the
+   interface), where `ExclusiveTopology` — which is skipped for them — would
+   call every AMR interface "boundary" and draw coincident facets twice.
+   Together with `regrid!` this is the `ForestBWG` workflow: refine/balance
+   the forest, `creategrid`, rebuild the dof handler, `regrid!` — the live
+   adaptive plots follow.
  - Experimental error-adaptive tessellation for `solutionplot` (#161):
    `solutionplot(ds; adaptive=true)` re-tessellates the visible cells by
    longest-edge bisection driven by two interpolation-error estimators —

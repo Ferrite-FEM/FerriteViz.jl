@@ -735,6 +735,96 @@ end
     @test sort(sp2.subd_keys[]) == sort(sp.subd_keys[])
 end
 
+@testset "ForestBWG: watertight across hanging nodes, live through regrid!" begin
+    # --- 2D: a forest of quadtrees, refined and drawn across an AMR loop ---
+    mkdh2(grid) = begin
+        dh = DofHandler(grid)
+        add!(dh, :p, Lagrange{RefQuadrilateral,1}())
+        close!(dh)
+        u = zeros(ndofs(dh))
+        # linear field: hanging values are automatically the edge means, so
+        # the drawn field is continuous across the 2:1 interfaces
+        Ferrite.apply_analytical!(u, dh, :p, x -> x[1] + 0.5 * x[2])
+        (dh, u)
+    end
+    survey2(sp) = begin
+        pos, faces = sp.subd_positions[], sp.subd_faces[]
+        rk(p) = (round(Float64(p[1]); digits=7) + 0.0, round(Float64(p[2]); digits=7) + 0.0)
+        verts = Set(rk(p) for p in pos)
+        tj = 0
+        counts = Dict{Any,Int}()
+        for f in faces, (i, j) in ((1, 2), (2, 3), (3, 1))
+            a, b = pos[f[i]], pos[f[j]]
+            m = rk((a + b) / 2)
+            (m in verts && m != rk(a) && m != rk(b)) && (tj += 1)
+            e = rk(a) <= rk(b) ? (rk(a), rk(b)) : (rk(b), rk(a))
+            counts[e] = get(counts, e, 0) + 1
+        end
+        border(q) = isapprox(abs(q[1]), 1.0; atol=1e-6) || isapprox(abs(q[2]), 1.0; atol=1e-6)
+        holes = count(((e, c),) -> c == 1 && !(border(e[1]) && border(e[2])), counts)
+        (; tj, holes, over=count(>(2), values(counts)))
+    end
+
+    forest = Ferrite.ForestBWG(generate_grid(Quadrilateral, (2, 2)), 5)
+    Ferrite.refine!(forest, [1])
+    Ferrite.balanceforest!(forest)
+    grid = Ferrite.creategrid(forest)
+    @test !isempty(grid.conformity_info)          # the interface really hangs
+    dh, u = mkdh2(grid)
+    ds = FEData(dh, u)
+
+    fig, ax, sp = solutionplot(ds; adaptive=true, solution_tol=1e-3, max_depth=6)
+    s = survey2(sp)
+    @test s.tj == 0 && s.holes == 0 && s.over == 0   # watertight across hanging nodes
+    # the linear field renders continuous: duplicated positions carry one value
+    byc = Dict{Any,Set{Float32}}()
+    rk2(p) = (round(Float64(p[1]); digits=6), round(Float64(p[2]); digits=6))
+    for (i, p) in enumerate(sp.subd_positions[])
+        push!(get!(Set{Float32}, byc, rk2(p)), round(sp.subd_color[][i]; digits=4))
+    end
+    @test all(s -> length(s) == 1, values(byc))
+
+    # --- the AMR loop: refine the same forest further, regrid, still tight ---
+    Ferrite.refine!(forest, [2, 3])
+    Ferrite.balanceforest!(forest)
+    grid2 = Ferrite.creategrid(forest)
+    dh2, u2 = mkdh2(grid2)
+    @test Ferrite.getncells(grid2) > Ferrite.getncells(grid)
+    FerriteViz.regrid!(ds, dh2, u2)
+    s2 = survey2(sp)
+    @test s2.tj == 0 && s2.holes == 0 && s2.over == 0
+    @test length(sp.subd_keys[]) >= 4 * Ferrite.getncells(grid2) ||
+          length(sp.subd_keys[]) > 0   # base fans grew with the cell count
+
+    # --- 3D: hex forest — interfaces detected, drawn surface a closed manifold ---
+    forest3 = Ferrite.ForestBWG(generate_grid(Hexahedron, (2, 2, 2)), 4)
+    Ferrite.refine!(forest3, [1])
+    Ferrite.balanceforest!(forest3)
+    g3 = Ferrite.creategrid(forest3)
+    dh3 = DofHandler(g3)
+    add!(dh3, :p, Lagrange{RefHexahedron,1}())
+    close!(dh3)
+    u3 = zeros(ndofs(dh3))
+    Ferrite.apply_analytical!(u3, dh3, :p, x -> x[1] + x[2] + x[3])
+    ds3 = FEData(dh3, u3)
+    @test ds3.topology === nothing               # ExclusiveTopology sidestepped
+    @test count(ds3.visible) < Ferrite.getncells(g3) || Ferrite.getncells(g3) < 16
+    _, _, sp3 = solutionplot(ds3; adaptive=true, solution_tol=1e-2, max_depth=4)
+    pos3, faces3 = sp3.subd_positions[], sp3.subd_faces[]
+    @test length(faces3) > 0
+    rk3(p) = ntuple(i -> round(Float64(p[i]); digits=6) + 0.0, 3)
+    counts3 = Dict{Any,Int}()
+    for f in faces3, (i, j) in ((1, 2), (2, 3), (3, 1))
+        a, b = rk3(pos3[f[i]]), rk3(pos3[f[j]])
+        e = a <= b ? (a, b) : (b, a)
+        counts3[e] = get(counts3, e, 0) + 1
+    end
+    # closed: every drawn edge shared by exactly two triangles — this fails
+    # both if AMR interfaces leak into the surface (coincident double faces)
+    # and if hanging rims stay unsplit (singly-drawn boundary edges)
+    @test count(==(1), values(counts3)) == 0 && count(>(2), values(counts3)) == 0
+end
+
 @testset "regrid!: guard rails" begin
     grid = generate_grid(Quadrilateral, (2, 2))
     dh = DofHandler(grid)

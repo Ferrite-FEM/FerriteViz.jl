@@ -209,12 +209,93 @@ function _is_surface_facet(ds::FEData, cell_id::Int, facet::Int)
     return !ds.solid[first(neighbours)[1]]
 end
 
+# The hanging-node record of an adaptively refined (non-conforming) grid:
+# hanging node id -> its 2 (edge midpoint) or 4 (face centre) master node
+# ids, or `nothing` on a conforming grid. Reads the documented field of
+# Ferrite's NonConformingGrid; once the ForestBWG facade (Ferrite#1413)
+# provides an accessor, this indirection points there instead.
+_conformity_info(grid) = nothing
+_conformity_info(grid::Ferrite.NonConformingGrid) = grid.conformity_info
+
+# The conformity record, inverted for the base construction: sorted master
+# pair -> the hanging node on that element edge, and sorted master quadruple
+# -> the hanging node at that face's centre.
+function _hanging_maps(ci)
+    edges = Dict{NTuple{2,Int},Int}()
+    faces = Dict{NTuple{4,Int},Int}()
+    for (h, masters) in ci
+        if length(masters) == 2
+            edges[minmax(Int(masters[1]), Int(masters[2]))] = Int(h)
+        elseif length(masters) == 4
+            faces[NTuple{4,Int}(sort!(Int.(masters)))] = Int(h)
+        end
+    end
+    return edges, faces
+end
+_hanging_maps(::Nothing) = (Dict{NTuple{2,Int},Int}(), Dict{NTuple{4,Int},Int}())
+
+_hanging_on(edges::Dict{NTuple{2,Int},Int}, a::Int, b::Int) = get(edges, minmax(a, b), 0)
+
+# Interior facets of a non-conforming grid, by node identity. Exact node-set
+# matches pair conforming interfaces; across a 2:1 refinement-level jump the
+# fine facet's node set differs from the coarse one's, but replacing each
+# hanging node by its masters recovers exactly the coarse corner set — so the
+# fine facets match the coarse facet through that coarsening, and both sides
+# are interior. (ExclusiveTopology sees only raw node sets here and calls
+# every AMR interface "boundary", which would draw both coincident facets.)
+function _amr_interior_facets(grid::Ferrite.NonConformingGrid)
+    hang = _conformity_info(grid)
+    exact = Dict{Vector{Int},Tuple{Int,Int}}()
+    interior = Set{Tuple{Int,Int}}()
+    facets = Tuple{Int,Int,Vector{Int}}[]
+    for (cell_id, cell) in enumerate(Ferrite.getcells(grid))
+        for (f, face) in enumerate(Ferrite.reference_faces(getrefshape(cell)))
+            nodes = sort!(Int[cell.nodes[v] for v in face])
+            push!(facets, (cell_id, f, nodes))
+            if haskey(exact, nodes)                      # conforming pair
+                push!(interior, (cell_id, f), exact[nodes])
+            else
+                exact[nodes] = (cell_id, f)
+            end
+        end
+    end
+    for (cell_id, f, nodes) in facets
+        (cell_id, f) in interior && continue
+        coarse = Set{Int}()
+        anyhanging = false
+        for n in nodes
+            masters = get(hang, n, nothing)
+            if masters === nothing
+                push!(coarse, n)
+            else
+                anyhanging = true
+                union!(coarse, Int.(masters))
+            end
+        end
+        anyhanging || continue
+        partner = get(exact, sort!(collect(coarse)), nothing)
+        partner === nothing && continue
+        push!(interior, (cell_id, f), partner)
+    end
+    return interior
+end
+
+# One surface query per base build: topology-based on conforming grids,
+# conformity-aware facet matching on non-conforming (AMR) ones.
+function _surface_oracle(ds::FEData)
+    grid = Ferrite.get_grid(ds.dh)
+    if grid isa Ferrite.NonConformingGrid && Ferrite.getspatialdim(grid) > 2
+        interior = _amr_interior_facets(grid)
+        return (cell, f) -> !((cell, f) in interior)
+    end
+    return (cell, f) -> _is_surface_facet(ds, cell, f)
+end
+
 # One centre fan of a convex polygon given by its rim vertices in order:
 # (v[i+1], centre, v[i]) keeps the rim's winding while making the rim edge the
 # triangle's split edge, which is what the conforming refinement needs.
-function _push_fan!(corners, cornergids, cellmap, cell_id, rim, rimgids, counter)
-    centre = sum(rim) / length(rim)
-    centre_gid = (counter[] -= 1)
+function _push_fan!(corners, cornergids, cellmap, cell_id, rim, rimgids, counter;
+                    centre=sum(rim) / length(rim), centre_gid=(counter[] -= 1))
     for i in eachindex(rim)
         j = mod1(i + 1, length(rim))
         push!(corners, (rim[j], centre, rim[i]))
@@ -239,6 +320,13 @@ function _isubd_base_cells(ds::FEData)
     cornergids = NTuple{3,Int}[]
     cellmap = Int[]
     counter = Ref(0)
+    # Hanging nodes of a non-conforming (AMR) grid: the coarse side of a 2:1
+    # interface splits its rim at them, so both sides carry the same rim
+    # segments with the same *node* ids — the exact-gid pairing then closes
+    # the interface like any conforming edge, and the drawn surface stays
+    # watertight across refinement levels.
+    hangedges, hangfaces = _hanging_maps(_conformity_info(grid))
+    issurf = _surface_oracle(ds)
     for (cell_id, cell) in enumerate(cells)
         ds.visible[cell_id] || continue
         Ferrite.getrefdim(Ferrite.geometric_interpolation(typeof(cell))) == refdim ||
@@ -248,24 +336,46 @@ function _isubd_base_cells(ds::FEData)
         isempty(tess.triangles) && continue     # e.g. line cells carry no surface
         if refdim == 2 && !isempty(tess.edges)
             gids = _vertex_gids(cell, tess.coords, counter)
-            # the element edges, in whatever order the tessellation lists them
-            rim = unique(Iterators.flatten(tess.edges))
-            centre = sum(tess.coords[i] for i in rim) / length(rim)
-            centre_gid = (counter[] -= 1)
+            # walk the element edges in ring order, inserting hanging midpoints
+            rimξ = eltype(tess.coords)[]
+            rimg = Int[]
             for (a, b) in tess.edges
-                # (b, centre, a) keeps the fan's winding while making the
-                # element edge (b, a) the triangle's split edge
-                push!(corners, (tess.coords[b], centre, tess.coords[a]))
-                push!(cornergids, (gids[b], centre_gid, gids[a]))
-                push!(cellmap, cell_id)
+                push!(rimξ, tess.coords[a])
+                push!(rimg, gids[a])
+                h = _hanging_on(hangedges, gids[a], gids[b])
+                if h != 0
+                    push!(rimξ, (tess.coords[a] + tess.coords[b]) / 2)
+                    push!(rimg, h)
+                end
             end
+            _push_fan!(corners, cornergids, cellmap, cell_id, rimξ, rimg, counter)
         elseif refdim == 3
             vcoords = Ferrite.reference_coordinates(Ferrite.Lagrange{refshape,1}())
             vgids = _vertex_gids(cell, vcoords, counter)
             for (f, face) in enumerate(Ferrite.reference_faces(refshape))
-                _is_surface_facet(ds, cell_id, f) || continue
-                _push_fan!(corners, cornergids, cellmap, cell_id,
-                           [vcoords[v] for v in face], [vgids[v] for v in face], counter)
+                issurf(cell_id, f) || continue
+                rimξ = eltype(vcoords)[]
+                rimg = Int[]
+                for (i, v) in enumerate(face)
+                    w = face[mod1(i + 1, length(face))]
+                    push!(rimξ, vcoords[v])
+                    push!(rimg, vgids[v])
+                    h = _hanging_on(hangedges, vgids[v], vgids[w])
+                    if h != 0
+                        push!(rimξ, (vcoords[v] + vcoords[w]) / 2)
+                        push!(rimg, h)
+                    end
+                end
+                # a hanging face centre (a clip may expose the coarse side of
+                # an AMR interface) is the natural fan centre, with its real id
+                hc = length(face) == 4 ?
+                     get(hangfaces, NTuple{4,Int}(sort!(Int[vgids[v] for v in face])), 0) : 0
+                if hc != 0
+                    _push_fan!(corners, cornergids, cellmap, cell_id, rimξ, rimg, counter;
+                               centre=sum(vcoords[v] for v in face) / length(face), centre_gid=hc)
+                else
+                    _push_fan!(corners, cornergids, cellmap, cell_id, rimξ, rimg, counter)
+                end
             end
         else
             gids = _vertex_gids(cell, tess.coords, counter)
@@ -315,6 +425,7 @@ function _isubd_base_qp(ds::FEData, qp::QPPartition)
     edge_cuts = Dict{Tuple{Int,Int,Float64},Int}()
     regions_cache = Dict{Type,Any}()
     ngroups = 0
+    issurf = _surface_oracle(ds)
     for (cell_id, cell) in enumerate(cells)
         ds.visible[cell_id] || continue
         Ferrite.getrefdim(Ferrite.geometric_interpolation(typeof(cell))) == refdim ||
@@ -327,7 +438,7 @@ function _isubd_base_qp(ds::FEData, qp::QPPartition)
         refedges = Ferrite.reference_edges(refshape)
         local_pool = Dict{NTuple{refdim,Float64},Int}()
         for (fi, qpi, poly) in regions
-            refdim == 3 && !_is_surface_facet(ds, cell_id, fi) && continue
+            refdim == 3 && !issurf(cell_id, fi) && continue
             rimgids = [_qp_vertex_gid(ξ, refcorners, refedges, cell.nodes, local_pool,
                                       edge_cuts, counter) for ξ in poly]
             ngroups += 1

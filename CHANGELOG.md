@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+ - Compat floors raised for this release: Makie `0.24.13` (the ComputePipeline
+   surface the migrated recipes build on), Ferrite `1.6`, Julia `1.10` (the
+   LTS, which CI tests).
  - The Makie recipes were migrated to the new-style `@recipe` with declared,
    documented attribute blocks, and compute derived values in the plot's
    `ComputeGraph` (Makie ≥ 0.24 / ComputePipeline) instead of Observable

@@ -353,6 +353,10 @@ end
     p, r, f = mesh.positions, mesh.refcoords, mesh.faces
     FV.decode_keys!(mesh, keys, base)
     @test mesh.positions === p && mesh.refcoords === r && mesh.faces === f
-    allocs = @allocated FV.decode_keys!(mesh, keys, base)
-    @test allocs == 0
+    # zero-allocation steady state, measured behind a function barrier: on
+    # Julia 1.10 an `@allocated` directly in the testset body measures the
+    # body's own dynamic-dispatch overhead (48 bytes) on top of the call
+    measure_decode(mesh, keys, base) = @allocated FV.decode_keys!(mesh, keys, base)
+    measure_decode(mesh, keys, base)
+    @test measure_decode(mesh, keys, base) == 0
 end

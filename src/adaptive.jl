@@ -531,6 +531,11 @@ struct IsubdSubstrate{B<:IsubdBase,CC,W<:Vector}
     # from lookups (~2ns) instead of re-sampling the fields (~500ns/key).
     dev_caches::Dict{Symbol,Dict{UInt64,Float64}}
     dev_epoch::Base.RefValue{Int}       # epoch the memos are valid for
+    # The observable listeners this substrate registered (epoch bumps on the
+    # solution and warp observables). `regrid!` detaches them via
+    # `_clear_substrate!` — otherwise every discarded substrate would stay
+    # alive through its listener on the dataset's long-lived `u`.
+    listeners::Vector{Any}
 end
 
 function _build_substrate(ds::FEData)
@@ -543,18 +548,18 @@ function _build_substrate(ds::FEData)
     base = IsubdBase(corners, mapping, adjacency)
     epoch = Ref(0)
     bump(_) = (epoch[] += 1; nothing)
-    Makie.on(bump, ds.u)
+    listeners = Any[Makie.on(bump, ds.u)]
     for w in warps
-        w.u === ds.u || Makie.on(bump, w.u)
+        w.u === ds.u || push!(listeners, Makie.on(bump, w.u))
         # the deviation memos also depend on the warp's scale and field (the
         # coefficients do not, but one shared epoch is simpler than two, and
         # an occasional redundant prepare! is cheap)
-        Makie.on(bump, w.scale)
-        Makie.on(bump, w.name)
+        push!(listeners, Makie.on(bump, w.scale))
+        push!(listeners, Makie.on(bump, w.name))
     end
     return IsubdSubstrate(base, cellmap, groupmap, qpmap, edgemask, cellcoords, warps,
                           unique(cellmap), _grid_diagonal(grid), Dict{Symbol,FieldEvaluator}(),
-                          epoch, Dict{Symbol,Dict{UInt64,Float64}}(), Ref(-1))
+                          epoch, Dict{Symbol,Dict{UInt64,Float64}}(), Ref(-1), listeners)
 end
 
 # The dataset's substrate, built on first use. Deliberately behind a
@@ -568,6 +573,24 @@ function _substrate(ds::FEData)
     sub = _build_substrate(ds)
     ds.subd_cache[] = sub
     return sub
+end
+
+# Drop the dataset's substrate and detach its observable listeners — the
+# `regrid!` half of the substrate's lifecycle (construction is `_substrate`).
+function _clear_substrate!(ds::FEData)
+    cached = ds.subd_cache[]
+    cached === nothing && return nothing
+    _off_substrate_listeners(cached)
+    ds.subd_cache[] = nothing
+    return nothing
+end
+
+function _off_substrate_listeners(sub::IsubdSubstrate)
+    for l in sub.listeners
+        Makie.Observables.off(l)
+    end
+    empty!(sub.listeners)
+    return nothing
 end
 
 # The substrate-wide evaluator of one dof field, shared (with its coefficient
@@ -644,7 +667,8 @@ function _chain_node(sub::IsubdSubstrate, ds::FEData, src::FieldSource, ::Val{sd
         se = SourceEval(FieldEvaluator(src.dh, src.name), src.u, src.name, term)
         # its solution must invalidate the shared epoch too (duplicate
         # listeners from several plots only advance the counter faster)
-        src.u === ds.u || Makie.on(_ -> (sub.epoch[] += 1; nothing), src.u)
+        src.u === ds.u ||
+            push!(sub.listeners, Makie.on(_ -> (sub.epoch[] += 1; nothing), src.u))
     end
     leaf = function (cell::Int, ξ)
         v = evaluate_at(se.ev, cell, ξ, se.u[])
@@ -829,11 +853,182 @@ function _warp_inputs!(graph, sub::IsubdSubstrate)
     return names
 end
 
+# ---------------------------------------------------------------------------
+# Regriddable wiring
+# ---------------------------------------------------------------------------
+#
+# A plot of a plain root dataset — no warps, no derivations, no quadrature
+# partition; exactly the datasets `regrid!` accepts — must not capture any
+# grid-derived object in its node closures. Everything grid-shaped lives in
+# an `AdaptiveState` that the key node revalidates against the dataset's
+# `grid_epoch` on every run: when `regrid!` moved it, the state rebuilds from
+# the fresh substrate (new base, new evaluator, keys reset to the new roots)
+# and the downstream nodes emit the new grid's buffers, which the mesh child
+# follows like any other refinement change. Derived datasets keep the
+# capture-style wiring below — they cannot regrid, and their extra graph
+# inputs (warp observables, chain sources, partition values) are fixed at
+# plot creation.
+mutable struct AdaptiveState
+    epoch::Int
+    sub::Any          # IsubdSubstrate; untyped across rebuilds (the mapping closure's type changes)
+    ev::Any           # FieldEvaluator, or nothing for plain colors
+    mesh_buf::Any     # IsubdMesh of the current base
+    keys::Vector{UInt64}
+    scratch::Vector{UInt64}
+    prev::Vector{UInt64}
+    span::Base.RefValue{Float64}
+end
+
+function _adaptive_state(ds::FEData, fname::Symbol, reduce::Bool)
+    st = AdaptiveState(-1, nothing, nothing, nothing, UInt64[], UInt64[], UInt64[], Ref(NaN))
+    _ensure_state!(st, ds, fname, reduce)
+    return st
+end
+
+function _ensure_state!(st::AdaptiveState, ds::FEData, fname::Symbol, reduce::Bool)
+    st.epoch == ds.grid_epoch && return st
+    sub = _substrate(ds)
+    st.ev = fname === :none ? nothing : _state_evaluator(sub, ds, fname, reduce)
+    st.sub = sub
+    st.mesh_buf = _fresh_mesh_buffer(sub)
+    _reset_keys!(st, sub)
+    st.span[] = NaN
+    st.epoch = ds.grid_epoch
+    return st
+end
+
+function _state_evaluator(sub::IsubdSubstrate, ds::FEData, fname::Symbol, reduce::Bool)
+    fname in Ferrite.getfieldnames(ds.dh) ||
+        error("after regrid!, the color field :$fname no longer exists in the new dof handler — " *
+              "recreate the plot")
+    ev = _field_evaluator(sub, ds.dh, fname)
+    reduce || ev.ncomps == 1 ||
+        error("field :$fname has $(ev.ncomps) components; adaptive coloring needs a scalar " *
+              "(or :default, which reduces to the magnitude)")
+    return ev
+end
+
+_fresh_mesh_buffer(sub::IsubdSubstrate) = IsubdMesh(sub.base)
+
+function _reset_keys!(st::AdaptiveState, sub::IsubdSubstrate)
+    roots = root_keys(sub.base)
+    resize!(st.keys, length(roots))
+    copy!(st.keys, roots)
+    empty!(st.scratch)
+    empty!(st.prev)
+    return nothing
+end
+
+# The node bodies, as function barriers over the state's untyped fields. They
+# mirror the capture-style nodes below exactly; `inputs.solution_tol` is only
+# touched when a field is drawn, which is what lets the wireframe (whose
+# recipe has no such attribute) share `_keys_step!`.
+function _keys_step!(sub::IsubdSubstrate, st::AdaptiveState, ev, fname::Symbol, reduce::Bool,
+                     inputs, changed, cached)
+    _refresh_all!(sub, ev, inputs.subd_u)
+    geo = DeviationLoD(sub.base.mapping, Float64(inputs.geometry_tol) * sub.diag,
+                       _dev_cache(sub, :geometry))
+    lods = (geo,)
+    if ev !== nothing
+        probe = _scalar_probe(ev, sub.cellmap, inputs.subd_u; reduce)
+        if isnan(st.span[]) || changed.subd_u
+            st.span[] = _field_span(ev, sub.used_cells, inputs.subd_u; reduce)
+        end
+        # a (near-)constant field never asks for refinement
+        tol = max(Float64(inputs.solution_tol) * st.span[], 1e-12)
+        lods = (lods..., DeviationLoD(probe, tol, _dev_cache(sub, fname)))
+    end
+    refine_keys!(st.keys, st.scratch, sub.base, CombinedLoD(lods);
+                 max_depth=Int(inputs.max_depth))
+    cached !== nothing && st.keys == st.prev && return nothing
+    copy!(st.prev, st.keys)
+    return (st.keys,)
+end
+
+function _topo_step!(sub::IsubdSubstrate, mesh_buf::IsubdMesh, keys::Vector{UInt64},
+                     faces_out::Vector{GeometryBasics.GLTriangleFace})
+    decode_topology!(mesh_buf, keys, sub.base; groups=sub.groupmap)
+    resize!(faces_out, length(mesh_buf.faces))
+    @inbounds for i in eachindex(mesh_buf.faces)
+        f = mesh_buf.faces[i]
+        faces_out[i] = GeometryBasics.GLTriangleFace(f[1], f[2], f[3])
+    end
+    return (mesh_buf.refcoords, faces_out)
+end
+
+function _positions_step!(sub::IsubdSubstrate, mesh_buf::IsubdMesh, ev, u, positions_out)
+    _refresh_all!(sub, ev, u)
+    decode_positions!(mesh_buf, sub.base)
+    return _render_positions!(positions_out, mesh_buf.positions)
+end
+
+function _color_step!(sub::IsubdSubstrate, mesh_buf::IsubdMesh, ev::FieldEvaluator, u,
+                      colors_out::Vector{Float32}; reduce::Bool)
+    _refresh_all!(sub, ev, u)
+    return _transfer_at!(colors_out, ev, sub.cellmap, mesh_buf, u; reduce)
+end
+
+function _edges_step!(sub::IsubdSubstrate, keys::Vector{UInt64}, u, segments)
+    _refresh_all!(sub, nothing, u)
+    return _element_edge_segments!(segments, keys, sub.base, sub.edgemask)
+end
+
+function _wire_regriddable_solutionplot!(SP, ds::FEData{dim}, fname::Symbol, reduce::Bool) where {dim}
+    graph = SP.attributes
+    ComputePipeline.add_input!(graph, :subd_u, ds.u)
+    st = _adaptive_state(ds, fname, reduce)
+    faces_out = GeometryBasics.GLTriangleFace[]
+    positions_out = GeometryBasics.Point{dim,Float32}[]
+    colors_out = Float32[]
+    ComputePipeline.register_computation!(graph, [:subd_u, :geometry_tol, :solution_tol, :max_depth],
+                                          [:subd_keys]) do inputs, changed, cached
+        _ensure_state!(st, ds, fname, reduce)
+        return _keys_step!(st.sub, st, st.ev, fname, reduce, inputs, changed, cached)
+    end
+    ComputePipeline.register_computation!(graph, [:subd_keys], [:subd_ξ, :subd_faces]) do inputs, changed, cached
+        return _topo_step!(st.sub, st.mesh_buf, inputs.subd_keys, faces_out)
+    end
+    Makie.map!(graph, [:subd_ξ, :subd_u], :subd_positions) do _ξ, uu
+        return _positions_step!(st.sub, st.mesh_buf, st.ev, uu, positions_out)
+    end
+    if fname === :none
+        colornode = SP.color   # plain color, converted by the mesh child
+    else
+        Makie.map!(graph, [:subd_ξ, :subd_u], :subd_color) do _ξ, u
+            return _color_step!(st.sub, st.mesh_buf, st.ev, u, colors_out; reduce)
+        end
+        colornode = SP.subd_color
+    end
+    return Makie.mesh!(SP, SP.attributes, SP.subd_positions, SP.subd_faces, color=colornode)
+end
+
+function _wire_regriddable_wireframe!(WF, ds::FEData{dim}) where {dim}
+    graph = WF.attributes
+    ComputePipeline.add_input!(graph, :subd_u, ds.u)
+    st = _adaptive_state(ds, :none, false)
+    ComputePipeline.register_computation!(graph, [:subd_u, :geometry_tol, :max_depth],
+                                          [:subd_keys]) do inputs, changed, cached
+        _ensure_state!(st, ds, :none, false)
+        return _keys_step!(st.sub, st, nothing, :none, false, inputs, changed, cached)
+    end
+    # Makie draws 2D/3D points; pad 1D grids with a zero y-coordinate
+    segments = GeometryBasics.Point{max(dim, 2),Float32}[]
+    Makie.map!(graph, [:subd_keys, :subd_u], :edge_lines) do keys, u
+        return _edges_step!(st.sub, keys, u, segments)
+    end
+    return nothing
+end
+
 # The adaptive branch of meshplot's plot!: same refinement machinery as the
 # surface, but only the geometry criterion — a wireframe has no field to
-# resolve, only a curve to follow. The outer function exists as a barrier past
-# the dataset's untyped substrate cache.
-_adaptive_wireframe!(WF, ds::FEData) = _wire_adaptive_wireframe!(WF, ds, _substrate(ds))
+# resolve, only a curve to follow. Plain root datasets get the regriddable
+# wiring; derived ones (warps, quadrature partitions) the capture-style one.
+function _adaptive_wireframe!(WF, ds::FEData)
+    if isempty(ds.deformation) && ds.qp_partition === nothing
+        return _wire_regriddable_wireframe!(WF, ds)
+    end
+    return _wire_adaptive_wireframe!(WF, ds, _substrate(ds))
+end
 
 function _wire_adaptive_wireframe!(WF, ds::FEData{dim}, sub::IsubdSubstrate) where {dim}
     graph = WF.attributes
@@ -900,6 +1095,13 @@ function _adaptive_solutionplot!(SP, ds::FEData)
                   "array on the static tessellation and cannot be resampled. " *
                   "Color by a dof field, a derived quantity or a plain color, or use adaptive=false.")
         end
+    end
+
+    # a plain root dataset gets the regriddable wiring (per-plot state
+    # revalidated against ds.grid_epoch, so the plot survives regrid!); the
+    # eager resolution above already validated the color
+    if chain === nothing && isempty(ds.deformation) && ds.qp_partition === nothing
+        return _wire_regriddable_solutionplot!(SP, ds, ev === nothing ? :none : fname, reduce)
     end
 
     # barrier past the dataset's untyped substrate cache: everything below

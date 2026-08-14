@@ -661,6 +661,105 @@ end
     @test count(==(1), values(counts)) == 0 && count(>(2), values(counts)) == 0
 end
 
+@testset "regrid!: adaptive plots survive a topology change" begin
+    mkscene(N) = begin
+        grid = generate_grid(Quadrilateral, (N, N))
+        dh = DofHandler(grid)
+        add!(dh, :p, Lagrange{RefQuadrilateral,2}())
+        close!(dh)
+        u = zeros(ndofs(dh))
+        Ferrite.apply_analytical!(u, dh, :p, x -> exp(-20 * (x[1]^2 + x[2]^2)))
+        (dh, u)
+    end
+    dh1, u1 = mkscene(3)
+    ds = FEData(dh1, u1)
+    @test ds.grid_epoch == 0
+
+    fig, ax, sp = solutionplot(ds; adaptive=true, solution_tol=2e-3, max_depth=8)
+    _, _, wp = meshplot(ds; adaptive=true, geometry_tol=1e-3)
+    _, _, spc = solutionplot(ds; adaptive=true, color=:red)     # plain color
+    _, _, static = solutionplot(ds)                             # static path
+    k1 = length(sp.subd_keys[])
+    n1 = length(wp.edge_lines[])
+    @test k1 > 0 && n1 > 0
+    coords_old = ds.coords
+
+    # the world swap: more cells, new dofs, same dataset object
+    dh2, u2 = mkscene(5)
+    FerriteViz.regrid!(ds, dh2, u2)
+    @test ds.grid_epoch == 1
+    @test ds.dh === dh2
+    @test Ferrite.getncells(Ferrite.get_grid(ds.dh)) == 25
+    @test ds.coords !== coords_old            # fresh observables for new plots
+
+    # the adaptive plots rebuilt against the new grid
+    @test length(sp.subd_keys[]) != k1
+    @test all(k -> 1 <= FerriteViz.key_base(k) <= length(FerriteViz._substrate(ds).base.corners),
+              sp.subd_keys[])
+    # colors are exact evaluations of the NEW field at the refined vertices:
+    # re-decode the plot's key set against the new substrate and compare per
+    # vertex with a direct field evaluation (Float32 precision)
+    function max_field_dev(sp, ds, uref)
+        sub = FerriteViz._substrate(ds)
+        ev = FerriteViz.FieldEvaluator(ds.dh, :p)
+        FerriteViz.prepare!(ev, 1:Ferrite.getncells(Ferrite.get_grid(ds.dh)), uref)
+        m = FerriteViz.IsubdMesh(sub.base)
+        FerriteViz.decode_topology!(m, sp.subd_keys[], sub.base; groups=sub.groupmap)
+        col = sp.subd_color[]
+        return maximum(abs(Float64(col[v]) -
+                           FerriteViz.evaluate_at(ev, sub.cellmap[m.vertex_base[v]],
+                                                  m.refcoords[v], uref))
+                       for v in eachindex(m.refcoords))
+    end
+    pos, col = sp.subd_positions[], sp.subd_color[]
+    @test length(pos) == length(col)
+    @test max_field_dev(sp, ds, u2) < 1e-6
+    # the wireframe followed too, and the plain-color plot did not die
+    @test length(wp.edge_lines[]) != n1
+    @test length(spc.subd_positions[]) == length(sp.subd_positions[]) ||
+          length(spc.subd_keys[]) > 0
+    # the pre-regrid static plot holds the old (orphaned) observables — stale
+    # but alive; it must not have crashed the session
+    @test length(coords_old[]) > 0
+
+    # updates keep flowing after the regrid, and a second regrid works
+    FerriteViz.update!(ds, 2 .* u2)
+    @test maximum(sp.subd_color[]) > 1.5
+    dh3, u3 = mkscene(4)
+    FerriteViz.regrid!(ds, dh3, u3)
+    @test ds.grid_epoch == 2
+    @test max_field_dev(sp, ds, u3) < 1e-6
+
+    # a plot created AFTER regrids agrees with the surviving one
+    _, _, sp2 = solutionplot(ds; adaptive=true, solution_tol=2e-3, max_depth=8)
+    @test sort(sp2.subd_keys[]) == sort(sp.subd_keys[])
+end
+
+@testset "regrid!: guard rails" begin
+    grid = generate_grid(Quadrilateral, (2, 2))
+    dh = DofHandler(grid)
+    add!(dh, :u, Lagrange{RefQuadrilateral,2}()^2)
+    close!(dh)
+    u = zeros(ndofs(dh))
+    ds = FEData(dh, u)
+    wds = ds |> WarpByVector(:u, 1.0)
+    gds = ds |> Gradient(:u)
+    dh2 = DofHandler(generate_grid(Quadrilateral, (3, 3)))
+    add!(dh2, :u, Lagrange{RefQuadrilateral,2}()^2)
+    close!(dh2)
+    u2 = zeros(ndofs(dh2))
+    @test_throws ErrorException FerriteViz.regrid!(wds, dh2, u2)   # derived: warp
+    @test_throws ErrorException FerriteViz.regrid!(gds, dh2, u2)   # derived: rebound
+    @test_throws ErrorException FerriteViz.regrid!(ds, dh2, zeros(3))  # dof mismatch
+    dh_tri = DofHandler(generate_grid(Triangle, (2, 2)))
+    add!(dh_tri, :u, Lagrange{RefTriangle,1}()^2)
+    close!(dh_tri)
+    @test_throws ErrorException FerriteViz.regrid!(ds, dh_tri, zeros(ndofs(dh_tri)))  # kind change
+    # the root still works after the rejected attempts
+    FerriteViz.regrid!(ds, dh2, u2)
+    @test ds.grid_epoch == 1
+end
+
 @testset "adaptive meshplot: the wireframe is the surface's own edges" begin
     grid = generate_grid(QuadraticQuadrilateral, (4, 4))
     dh = DofHandler(grid)

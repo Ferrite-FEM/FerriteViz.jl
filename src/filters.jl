@@ -35,7 +35,7 @@ function _rebind(ds::FEData{dim}, dh, u::Makie.Observable;
         ds.all_triangles, ds.vis_triangles, ds.triangle_cell_map, ds.cell_triangle_offsets,
         ds.cell_vertex_offsets, ds.all_edges, ds.edge_cell_map, ds.cell_edge_offsets,
         ds.reference_coords, ds.mesh, point_data, cell_data, derivations, ds.qp_partition,
-        ds.deformation, ds.solid, Ref{Any}(nothing))
+        ds.deformation, ds.solid, Ref{Any}(nothing), 0)
 end
 
 ################
@@ -100,7 +100,7 @@ function apply(w::WarpByVector, ds::FEData{dim}) where {dim}
         ds.reference_coords, mesh, copy(ds.point_data), copy(ds.cell_data),
         copy(ds.point_derivations), ds.qp_partition,
         vcat(ds.deformation, [Deformation(ds.dh, ds.u, fname, scale)]), ds.solid,
-        Ref{Any}(nothing))
+        Ref{Any}(nothing), 0)
 end
 
 # Register a listener for cleanup when `owner` (a plot) is deleted; without an
@@ -185,7 +185,7 @@ function apply(c::CrinkleClip, ds::FEData{3})
         ds.reference_coords, mesh,
         Dict{Symbol,Makie.Observable}(), copy(ds.cell_data),
         Dict{Symbol,DerivedPointData}(), ds.qp_partition, ds.deformation, solid,
-        Ref{Any}(nothing))
+        Ref{Any}(nothing), 0)
 end
 
 ##########
@@ -516,7 +516,7 @@ function apply(f::AddQuadraturePointData, ds::FEData{dim}) where {dim}
         # the geometry was rebuilt from the grid: upstream warps are baked
         # into nothing here — apply WarpByVector after this filter (the static
         # coords and the adaptive substrate then agree on the deformation)
-        Deformation[], ds.solid, Ref{Any}(nothing))
+        Deformation[], ds.solid, Ref{Any}(nothing), 0)
 
     ncomponents = length(_qp_components(f.extract(_qp_at(values, 1, 1))))
     data = Makie.lift(f.values) do vals

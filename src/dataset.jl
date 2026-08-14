@@ -109,7 +109,12 @@ tessellation for every cell); custom levels are a filter application:
     a change is breaking. `adaptive=false` and explicit `Refine(n)` counts are
     stable.
 """
-struct FEData{dim,DH<:Ferrite.AbstractDofHandler,T1,TOP<:Union{Nothing,Ferrite.AbstractTopology},SU<:Makie.Observable,M,TRI} <: AbstractPlotter
+# Mutable for one reason: `regrid!` swaps the grid-derived state (an adaptive
+# ForestBWG-style workflow changes the number of elements between solves)
+# while the dataset object — and its solution observables — keep their
+# identity, so live adaptive plots follow the new grid instead of dying with
+# the old one.
+mutable struct FEData{dim,DH<:Ferrite.AbstractDofHandler,T1,TOP<:Union{Nothing,Ferrite.AbstractTopology},SU<:Makie.Observable,M,TRI} <: AbstractPlotter
     dh::DH
     u::Makie.Observable{Vector{T1}}   # this dataset's dof vector (possibly lifted from source_u)
     source_u::SU                      # the root solution observable; update! target
@@ -158,11 +163,17 @@ struct FEData{dim,DH<:Ferrite.AbstractDofHandler,T1,TOP<:Union{Nothing,Ferrite.A
     solid::Vector{Bool}
     # Lazily built adaptive-tessellation substrate (`IsubdSubstrate`), shared
     # by every adaptive plot of this dataset; `nothing` until the first one
-    # asks. Everything in it is a pure function of the fields above, so it is
-    # never invalidated — filters return new FEData instances, each with a
-    # fresh (empty) cache. Untyped on purpose: plots retrieve it through the
-    # `_substrate` function barrier, keeping this struct's parameters stable.
+    # asks. Everything in it is a pure function of the fields above, so only
+    # `regrid!` invalidates it — filters return new FEData instances, each
+    # with a fresh (empty) cache. Untyped on purpose: plots retrieve it
+    # through the `_substrate` function barrier, keeping this struct's
+    # parameters stable.
     subd_cache::Base.RefValue{Any}
+    # Bumped by `regrid!`. Adaptive plots compare it against the epoch their
+    # per-plot state was built for and rebuild when it moved (the same
+    # epoch-guarded-cache pattern as the substrate's solution epoch, one
+    # level up).
+    grid_epoch::Int
 end
 
 function _default_topology(grid)
@@ -274,7 +285,7 @@ function _build_dataset(dh::Ferrite.AbstractDofHandler, u::Makie.Observable, sou
         reference_coords, mesh,
         Dict{Symbol,Makie.Observable}(), Dict{Symbol,Makie.Observable}(),
         Dict{Symbol,DerivedPointData}(), nothing,
-        Deformation[], fill(true, ncells), Ref{Any}(nothing))
+        Deformation[], fill(true, ncells), Ref{Any}(nothing), 0)
 end
 
 function _instantiate_cell!(physical_coords::Vector{GeometryBasics.Point{sdim,Float32}}, reference_coords,
@@ -367,6 +378,78 @@ function update!(ds::FEData, u::Vector)
     ds.source_u[] .= u
     Makie.notify(ds.source_u)
     return nothing
+end
+
+"""
+    regrid!(ds::FEData, dh_new, u_new::AbstractVector; topology, adaptive=true)
+
+Swap the dataset's grid world for a new one — a new dof handler over a
+(re)generated grid together with its solution vector — while `ds` and its
+solution observables keep their identity. This is the entry point for
+adaptive (AMR) workflows, where every refinement step changes the number of
+elements: rebuild the dof handler as the solver requires anyway, then hand
+the pair over here.
+
+What follows the swap, and what does not:
+
+  * **Adaptive plots survive.** `solutionplot(ds; adaptive=true)` and
+    `meshplot(ds; adaptive=true)` rebuild their tessellation state against
+    the new grid on their next update and keep animating — that is the point.
+  * **Static plots do not.** Plots of the fixed tessellation made *before*
+    the regrid keep showing the old grid (they hold the old, now-orphaned
+    coordinate observables — stale, but alive); delete and recreate them.
+    Plots made *after* see the new grid.
+  * **Only the root dataset regrids.** Filters capture the dof handler they
+    were applied to, so a derived dataset (warp, gradient, clip, …) cannot
+    follow; re-apply the filter chain to the regridded root instead.
+    Registered point/cell data arrays are cleared for the same reason.
+
+The new dof handler must be of the same type as the old (same grid and cell
+types — an AMR step refines the mesh, it does not change its kind), and
+`u_new` must match its dof count.
+"""
+function regrid!(ds::FEData{dim}, dh::Ferrite.AbstractDofHandler, u::AbstractVector;
+                 topology=_default_topology(Ferrite.get_grid(dh)), adaptive::Bool=true) where {dim}
+    ds.source_u === ds.u ||
+        error("regrid! applies to the root dataset; this one was derived by a filter — " *
+              "regrid the root and re-apply the filter chain")
+    isempty(ds.deformation) && ds.qp_partition === nothing ||
+        error("regrid! applies to the root dataset; this one carries filter provenance")
+    Ferrite.ndofs(dh) == length(u) ||
+        error("length mismatch: the new dof handler has $(Ferrite.ndofs(dh)) dofs, got $(length(u))")
+    # a fresh, complete state through the ordinary constructor — with its own
+    # observables and buffers, which plots created before the regrid keep
+    # holding (stale but alive) while plots created after wire to the new ones
+    tmp = FEData(dh, Makie.Observable(collect(u)); topology, adaptive)
+    typeof(tmp) == typeof(ds) ||
+        error("the new dof handler must match the old dataset's type (same grid, cell and " *
+              "topology types); regridding cannot change the kind of mesh")
+    _clear_substrate!(ds)
+    ds.dh = tmp.dh
+    ds.topology = tmp.topology
+    ds.visible = tmp.visible
+    ds.solid = tmp.solid
+    ds.gridnodes = tmp.gridnodes
+    ds.coords = tmp.coords
+    ds.coords_buffer = tmp.coords_buffer
+    ds.all_triangles = tmp.all_triangles
+    ds.vis_triangles = tmp.vis_triangles
+    ds.triangle_cell_map = tmp.triangle_cell_map
+    ds.cell_triangle_offsets = tmp.cell_triangle_offsets
+    ds.cell_vertex_offsets = tmp.cell_vertex_offsets
+    ds.all_edges = tmp.all_edges
+    ds.edge_cell_map = tmp.edge_cell_map
+    ds.cell_edge_offsets = tmp.cell_edge_offsets
+    ds.reference_coords = tmp.reference_coords
+    ds.mesh = tmp.mesh
+    empty!(ds.point_data)
+    empty!(ds.cell_data)
+    empty!(ds.point_derivations)
+    ds.grid_epoch += 1
+    # last, after the world is consistent: one notification through the kept
+    # solution observable carries grid and solution to the plots together
+    ds.source_u[] = collect(u)
+    return ds
 end
 
 ##############

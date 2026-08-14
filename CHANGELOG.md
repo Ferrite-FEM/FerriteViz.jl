@@ -24,6 +24,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    keyword to a recipe is now an error instead of being silently ignored.
 
 ### Added
+ - `FerriteViz.regrid!(ds, dh_new, u_new)`: swap a root dataset's grid world —
+   a new dof handler over a (re)generated grid with its solution — while the
+   dataset and its solution observables keep their identity. Built for
+   adaptive (AMR/`ForestBWG`) workflows where every refinement step changes
+   the element count: adaptive plots (`solutionplot`/`meshplot` with
+   `adaptive=true`) rebuild their tessellation state against the new grid on
+   their next update and keep animating; static plots made before the regrid
+   hold the old state (stale but alive) and are recreated; derived datasets
+   re-apply their filter chain to the regridded root.
  - Experimental error-adaptive tessellation for `solutionplot` (#161):
    `solutionplot(ds; adaptive=true)` re-tessellates the visible cells by
    longest-edge bisection driven by two interpolation-error estimators —

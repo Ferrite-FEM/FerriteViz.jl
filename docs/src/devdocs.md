@@ -120,7 +120,6 @@ FerriteViz.decode_keys!
 FerriteViz.decode_topology!
 FerriteViz.decode_positions!
 FerriteViz.UniformLoD
-FerriteViz.ScreenSpaceLoD
 FerriteViz.DeviationLoD
 FerriteViz.CombinedLoD
 FerriteViz.CachedLoD

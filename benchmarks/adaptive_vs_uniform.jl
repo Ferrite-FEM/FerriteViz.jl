@@ -174,7 +174,7 @@ function run_adaptive(gtol::Float64, stol::Float64=gtol)
     m_update = @allocated step!()
     while ds.u[] != u; step!(); end
 
-    base, cellmap, _ = FV._isubd_base(ds |> WarpByVector(:u, WARP))
+    cellmap = FV._substrate(ds |> WarpByVector(:u, WARP)).cellmap
     keys = sp.subd_keys[]
     cell_of = [cellmap[FV.key_base(k)] for k in keys]
     positions, faces, colors = sp.subd_positions[], sp.subd_faces[], sp.subd_color[]

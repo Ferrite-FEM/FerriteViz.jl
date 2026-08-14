@@ -19,7 +19,7 @@
     @test length(sp.subd_positions[]) < 3 * keys0        # vertices are shared within a cell
     @test length(sp.subd_faces[]) == keys0
 
-    # no camera in the graph unless px_target is set
+    # the camera is never an input: refinement is error-driven only
     @test !haskey(sp.attributes.outputs, :subd_projectionview)
 
     # nothing recomputes without an update (decode identity stable)
@@ -100,9 +100,11 @@ end
     ds = FEData(dh, u)
     wds = ds |> WarpByVector(:u, 1.5)
 
-    # provenance: the warp records itself, filters pass it through
+    # provenance: the warp records itself (with the dof handler and solution
+    # of the stage it was applied to), filters pass it through
     @test length(wds.deformation) == 1
-    @test wds.deformation[1][1][] == :u && wds.deformation[1][2][] == 1.5
+    @test wds.deformation[1].field[] == :u && wds.deformation[1].scale[] == 1.5
+    @test wds.deformation[1].dh === dh && wds.deformation[1].u === ds.u
     @test length((wds |> Gradient(:u)).deformation) == 1     # _rebind path
     @test isempty(ds.deformation)
 
@@ -160,24 +162,20 @@ end
         return (; tj, holes, over, n = length(faces))
     end
 
-    kw = (; adaptive = true, solution_tol = 2e-3, max_depth = 9)
-    _, _, conf = solutionplot(ds; kw..., conforming = true)
-    _, _, free = solutionplot(ds; kw..., conforming = false)
+    _, _, conf = solutionplot(ds; adaptive = true, solution_tol = 2e-3, max_depth = 9)
 
-    # the refinement really is non-uniform (otherwise the test proves nothing)
+    # the refinement really is non-uniform (otherwise the test proves nothing:
+    # T-vertices only ever appear at refinement-level boundaries — the
+    # unconstrained control lives in test/isubd.jl, at the core level)
     depths = [FerriteViz.key_depth(k) for k in conf.subd_keys[]]
     @test maximum(depths) - minimum(depths) >= 3
 
-    # conforming: no T-vertices, no holes, no overlaps — watertight
+    # no T-vertices, no holes, no overlaps — watertight
     s = survey(conf)
     @test s.tj == 0 && s.holes == 0 && s.over == 0
-    # non-conforming: the level boundaries leave T-vertices behind
-    @test survey(free).tj > 0
-    # and conformity is cheap: forced splits add a modest number of triangles
-    @test s.n < 1.5 * survey(free).n
 
     # the base adjacency is exact and symmetric
-    base, _, _ = FerriteViz._isubd_base(ds)
+    base = FerriteViz._substrate(ds).base
     @test FerriteViz.is_conformable(base)
     for b in 1:length(base.corners)
         n = FerriteViz.diamond_partner(base, FerriteViz.root_key(b))
@@ -206,7 +204,7 @@ end
 
     # the base is built from the *surface* facets only — six per corner cell of
     # a 3×3×3 block down to one per face-centre cell, fanned into four each
-    base, _, _ = FerriteViz._isubd_base(ds)
+    base = FerriteViz._substrate(ds).base
     nfacets = 6 * 9    # the cube's six sides, nine cells each
     @test length(base.corners) == 4 * nfacets
     @test length(base.corners) < length(ds.all_triangles)   # far fewer than the static path
@@ -234,17 +232,13 @@ end
                 n = length(faces))
     end
 
-    kw = (; adaptive = true, solution_tol = 5e-3, max_depth = 5)
-    _, _, conf = solutionplot(ds; kw..., conforming = true)
+    _, _, conf = solutionplot(ds; adaptive = true, solution_tol = 5e-3, max_depth = 5)
     s = survey(conf)
     @test s.tj == 0 && s.open == 0 && s.over == 0
     @test s.n < length(ds.all_triangles)
-    # the refinement is non-uniform (so the control below is not vacuous) and
-    # the unconforming variant does leave hanging nodes behind
+    # the refinement is non-uniform, so watertightness above is not vacuous
     depths = [FerriteViz.key_depth(k) for k in conf.subd_keys[]]
     @test maximum(depths) > minimum(depths)
-    _, _, free = solutionplot(ds; kw..., conforming = false)
-    @test survey(free).tj > 0
 end
 
 @testset "adaptive solutionplot: CrinkleClip keeps the surface closed" begin
@@ -264,7 +258,7 @@ end
     @test (clipped |> Gradient(:p)).solid == clipped.solid
 
     # the cut exposes new surface, and it is closed just like the outer one
-    base, _, _ = FerriteViz._isubd_base(clipped)
+    base = FerriteViz._substrate(clipped).base
     @test all(t -> all(e -> e[1] != 0, base.adjacency[t]), 1:length(base.corners))
     _, _, sp = solutionplot(clipped; adaptive = true, solution_tol = 5e-3, max_depth = 4)
     pos, faces = sp.subd_positions[], sp.subd_faces[]
@@ -278,34 +272,102 @@ end
     @test count(==(1), values(counts)) == 0 && count(>(2), values(counts)) == 0
 end
 
-@testset "adaptive solutionplot: optional screen-space criterion" begin
+@testset "adaptive substrate: shared per dataset, private per pipeline stage" begin
     grid = generate_grid(Quadrilateral, (3, 3))
     dh = DofHandler(grid)
-    add!(dh, :p, Lagrange{RefQuadrilateral,1}())
+    add!(dh, :p, Lagrange{RefQuadrilateral,2}())
     close!(dh)
-    ds = FEData(dh, rand(ndofs(dh)))
-    fig, ax, sp = solutionplot(ds; adaptive=true, px_target=30.0, max_depth=8)
-    @test haskey(sp.attributes.outputs, :subd_projectionview)
-    keys0 = length(sp.subd_keys[])
-    cam = Makie.camera(Makie.parent_scene(sp))
-    pv0 = cam.projectionview[]
-    zoom6 = Makie.Mat4f(6, 0, 0, 0, 0, 6, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)
-    cam.projectionview[] = zoom6 * pv0
-    @test length(sp.subd_keys[]) > keys0
-    # Exact restore: the state coarsens to a fixed point again, but not
-    # necessarily to keys0 — the error estimators are not monotone in depth,
-    # so detail discovered while zoomed in (whose deviation genuinely exceeds
-    # the tolerance) is kept rather than discarded. See the DeviationLoD
-    # docstring; the retained state is the more accurate fixed point.
-    cam.projectionview[] = pv0
-    krestored = sort(copy(sp.subd_keys[]))
-    @test length(krestored) >= keys0
-    @test sort(copy(sp.subd_keys[])) == krestored          # stable
-    # and the retained keys still tile the domain exactly (no overlap, no holes)
-    ξs, fs = sp.subd_ξ[], sp.subd_faces[]
-    area = sum(abs((ξs[f[2]][1] - ξs[f[1]][1]) * (ξs[f[3]][2] - ξs[f[1]][2]) -
-                   (ξs[f[3]][1] - ξs[f[1]][1]) * (ξs[f[2]][2] - ξs[f[1]][2])) / 2 for f in fs)
-    @test area ≈ 4.0 * Ferrite.getncells(grid) rtol = 1e-6  # each ref quad has area 4
+    u = zeros(ndofs(dh))
+    Ferrite.apply_analytical!(u, dh, :p, x -> x[1]^2 + 0.5 * x[2]^2)
+    ds = FEData(dh, u)
+
+    @test ds.subd_cache[] === nothing            # built lazily
+    _, _, sp1 = solutionplot(ds; adaptive=true, solution_tol=5e-3)
+    _, _, sp2 = solutionplot(ds; adaptive=true, solution_tol=1e-4)
+    sub = FerriteViz._substrate(ds)
+    @test ds.subd_cache[] === sub                # both plots hit one cache
+    @test length(sub.evaluators) == 1            # ... and share the :p evaluator
+    # per-plot key buffers: the tolerances still act per plot
+    @test length(sp1.subd_keys[]) < length(sp2.subd_keys[])
+    # the retained keys of each plot tile the domain exactly (no overlap/holes)
+    for sp in (sp1, sp2)
+        ξs, fs = sp.subd_ξ[], sp.subd_faces[]
+        area = sum(abs((ξs[f[2]][1] - ξs[f[1]][1]) * (ξs[f[3]][2] - ξs[f[1]][2]) -
+                       (ξs[f[3]][1] - ξs[f[1]][1]) * (ξs[f[2]][2] - ξs[f[1]][2])) / 2 for f in fs)
+        @test area ≈ 4.0 * Ferrite.getncells(grid) rtol = 1e-6  # each ref quad has area 4
+    end
+    # a filter stage is a new dataset with its own (empty) cache
+    @test (ds |> Gradient(:p)).subd_cache[] === nothing
+end
+
+@testset "adaptive: warp observables drive the plot" begin
+    grid = generate_grid(Quadrilateral, (4, 4))
+    dh = DofHandler(grid)
+    add!(dh, :u, Lagrange{RefQuadrilateral,2}()^2)
+    close!(dh)
+    u = zeros(ndofs(dh))
+    Ferrite.apply_analytical!(u, dh, :u, x -> Ferrite.Vec(0.0, 0.2 * sin(pi * (x[1] + 1) / 2)))
+    ds = FEData(dh, u)
+    scale = Makie.Observable(1.0)
+    wds = ds |> WarpByVector(:u, scale)
+
+    _, _, sp = solutionplot(wds; adaptive=true, color=:red, geometry_tol=1e-3, max_depth=8)
+    maxy(ps) = maximum(p -> p[2], ps)
+    @test maxy(sp.subd_positions[]) > 1.1        # warped up
+    n1 = length(sp.subd_keys[])
+    @test n1 > 4 * Ferrite.getncells(grid)       # the warp curves the geometry
+
+    # a slider-driven scale must move the plot, not wait for the next update!
+    scale[] = 0.0
+    @test maxy(sp.subd_positions[]) ≈ 1.0 atol = 1e-6
+    @test length(sp.subd_keys[]) < n1            # flat geometry coarsens
+    scale[] = 1.0
+    @test maxy(sp.subd_positions[]) > 1.1
+    @test length(sp.subd_keys[]) == n1
+
+    # the adaptive wireframe reacts just the same
+    _, _, wp = meshplot(wds; adaptive=true, geometry_tol=1e-3, max_depth=8)
+    @test maxy(wp.edge_lines[]) > 1.1
+    scale[] = 0.0
+    @test maxy(wp.edge_lines[]) ≈ 1.0 atol = 1e-6
+    scale[] = 1.0
+end
+
+@testset "adaptive: a warp applied before Gradient keeps its dof handler" begin
+    grid = generate_grid(Quadrilateral, (3, 3))
+    dh = DofHandler(grid)
+    add!(dh, :u, Lagrange{RefQuadrilateral,2}()^2)
+    close!(dh)
+    u = zeros(ndofs(dh))
+    Ferrite.apply_analytical!(u, dh, :u, x -> Ferrite.Vec(0.0, 0.2 * sin(pi * (x[1] + 1) / 2)))
+    ds = FEData(dh, u)
+    # the gradient dataset's handler has no :u field — the warp must evaluate
+    # against the handler and solution captured when it was applied
+    gds = ds |> WarpByVector(:u, 1.0) |> Gradient(:u)
+    @test :u ∉ Ferrite.getfieldnames(gds.dh)
+    _, _, sp = solutionplot(gds; adaptive=true, color=:default, geometry_tol=1e-3, max_depth=8)
+    @test maximum(p -> p[2], sp.subd_positions[]) > 1.1   # the warp is applied
+    @test length(sp.subd_keys[]) > 4 * Ferrite.getncells(grid)
+end
+
+@testset "adaptive: solution span comes from the dof values" begin
+    # a peak at an edge-midpoint node is invisible to every base-triangle
+    # corner (element vertices and fan centres): sampling the span there once
+    # collapsed the tolerance reference to ~5e-4, which refined this visually
+    # flat field toward the depth cap
+    grid = generate_grid(Quadrilateral, (2, 2))
+    dh = DofHandler(grid)
+    add!(dh, :p, Lagrange{RefQuadrilateral,2}())
+    close!(dh)
+    u = zeros(ndofs(dh))
+    Ferrite.apply_analytical!(u, dh, :p, x -> exp(-30 * (x[1]^2 + (x[2] - 0.5)^2)))
+    ds = FEData(dh, u)
+
+    ev = FerriteViz.FieldEvaluator(dh, :p)
+    @test FerriteViz._field_span(ev, 1:Ferrite.getncells(grid), u; reduce=false) > 0.9
+    # relative to the true span, a 50% tolerance asks for almost nothing
+    _, _, sp = solutionplot(ds; adaptive=true, solution_tol=0.5, max_depth=10)
+    @test length(sp.subd_keys[]) < 3 * 4 * Ferrite.getncells(grid)
 end
 
 @testset "per-cell coefficients agree with the shape-function sum" begin

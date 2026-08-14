@@ -34,8 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    triangle on the other side and the rendered surface is watertight — no
    hanging nodes, gaps or color seams at refinement-level boundaries. The
    estimators additionally measure every triangle edge, so the residual
-   deviation of any drawn edge is bounded by the tolerance. Pass
-   `conforming=false` for the cheaper independent-per-triangle refinement.
+   deviation of any drawn edge is bounded by the tolerance.
    In 3D the adaptive path extracts the actual surface — the facets whose
    neighbour is missing or was removed by a [`CrinkleClip`](@ref) — instead of
    tessellating every facet of every visible cell, so it draws a closed
@@ -47,15 +46,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    surface exactly, so the lines cannot drift off the surface they trace.
    The whole chain (solution →
    subdivision keys → decoded triangles → per-vertex field evaluation) lives
-   in the plot's ComputeGraph and follows `FerriteViz.update!`; the camera is
-   not an input unless the optional screen-space criterion is enabled with
-   `px_target`. Geometry, connectivity and colors are emitted by a single
-   graph edge, so rapid event bursts can never render them against different
-   refinement states. The color must be a dof field name or a plain color
-   (registered point-data arrays live on the static tessellation and cannot
-   be resampled). `FEData` records upstream `WarpByVector` applications in a
-   new `deformation` field so the displaced geometry can be evaluated at
-   arbitrary reference coordinates, and a `solid` field recording which cells
+   in the plot's ComputeGraph and follows `FerriteViz.update!` — and slider-
+   driven `WarpByVector` scales, which move an adaptive plot just like they
+   move a static one; the camera is never an input. Geometry, connectivity
+   and colors are emitted by a single graph edge, so rapid event bursts can
+   never render them against different refinement states. The color must be a
+   dof field name or a plain color (registered point-data arrays live on the
+   static tessellation and cannot be resampled). Everything the adaptive path
+   derives from the dataset alone — the base domain and its adjacency, the
+   continuous geometry mapping, the field evaluators with their coefficient
+   buffers — is built lazily and shared by all adaptive plots of one
+   `FEData`; only the key and decode buffers are per plot. `FEData` records
+   upstream `WarpByVector` applications in a
+   new `deformation` field (with the dof handler and solution of the stage
+   the warp was applied to, so a warp survives a later `Gradient` rebinding
+   both), and a `solid` field recording which cells
    make up the body (as opposed to `visible`, the cells contributing surface)
    so the surface facets can be identified after a clip.
    Benchmarked against uniform `Refine` at matched geometry *and* solution

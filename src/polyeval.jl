@@ -123,10 +123,16 @@ struct PolyField{refdim,N,P,T}
     basis::PolyBasis{refdim,N,P}
     coeffs::Matrix{T}           # N × ncells
     filled::Vector{Bool}        # per cell, whether coefficients are present
+    # Which solution epoch the coefficients were computed at (see
+    # `IsubdSubstrate`): a refresh for the same epoch is a no-op, which is what
+    # lets several plots share one evaluator without refreshing it per node.
+    # `-1` means never; the geometry field, refreshed once from the node
+    # coordinates, stays there.
+    epoch::Base.RefValue{Int}
 end
 
 PolyField(basis::PolyBasis{refdim,N,P}, ncells::Int, ::Type{T}) where {refdim,N,P,T} =
-    PolyField{refdim,N,P,T}(basis, zeros(T, N, ncells), zeros(Bool, ncells))
+    PolyField{refdim,N,P,T}(basis, zeros(T, N, ncells), zeros(Bool, ncells), Ref(-1))
 
 # c = V⁻¹ u, one small matvec per cell.
 function refresh_cell!(pf::PolyField{refdim,N,P,T}, cell::Int, nodal) where {refdim,N,P,T}

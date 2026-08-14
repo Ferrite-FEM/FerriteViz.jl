@@ -1,22 +1,30 @@
-# View-adaptive tessellation: the glue between FEData and the isubd core
+# Error-adaptive tessellation: the glue between FEData and the isubd core
 # (src/isubd.jl), and the compute-graph wiring for `solutionplot(...;
-# adaptive=true)` (#161).
+# adaptive=true)` and `meshplot(...; adaptive=true)` (#161).
 #
 # Refinement is driven by two interpolation-error estimators, both instances
-# of DeviationLoD along a triangle's split edge, refining when *either* asks:
+# of DeviationLoD along a triangle's edges, refining when *either* asks:
 #   - geometry error: the exact geometry (dofhandler interpolation + warps)
 #     vs the flat triangle, relative to the grid's bounding-box diagonal;
 #   - solution error: the exact field polynomial vs the linear vertex-color
 #     interpolation, relative to the field's value span.
 # The camera is deliberately not an input: keys recompute only when the
-# solution or a tolerance changes. An optional screen-space criterion
-# (px_target) can be added on top, which wires the camera in.
+# solution, a warp or a tolerance changes. Refinement is always conforming
+# (watertight) — the vertices are duplicated across cell boundaries anyway,
+# which is what keeps DG fields plottable, so there is nothing to gain from
+# the unconstrained variant a plot could expose.
 #
-# Graph topology (all nodes prefixed subd_ to avoid clashes):
+# Everything derived from the dataset alone — the base domain, its adjacency,
+# the continuous geometry mapping, the warp and field evaluators with their
+# coefficient buffers — lives in one `IsubdSubstrate`, built lazily and cached
+# on the FEData (`_substrate`), shared by every adaptive plot of it. The
+# per-plot part is the key buffer and the decode buffers.
+#
+# Graph topology per plot (all nodes prefixed subd_ to avoid clashes):
 #
 #   ds_u, geometry_tol, solution_tol, max_depth ──> subd_keys ─┐
-#   [camera, px_target — only when px_target is set] ──┘       ├─> subd_positions, subd_ξ,
-#   ds_u ──────────────────────────────────────────────────────┘   subd_faces, subd_color
+#   warp scales and fields ──┘                                 ├─> subd_positions, subd_ξ,
+#   ds_u, warp scales ─────────────────────────────────────────┘   subd_faces, subd_color
 #
 # The persistent LEB key buffer lives in plot-local state captured by the
 # subd_keys computation; the node returns `nothing` when an update does not
@@ -87,6 +95,19 @@ function prepare!(ev::FieldEvaluator, cells, u::AbstractVector)
 end
 
 _nodal_buffer(pf::PolyField{refdim,N,P,T}) where {refdim,N,P,T} = Vector{T}(undef, N)
+
+# Epoch-guarded refresh: at most one `prepare!` per evaluator per solution
+# epoch (see `IsubdSubstrate.epoch`), however many plots and graph nodes
+# sample the evaluator. All callers pass the substrate's `used_cells`, so a
+# skipped refresh never means missing cells.
+function _refresh!(ev::FieldEvaluator, cells, u::AbstractVector, epoch::Int)
+    pf = ev.poly
+    pf === nothing && return nothing
+    pf.epoch[] == epoch && return nothing
+    prepare!(ev, cells, u)
+    pf.epoch[] = epoch
+    return nothing
+end
 
 function _gather_nodal!(nodal::Vector{Float64}, dofs, u, ::Int)
     @inbounds for k in eachindex(nodal)
@@ -286,18 +307,51 @@ function _base_adjacency(cornergids::Vector{NTuple{3,Int}})
     return adjacency, incompatible
 end
 
+# One upstream WarpByVector, ready to evaluate: the `Deformation` record with
+# the FieldEvaluator built for its field — against the dof handler and
+# solution *captured at warp time*, so a later Gradient rebinding the
+# dataset's handler does not orphan the warp. The evaluator sits in a Ref
+# because switching the warp's field observable rebuilds it; the Ref is typed
+# so the mapping's hot loop stays concretely dispatched, which is also why a
+# switch to a differently interpolated field cannot be followed.
+struct WarpEval{EV<:FieldEvaluator,UO<:Makie.Observable,SO<:Makie.Observable}
+    dh::Ferrite.AbstractDofHandler   # cold: only touched on a rebuild
+    u::UO
+    name::Makie.Observable{Symbol}
+    scale::SO
+    ev::Base.RefValue{EV}
+    built_for::Base.RefValue{Symbol}
+end
+
+function WarpEval(d::Deformation)
+    ev = FieldEvaluator(d.dh, d.field[])
+    return WarpEval{typeof(ev),typeof(d.u),typeof(d.scale)}(
+        d.dh, d.u, d.field, d.scale, Ref(ev), Ref(d.field[]))
+end
+
+function _refresh_warp!(w::WarpEval{EV}, cells, epoch::Int) where {EV}
+    if w.name[] !== w.built_for[]
+        newev = FieldEvaluator(w.dh, w.name[])
+        newev isa EV ||
+            error("switching the warp field from :$(w.built_for[]) to :$(w.name[]) changes the " *
+                  "field's interpolation, which an adaptive plot cannot follow — recreate the plot")
+        w.ev[] = newev
+        w.built_for[] = w.name[]
+    end
+    _refresh!(w.ev[], cells, w.u[], epoch)
+    return nothing
+end
+
 # Continuous geometry x(ξ) [+ Σ scaleᵢ · fieldᵢ(ξ) for upstream warps] of one
 # cell, as the isubd mapping closure. Reads the current solution and warp
-# scales non-reactively — reactivity is the graph nodes' concern. Full Float64:
-# the geometry-error estimator measures deviations far below Float32 noise
-# (only the positions handed to Makie get truncated, in the decode node).
-function _isubd_mapping(ds::FEData{dim}, cellmap::Vector{Int}, cellcoords) where {dim}
+# scales non-reactively — reactivity is the graph nodes' concern (they list
+# the warp observables as inputs, see `_warp_inputs!`). Full Float64: the
+# geometry-error estimator measures deviations far below Float32 noise (only
+# the positions handed to Makie get truncated, in the decode node).
+function _isubd_mapping(ds::FEData{dim}, cellmap::Vector{Int}, cellcoords, warps) where {dim}
     grid = Ferrite.get_grid(ds.dh)
     cells = Ferrite.getcells(grid)
     gips = [Ferrite.geometric_interpolation(typeof(c)) for c in cells]
-    warps = [(FieldEvaluator(ds.dh, _resolve_name(ds, fname[])), scale)
-             for (fname, scale) in ds.deformation]
-    u_obs = ds.u
     # The geometry's own coefficients never change — the node coordinates are
     # fixed — so they are computed once here rather than per update.
     geo = _geometry_poly(gips, cellcoords, cellmap, Val(dim))
@@ -305,14 +359,14 @@ function _isubd_mapping(ds::FEData{dim}, cellmap::Vector{Int}, cellcoords) where
         cell_id = cellmap[base_id]
         x = (geo !== nothing && geo.filled[cell_id]) ? evaluate(geo, cell_id, ξ) :
             geometric_map(gips[cell_id], cellcoords[cell_id], ξ)
-        for (ev, scale) in warps
-            d = evaluate_at(ev, cell_id, ξ, u_obs[])
+        for w in warps
+            d = evaluate_at(w.ev[], cell_id, ξ, w.u[])
             d === nothing && continue
-            x += Float64(scale[]) * d
+            x += Float64(w.scale[]) * d
         end
         return x
     end
-    return mapping, warps
+    return mapping
 end
 
 function _geometry_poly(gips, cellcoords, cellmap, ::Val{dim}) where {dim}
@@ -340,14 +394,74 @@ function _render_positions!(out::Vector{GeometryBasics.Point{dim,Float32}}, ps) 
     return out
 end
 
-function _isubd_base(ds::FEData)
+# Everything the adaptive path derives from the dataset alone — independent
+# of any plot's tolerances: the base domain with its adjacency and continuous
+# mapping, the warp evaluators, and one FieldEvaluator per sampled dof field
+# with its coefficient buffers. Built once per FEData (lazily, by
+# `_substrate`) and shared by every adaptive plot of it; the per-plot state is
+# the key buffer and the decode buffers.
+struct IsubdSubstrate{B<:IsubdBase,CC,W<:Vector}
+    base::B
+    cellmap::Vector{Int}                # base triangle -> cell
+    cellcoords::CC
+    warps::W                            # WarpEvals, in application order
+    used_cells::Vector{Int}             # cells any base triangle samples
+    diag::Float64                       # grid bounding-box diagonal
+    evaluators::Dict{Symbol,FieldEvaluator}  # per sampled dof field, lazily
+    # Solution epoch: bumped whenever the dataset's (or a warp stage's) dof
+    # vector changes, so `_refresh!` runs each evaluator's `prepare!` at most
+    # once per update — not once per graph node per plot.
+    epoch::Base.RefValue{Int}
+end
+
+function _build_substrate(ds::FEData)
     corners, cornergids, cellmap = _isubd_base_triangles(ds)
     adjacency, _ = _base_adjacency(cornergids)
     grid = Ferrite.get_grid(ds.dh)
     cellcoords = [Ferrite.getcoordinates(grid, i) for i in 1:Ferrite.getncells(grid)]
-    mapping, warps = _isubd_mapping(ds, cellmap, cellcoords)
+    warps = [WarpEval(d) for d in ds.deformation]
+    mapping = _isubd_mapping(ds, cellmap, cellcoords, warps)
     base = IsubdBase(corners, mapping, adjacency)
-    return base, cellmap, cellcoords, warps
+    epoch = Ref(0)
+    bump(_) = (epoch[] += 1; nothing)
+    Makie.on(bump, ds.u)
+    for w in warps
+        w.u === ds.u || Makie.on(bump, w.u)
+    end
+    return IsubdSubstrate(base, cellmap, cellcoords, warps, unique(cellmap),
+                          _grid_diagonal(grid), Dict{Symbol,FieldEvaluator}(), epoch)
+end
+
+# The dataset's substrate, built on first use. Deliberately behind a
+# `Ref{Any}` on the FEData (its concrete type would otherwise leak into the
+# dataset's type parameters); `_adaptive_solutionplot!`/`_adaptive_wireframe!`
+# immediately pass the result through a function barrier, so the untypedness
+# costs one dynamic dispatch per plot creation.
+function _substrate(ds::FEData)
+    cached = ds.subd_cache[]
+    cached === nothing || return cached::IsubdSubstrate
+    sub = _build_substrate(ds)
+    ds.subd_cache[] = sub
+    return sub
+end
+
+# The substrate-wide evaluator of one dof field, shared (with its coefficient
+# buffers) by every plot sampling that field.
+_field_evaluator(sub::IsubdSubstrate, dh, name::Symbol) =
+    get!(() -> FieldEvaluator(dh, name), sub.evaluators, name)
+
+# Refresh the per-cell coefficients of everything a node is about to sample.
+# The epoch guard makes repeated calls within one update free, so this runs
+# defensively at the top of every sampling node rather than once somewhere
+# central — coefficients that do not match the `u` in hand would evaluate
+# silently wrong values.
+function _refresh_all!(sub::IsubdSubstrate, ev, u::AbstractVector)
+    epoch = sub.epoch[]
+    for w in sub.warps
+        _refresh_warp!(w, sub.used_cells, epoch)
+    end
+    ev === nothing || _refresh!(ev, sub.used_cells, u, epoch)
+    return nothing
 end
 
 # Per-vertex field values at the decoded reference coordinates: the adaptive
@@ -364,21 +478,9 @@ function _transfer_at!(out::Vector{Float32}, ev::FieldEvaluator, cellmap::Vector
     return out
 end
 
-# Refresh the per-cell coefficients of everything sampled from the solution,
-# before anything reads them. Coefficients that do not match the `u` in hand
-# would evaluate silently wrong values, so this runs at the top of every graph
-# node that samples, not once per update somewhere central.
-function _prepare_fields!(warps, ev, cells, u::AbstractVector)
-    for (wev, _) in warps
-        prepare!(wev, cells, u)
-    end
-    ev === nothing || prepare!(ev, cells, u)
-    return nothing
-end
-
 # The scalar drawn as color, as a (base_id, ξ) probe for the solution-error
 # estimator; `u` is bound per key-node invocation.
-function _scalar_probe(ev::FieldEvaluator, cellmap::Vector{Int}, cellcoords, u::AbstractVector; reduce::Bool)
+function _scalar_probe(ev::FieldEvaluator, cellmap::Vector{Int}, u::AbstractVector; reduce::Bool)
     function probe(base_id::Int, ξ)
         cell_id = cellmap[base_id]
         val = evaluate_at(ev, cell_id, ξ, u)
@@ -388,14 +490,39 @@ function _scalar_probe(ev::FieldEvaluator, cellmap::Vector{Int}, cellcoords, u::
     return probe
 end
 
-# Value span of the color over the base triangle corners — the reference scale
-# for the relative solution tolerance.
-function _base_span(probe, base::IsubdBase)
+# Value span of the drawn scalar — the reference scale for the relative
+# solution tolerance — from the field's dof values on the sampled cells. For
+# the nodal (Lagrange) bases supported here the dof values are the function's
+# values at the interpolation nodes, including the edge/face/interior nodes no
+# base-triangle corner visits. Sampling the corners instead once collapsed the
+# reference to noise level for a field peaking between them, which then
+# refined a visually flat surface to the depth cap.
+function _field_span(ev::FieldEvaluator, cells, u::AbstractVector; reduce::Bool)
     lo, hi = Inf, -Inf
-    for b in 1:length(base.corners), c in base.corners[b]
-        v = probe(b, c)
-        isfinite(v) || continue
-        lo, hi = min(lo, v), max(hi, v)
+    n = ev.ncomps
+    for cell in cells
+        ev.sdh_of_cell[cell] == 0 && continue
+        dofs = ev.celldofs_field[cell]
+        if n == 1
+            @inbounds for d in dofs
+                v = Float64(u[d])
+                isfinite(v) || continue
+                lo, hi = min(lo, v), max(hi, v)
+            end
+        else
+            # component dofs are consecutive per node (as in _gather_nodal!);
+            # the drawn scalar of a vector field is its magnitude
+            @inbounds for k in 1:(length(dofs) ÷ n)
+                o = (k - 1) * n
+                s = 0.0
+                for c in 1:n
+                    s += abs2(Float64(u[dofs[o + c]]))
+                end
+                v = reduce ? sqrt(s) : Float64(u[dofs[o + 1]])
+                isfinite(v) || continue
+                lo, hi = min(lo, v), max(hi, v)
+            end
+        end
     end
     return hi > lo ? hi - lo : 0.0
 end
@@ -439,31 +566,49 @@ function _element_edge_segments!(out::Vector{PT}, keys::Vector{UInt64}, base::Is
     return out
 end
 
+# The warps' scale and field observables as graph inputs, so a slider-driven
+# warp re-refines and re-decodes the way a solution update does. The mapping
+# closure reads their current values itself; these inputs exist to make the
+# nodes rerun (without them an adaptive plot silently kept the stale geometry
+# until the next solution update flushed it through).
+function _warp_inputs!(graph, sub::IsubdSubstrate)
+    names = Symbol[]
+    for (i, w) in enumerate(sub.warps)
+        s = Symbol(:subd_warpscale_, i)
+        n = Symbol(:subd_warpfield_, i)
+        ComputePipeline.add_input!(graph, s, w.scale)
+        ComputePipeline.add_input!(graph, n, w.name)
+        push!(names, s, n)
+    end
+    return names
+end
+
 # The adaptive branch of meshplot's plot!: same refinement machinery as the
 # surface, but only the geometry criterion — a wireframe has no field to
-# resolve, only a curve to follow.
-function _adaptive_wireframe!(WF, ds::FEData{dim}) where {dim}
+# resolve, only a curve to follow. The outer function exists as a barrier past
+# the dataset's untyped substrate cache.
+_adaptive_wireframe!(WF, ds::FEData) = _wire_adaptive_wireframe!(WF, ds, _substrate(ds))
+
+function _wire_adaptive_wireframe!(WF, ds::FEData{dim}, sub::IsubdSubstrate) where {dim}
     graph = WF.attributes
     ComputePipeline.add_input!(graph, :subd_u, ds.u)
-    base, cellmap, _, warps = _isubd_base(ds)
-    conforming = WF.conforming[] && is_conformable(base)
-    used_cells = unique(cellmap)
+    warp_inputs = _warp_inputs!(graph, sub)
+    base = sub.base
     state = (keys=root_keys(base), prev=UInt64[], scratch=UInt64[])
-    diag = _grid_diagonal(Ferrite.get_grid(ds.dh))
-    ComputePipeline.register_computation!(graph, [:subd_u, :geometry_tol, :max_depth],
+    diag = sub.diag
+    ComputePipeline.register_computation!(graph, [:subd_u, :geometry_tol, :max_depth, warp_inputs...],
                                           [:subd_keys]) do inputs, changed, cached
-        _prepare_fields!(warps, nothing, used_cells, inputs.subd_u)
+        _refresh_all!(sub, nothing, inputs.subd_u)
         lod = DeviationLoD(base.mapping, Float64(inputs.geometry_tol) * diag)
-        refine_keys!(state.keys, state.scratch, base, lod;
-                     max_depth=Int(inputs.max_depth), conforming)
+        refine_keys!(state.keys, state.scratch, base, lod; max_depth=Int(inputs.max_depth))
         cached !== nothing && state.keys == state.prev && return nothing
         copy!(state.prev, state.keys)
         return (state.keys,)
     end
     # Makie draws 2D/3D points; pad 1D grids with a zero y-coordinate
     segments = GeometryBasics.Point{max(dim, 2),Float32}[]
-    Makie.map!(graph, [:subd_keys, :subd_u], :edge_lines) do keys, u
-        _prepare_fields!(warps, nothing, used_cells, u)
+    Makie.map!(graph, [:subd_keys, :subd_u, warp_inputs...], :edge_lines) do keys, u, _warps...
+        _refresh_all!(sub, nothing, u)
         return _element_edge_segments!(segments, keys, base)
     end
     return nothing
@@ -471,16 +616,9 @@ end
 
 # The adaptive branch of solutionplot's plot!. The dataset, its visibility and
 # the color resolution are read eagerly (as everywhere in the recipes); the
-# solution and the tolerances drive the graph.
-function _adaptive_solutionplot!(SP, ds::FEData{dim}) where {dim}
-    graph = SP.attributes
-    ComputePipeline.add_input!(graph, :subd_u, ds.u)
-
-    base, cellmap, cellcoords, warps = _isubd_base(ds)
-    conforming = SP.conforming[] && is_conformable(base)
-    # cells the plot samples; their coefficients are refreshed per update
-    used_cells = unique(cellmap)
-    state = (keys=root_keys(base), scratch=UInt64[], prev=UInt64[])
+# solution, the warps and the tolerances drive the graph.
+function _adaptive_solutionplot!(SP, ds::FEData)
+    sub = _substrate(ds)
 
     # color resolution (eager): a dof field evaluated per vertex, or a plain color
     colorval = SP.color[]
@@ -492,47 +630,43 @@ function _adaptive_solutionplot!(SP, ds::FEData{dim}) where {dim}
             error("adaptive solutionplot colors by evaluating a dof field at the refined vertices; " *
                   ":$fname is a registered data array on the static tessellation and cannot be resampled. " *
                   "Color by a dof field or a plain color, or use adaptive=false.")
-        ev = FieldEvaluator(ds.dh, fname)
+        ev = _field_evaluator(sub, ds.dh, fname)
         reduce = colorval === :default && ev.ncomps > 1
         reduce || ev.ncomps == 1 ||
             error("field :$fname has $(ev.ncomps) components; adaptive coloring needs a scalar " *
                   "(or :default, which reduces to the magnitude)")
     end
 
-    # optional screen-space criterion: only then does the camera enter the graph
-    px_target = SP.px_target[]
-    keyinputs = [:subd_u, :geometry_tol, :solution_tol, :max_depth]
-    if px_target !== nothing
-        cam = Makie.camera(Makie.parent_scene(SP))
-        ComputePipeline.add_input!(graph, :subd_projectionview, cam.projectionview)
-        ComputePipeline.add_input!(graph, :subd_eyeposition, cam.eyeposition)
-        ComputePipeline.add_input!(graph, :subd_resolution, cam.resolution)
-        append!(keyinputs, [:subd_projectionview, :subd_eyeposition, :subd_resolution, :px_target])
-    end
+    # barrier past the dataset's untyped substrate cache: everything below
+    # specializes on the substrate's (and the evaluator's) concrete types
+    return _wire_adaptive_solutionplot!(SP, ds, sub, ev, reduce)
+end
 
-    diag = _grid_diagonal(Ferrite.get_grid(ds.dh))
+function _wire_adaptive_solutionplot!(SP, ds::FEData{dim}, sub::IsubdSubstrate, ev, reduce::Bool) where {dim}
+    graph = SP.attributes
+    ComputePipeline.add_input!(graph, :subd_u, ds.u)
+    warp_inputs = _warp_inputs!(graph, sub)
+    base = sub.base
+    cellmap = sub.cellmap
+    state = (keys=root_keys(base), scratch=UInt64[], prev=UInt64[])
+    diag = sub.diag
     span = Ref(NaN)
+    keyinputs = [:subd_u, :geometry_tol, :solution_tol, :max_depth, warp_inputs...]
     ComputePipeline.register_computation!(graph, keyinputs, [:subd_keys]) do inputs, changed, cached
-        _prepare_fields!(warps, ev, used_cells, inputs.subd_u)
+        _refresh_all!(sub, ev, inputs.subd_u)
         geo = DeviationLoD(base.mapping, Float64(inputs.geometry_tol) * diag)
         lods = (geo,)
         if ev !== nothing
-            probe = _scalar_probe(ev, cellmap, cellcoords, inputs.subd_u; reduce)
+            probe = _scalar_probe(ev, cellmap, inputs.subd_u; reduce)
             if isnan(span[]) || changed.subd_u
-                span[] = _base_span(probe, base)
+                span[] = _field_span(ev, sub.used_cells, inputs.subd_u; reduce)
             end
             # a (near-)constant field never asks for refinement
             tol = max(Float64(inputs.solution_tol) * span[], 1e-12)
             lods = (lods..., DeviationLoD(probe, tol))
         end
-        if px_target !== nothing
-            lods = (lods..., ScreenSpaceLoD(inputs.subd_projectionview,
-                                            Tuple(inputs.subd_eyeposition),
-                                            (Float64(inputs.subd_resolution[1]), Float64(inputs.subd_resolution[2])),
-                                            Float64(inputs.px_target)))
-        end
         refine_keys!(state.keys, state.scratch, base, CombinedLoD(lods);
-                     max_depth=Int(inputs.max_depth), conforming)
+                     max_depth=Int(inputs.max_depth))
         # an update that does not change the key set leaves the output clean,
         # so the decode below is skipped entirely
         cached !== nothing && state.keys == state.prev && return nothing
@@ -571,8 +705,8 @@ function _adaptive_solutionplot!(SP, ds::FEData{dim}) where {dim}
         end
         return (mesh_buf.refcoords, faces_out)
     end
-    Makie.map!(graph, [:subd_ξ, :subd_u], :subd_positions) do _ξ, uu
-        _prepare_fields!(warps, ev, used_cells, uu)
+    Makie.map!(graph, [:subd_ξ, :subd_u, warp_inputs...], :subd_positions) do _ξ, uu, _warps...
+        _refresh_all!(sub, ev, uu)
         decode_positions!(mesh_buf, base)
         return _render_positions!(positions_out, mesh_buf.positions)
     end
@@ -580,7 +714,7 @@ function _adaptive_solutionplot!(SP, ds::FEData{dim}) where {dim}
         colornode = SP.color   # plain color, converted by the mesh child
     else
         Makie.map!(graph, [:subd_ξ, :subd_u], :subd_color) do _ξ, u
-            _prepare_fields!(warps, ev, used_cells, u)
+            _refresh_all!(sub, ev, u)
             return _transfer_at!(colors_out, ev, cellmap, mesh_buf, u; reduce)
         end
         colornode = SP.subd_color

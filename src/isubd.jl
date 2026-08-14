@@ -82,8 +82,8 @@ per decoded vertex, so curved cells subdivide into curved sub-triangles.
 (`EDGE_S`/`EDGE_L`/`EDGE_R`) as `(base, edge, reversed)`, or `NO_NEIGHBOR` for
 a boundary. Supplying it enables conforming (watertight) refinement — see
 [`refine_keys!`](@ref). It must be *compatible*: a split edge may only pair
-with another split edge, and a leg only with legs. `_isubd_base` builds such a
-table for `FEData`; pairings that violate compatibility are dropped to
+with another split edge, and a leg only with legs. `_build_substrate` builds
+such a table for `FEData`; pairings that violate compatibility are dropped to
 boundaries, which costs conformity along those edges but nothing else.
 """
 struct IsubdBase{RV,F}
@@ -157,64 +157,6 @@ struct UniformLoD <: AbstractLoD
 end
 
 excess_levels(lod::UniformLoD, base::IsubdBase, k::UInt64) = Float64(lod.target - key_depth(k))
-
-"""
-    ScreenSpaceLoD(projectionview, eyeposition, resolution, px_target)
-
-Split until a triangle's split edge occupies at most `px_target` pixels on
-screen. The edge is measured *isotropically*: a view-facing segment of the
-edge's physical length, placed at the edge midpoint, is projected — not the
-edge itself. Projecting the actual edge would make the criterion
-orientation-dependent under perspective (a foreshortened edge measures
-shorter), and neighbouring triangles would disagree by several levels,
-opening cracks; this is the same reason the isubd demo drives its LoD from
-the distance to the edge midpoint. `projectionview` is a 4×4 camera matrix
-(column-major linear indexing, e.g. a `Makie.Mat4` or plain `Matrix`),
-`eyeposition` the camera position, `resolution` the viewport in pixels. Each
-bisection roughly halves the split edge, so the excess level count is
-`log2(pixel_length / px_target)`.
-"""
-struct ScreenSpaceLoD{M,E} <: AbstractLoD
-    projectionview::M
-    eyeposition::E
-    resolution::NTuple{2,Float64}
-    px_target::Float64
-end
-
-_xyz(p) = length(p) >= 3 ? Float64.((p[1], p[2], p[3])) : (Float64(p[1]), Float64(p[2]), 0.0)
-
-function _project_px(lod::ScreenSpaceLoD, p::NTuple{3,Float64})
-    x, y, z = p
-    m = lod.projectionview
-    cx = m[1] * x + m[5] * y + m[9] * z + m[13]
-    cy = m[2] * x + m[6] * y + m[10] * z + m[14]
-    cw = m[4] * x + m[8] * y + m[12] * z + m[16]
-    # behind-camera clamp: degenerates to a huge pixel length, i.e. "split",
-    # which max_depth caps — matches the demo's behaviour of over-refining
-    # rather than dropping geometry near the eye
-    w = max(cw, 1e-8)
-    return ((cx / w + 1.0) / 2.0 * lod.resolution[1], (cy / w + 1.0) / 2.0 * lod.resolution[2])
-end
-
-function excess_levels(lod::ScreenSpaceLoD, base::IsubdBase, k::UInt64)
-    corners = key_corners(base, k)
-    a = _xyz(base.mapping(key_base(k), corners[1]))
-    b = _xyz(base.mapping(key_base(k), corners[3]))
-    m = (a .+ b) ./ 2
-    len = sqrt(sum(abs2, a .- b))
-    # view direction at the midpoint, and any unit vector perpendicular to it
-    eye = _xyz(lod.eyeposition)
-    v = m .- eye
-    nv = sqrt(sum(abs2, v))
-    v = nv > 1e-12 ? v ./ nv : (0.0, 0.0, 1.0)
-    u = abs(v[3]) < 0.9 ? (0.0, 0.0, 1.0) : (1.0, 0.0, 0.0)
-    e = (v[2] * u[3] - v[3] * u[2], v[3] * u[1] - v[1] * u[3], v[1] * u[2] - v[2] * u[1])
-    e = e ./ sqrt(sum(abs2, e))
-    pa = _project_px(lod, m .- e .* (len / 2))
-    pb = _project_px(lod, m .+ e .* (len / 2))
-    px = sqrt((pa[1] - pb[1])^2 + (pa[2] - pb[2])^2)
-    return log2(max(px, 1e-9) / lod.px_target)
-end
 
 # Where a triangle's linear interpolation is checked against the truth, in
 # barycentric coordinates. The edge samples bound the deviation of the *drawn

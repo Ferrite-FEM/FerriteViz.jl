@@ -33,7 +33,8 @@ function _rebind(ds::FEData{dim}, dh, u::Makie.Observable;
         dh, u, ds.source_u, ds.topology, ds.visible, ds.gridnodes, ds.coords, ds.coords_buffer,
         ds.all_triangles, ds.vis_triangles, ds.triangle_cell_map, ds.cell_triangle_offsets,
         ds.cell_vertex_offsets, ds.all_edges, ds.edge_cell_map, ds.cell_edge_offsets,
-        ds.reference_coords, ds.mesh, point_data, cell_data, ds.deformation, ds.solid)
+        ds.reference_coords, ds.mesh, point_data, cell_data, ds.deformation, ds.solid,
+        Ref{Any}(nothing))
 end
 
 ################
@@ -96,7 +97,8 @@ function apply(w::WarpByVector, ds::FEData{dim}) where {dim}
         ds.all_triangles, ds.vis_triangles, ds.triangle_cell_map, ds.cell_triangle_offsets,
         ds.cell_vertex_offsets, ds.all_edges, ds.edge_cell_map, ds.cell_edge_offsets,
         ds.reference_coords, mesh, copy(ds.point_data), copy(ds.cell_data),
-        vcat(ds.deformation, [(fname, scale)]), ds.solid)
+        vcat(ds.deformation, [Deformation(ds.dh, ds.u, fname, scale)]), ds.solid,
+        Ref{Any}(nothing))
 end
 
 # Register a listener for cleanup when `owner` (a plot) is deleted; without an
@@ -179,7 +181,8 @@ function apply(c::CrinkleClip, ds::FEData{3})
         ds.all_triangles, vis_triangles, ds.triangle_cell_map, ds.cell_triangle_offsets,
         ds.cell_vertex_offsets, ds.all_edges, ds.edge_cell_map, ds.cell_edge_offsets,
         ds.reference_coords, mesh,
-        Dict{Symbol,Makie.Observable}(), copy(ds.cell_data), ds.deformation, solid)
+        Dict{Symbol,Makie.Observable}(), copy(ds.cell_data), ds.deformation, solid,
+        Ref{Any}(nothing))
 end
 
 ##########
@@ -505,7 +508,7 @@ function apply(f::AddQuadraturePointData, ds::FEData{dim}) where {dim}
         cell_vertex_offsets, all_edges, edge_cell_map, cell_edge_offsets,
         reference_coords, mesh,
         same_layout ? copy(ds.point_data) : Dict{Symbol,Makie.Observable}(), copy(ds.cell_data),
-        ds.deformation, ds.solid)
+        ds.deformation, ds.solid, Ref{Any}(nothing))
 
     ncomponents = length(_qp_components(f.extract(_qp_at(values, 1, 1))))
     data = Makie.lift(f.values) do vals

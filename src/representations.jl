@@ -144,30 +144,17 @@ Makie.@recipe SolutionPlot (dataset,) begin
     `geometry_tol` *and* the linear vertex-color interpolation approximates
     the exact field polynomial to within `solution_tol` — refinement happens
     where either estimator asks for it, and follows [`FerriteViz.update!`](@ref).
-    The color must be a dof field name (or a plain color) — it is evaluated
-    at the refined vertices. Read once at plot creation.
+    The refined mesh is always conforming (watertight). The color must be a
+    dof field name (or a plain color) — it is evaluated at the refined
+    vertices. Read once at plot creation.
     """
     adaptive = false
     "Adaptive: geometry-error tolerance, as a fraction of the grid's bounding-box diagonal."
     geometry_tol = 1.0e-3
     "Adaptive: solution-error tolerance, as a fraction of the color field's value span."
     solution_tol = 5.0e-3
-    """
-    Adaptive: optional additional screen-space criterion — target split-edge
-    size in pixels. Setting it wires the camera into the plot's compute graph
-    (refinement then follows zooming). `nothing` disables it.
-    """
-    px_target = nothing
     "Adaptive: maximum bisection depth per base triangle."
     max_depth = 10
-    """
-    Adaptive: keep the refined mesh conforming (watertight) by splitting
-    triangles together with the leaf across their split edge. Disabling it
-    refines each triangle independently, which is cheaper but leaves gaps and
-    colour seams at refinement-level boundaries (bounded by the tolerances).
-    Read once at plot creation.
-    """
-    conforming = true
     base_fe_attributes()...
 end
 
@@ -257,17 +244,15 @@ Makie.@recipe MeshPlot (dataset,) begin
     Experimental: draw the wireframe from an error-adaptive re-tessellation
     (#161) instead of the dataset's fixed one, so the element edges follow the
     curved geometry to a tolerance rather than to a fixed subdivision count.
-    Pair it with `solutionplot(...; adaptive=true)` — both then resolve the
-    geometry to `geometry_tol` and stay on top of each other. Read once at
-    plot creation.
+    The refinement is always conforming. Pair it with
+    `solutionplot(...; adaptive=true)` — both then resolve the geometry to
+    `geometry_tol` and stay on top of each other. Read once at plot creation.
     """
     adaptive = false
     "Adaptive: geometry-error tolerance, as a fraction of the grid's bounding-box diagonal."
     geometry_tol = 1.0e-3
     "Adaptive: maximum bisection depth per base triangle."
     max_depth = 10
-    "Adaptive: keep the refinement conforming, so the wireframe matches the surface."
-    conforming = true
     Makie.filter_attributes(Makie.mixin_generic_plot_attributes(); exclude = (:depth_shift,))...
     "Depth shift drawing the wireframe in front of surface plots."
     depth_shift = -0.0001f0

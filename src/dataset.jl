@@ -31,6 +31,19 @@
 # or a Buffer's *content* by assigning a new object to the field — set the
 # observable (`obs[] = ...`) so the listeners downstream fire.
 
+# One WarpByVector application, recorded for consumers that need the
+# deformation as a continuous function rather than baked into coordinates.
+# `dh` and `u` are those of the dataset the warp was *applied to*: a later
+# filter may rebind both (Gradient replaces the dof handler entirely), and the
+# warp field need not exist in the rebound handler — evaluating against the
+# captured pair is what keeps `warp |> Gradient |> adaptive plot` working.
+struct Deformation{DH<:Ferrite.AbstractDofHandler,UO<:Makie.Observable,SO<:Makie.Observable}
+    dh::DH
+    u::UO                             # the warped stage's dof vector
+    field::Makie.Observable{Symbol}   # resolved at apply time; may be switched
+    scale::SO
+end
+
 """
     FEData(dh::Ferrite.AbstractDofHandler, u::Vector; topology, adaptive=true)
 
@@ -87,18 +100,25 @@ struct FEData{dim,DH<:Ferrite.AbstractDofHandler,T1,TOP<:Union{Nothing,Ferrite.A
     mesh::M                             # coords_buffer + vis_triangles, handed to Makie as is
     point_data::Dict{Symbol,Makie.Observable}  # arrays on the tessellation vertices
     cell_data::Dict{Symbol,Makie.Observable}   # arrays on the cells
-    # Deformation provenance: one (field, scale) per WarpByVector applied
-    # upstream, in application order. The displaced coordinates are baked into
-    # `coords`, but consumers that need the deformation as a *continuous*
-    # function of the reference coordinate (adaptive tessellation evaluates
-    # geometry at arbitrary ξ) reconstruct it from this record.
-    deformation::Vector{Tuple{Makie.Observable{Symbol},Makie.Observable}}
+    # Deformation provenance: one record per WarpByVector applied upstream, in
+    # application order. The displaced coordinates are baked into `coords`, but
+    # consumers that need the deformation as a *continuous* function of the
+    # reference coordinate (adaptive tessellation evaluates geometry at
+    # arbitrary ξ) reconstruct it from this record.
+    deformation::Vector{Deformation}
     # Which cells make up the body, as opposed to `visible`, which marks the
     # cells contributing surface. In 3D an interior cell is solid but not
     # visible; a cell removed by CrinkleClip is neither. The distinction is
     # what identifies the surface facets — those whose neighbour is missing or
     # not solid — for consumers that extract the boundary surface themselves.
     solid::Vector{Bool}
+    # Lazily built adaptive-tessellation substrate (`IsubdSubstrate`), shared
+    # by every adaptive plot of this dataset; `nothing` until the first one
+    # asks. Everything in it is a pure function of the fields above, so it is
+    # never invalidated — filters return new FEData instances, each with a
+    # fresh (empty) cache. Untyped on purpose: plots retrieve it through the
+    # `_substrate` function barrier, keeping this struct's parameters stable.
+    subd_cache::Base.RefValue{Any}
 end
 
 function _default_topology(grid)
@@ -209,7 +229,7 @@ function _build_dataset(dh::Ferrite.AbstractDofHandler, u::Makie.Observable, sou
         cell_vertex_offsets, all_edges, edge_cell_map, cell_edge_offsets,
         reference_coords, mesh,
         Dict{Symbol,Makie.Observable}(), Dict{Symbol,Makie.Observable}(),
-        Tuple{Makie.Observable{Symbol},Makie.Observable}[], fill(true, ncells))
+        Deformation[], fill(true, ncells), Ref{Any}(nothing))
 end
 
 function _instantiate_cell!(physical_coords::Vector{GeometryBasics.Point{sdim,Float32}}, reference_coords,

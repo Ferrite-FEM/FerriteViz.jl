@@ -62,28 +62,6 @@ function edge_multiplicities(mesh; digits = 9)
     return interior_once, boundary_once, over
 end
 
-# a hand-rolled perspective camera looking at the unit square from `eye`
-function perspective_projview(eye::NTuple{3,Float64}; target = (0.5, 0.5, 0.0))
-    # look-at basis
-    f = [target[1] - eye[1], target[2] - eye[2], target[3] - eye[3]]
-    f ./= sqrt(sum(abs2, f))
-    upv = abs(f[3]) > 0.99 ? [0.0, 1.0, 0.0] : [0.0, 0.0, 1.0]
-    s = [f[2] * upv[3] - f[3] * upv[2], f[3] * upv[1] - f[1] * upv[3], f[1] * upv[2] - f[2] * upv[1]]
-    s ./= sqrt(sum(abs2, s))
-    u = [s[2] * f[3] - s[3] * f[2], s[3] * f[1] - s[1] * f[3], s[1] * f[2] - s[2] * f[1]]
-    view = [s[1] s[2] s[3] -sum(s .* collect(eye));
-            u[1] u[2] u[3] -sum(u .* collect(eye));
-            -f[1] -f[2] -f[3] sum(f .* collect(eye));
-            0.0 0.0 0.0 1.0]
-    fovfac = 1.0 / tan(π / 8)
-    near, far = 0.01, 100.0
-    proj = [fovfac 0.0 0.0 0.0;
-            0.0 fovfac 0.0 0.0;
-            0.0 0.0 -(far + near) / (far - near) -2far * near / (far - near);
-            0.0 0.0 -1.0 0.0]
-    return proj * view
-end
-
 @testset "isubd key codec" begin
     k = FV.root_key(7)
     @test FV.key_base(k) == 7
@@ -168,40 +146,6 @@ end
     # max_depth caps the split branch
     FV.refine_keys!(keys, scratch, base, FV.UniformLoD(9); max_depth = 4)
     @test all(k -> FV.key_depth(k) == 4, keys)
-end
-
-@testset "isubd screen-space LoD" begin
-    base = diamond_base((b, ξ) -> Vec((ξ[1], ξ[2], 0.0)))   # square in the z=0 plane
-    resolution = (800.0, 600.0)
-    near = FV.ScreenSpaceLoD(perspective_projview((0.05, 0.05, 0.4)), (0.05, 0.05, 0.4), resolution, 30.0)
-    far = FV.ScreenSpaceLoD(perspective_projview((0.5, 0.5, 20.0)), (0.5, 0.5, 20.0), resolution, 30.0)
-
-    keys, scratch = FV.root_keys(base), UInt64[]
-    FV.refine_keys!(keys, scratch, base, near; max_depth = 16)
-    nnear = length(keys)
-    @test nnear > 2
-    # view-dependent: refinement concentrates near the eye
-    mesh = FV.IsubdMesh(base)
-    FV.decode_keys!(mesh, keys, base)
-    depth_near_eye = maximum((FV.key_depth(k) for k in keys if
-                              all(c -> norm(c - Vec((0.05, 0.05))) < 0.4, FV.key_corners(base, k)));
-                             init=-1)
-    depth_far_corner = maximum((FV.key_depth(k) for k in keys if
-                                all(c -> norm(c - Vec((1.0, 1.0))) < 0.3, FV.key_corners(base, k)));
-                               init=-1)
-    @test depth_near_eye >= 0 && depth_far_corner >= 0
-    @test depth_near_eye > depth_far_corner
-    # crack-free at the converged state
-    @test count_tjunctions(mesh) == 0
-    # fixed point: another pass with the same camera changes nothing
-    before = sort(copy(keys))
-    FV.update_keys!(scratch, keys, base, near; max_depth = 16)
-    @test sort(scratch) == before
-    # retreating the camera coarsens the mesh again, still crack-free
-    FV.refine_keys!(keys, scratch, base, far; max_depth = 16)
-    @test length(keys) < nnear
-    FV.decode_keys!(mesh, keys, base)
-    @test count_tjunctions(mesh) == 0
 end
 
 # A deliberately non-smooth criterion: deep refinement left of x = 0.7, none

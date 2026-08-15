@@ -108,12 +108,14 @@ tessellation for every cell); custom levels are a filter application:
     The tessellation `adaptive=true` picks may change in a future release; such
     a change is breaking. `adaptive=false` and explicit `Refine(n)` counts are
     stable.
+
+!!! note
+    The struct is mutable for one reason: [`regrid!`](@ref FerriteViz.regrid!)
+    swaps the grid-derived state (an adaptive `ForestBWG`-style workflow
+    changes the number of elements between solves) while the dataset — and
+    its solution observables — keep their identity, so live adaptive plots
+    follow the new grid instead of dying with the old one.
 """
-# Mutable for one reason: `regrid!` swaps the grid-derived state (an adaptive
-# ForestBWG-style workflow changes the number of elements between solves)
-# while the dataset object — and its solution observables — keep their
-# identity, so live adaptive plots follow the new grid instead of dying with
-# the old one.
 mutable struct FEData{dim,DH<:Ferrite.AbstractDofHandler,T1,TOP<:Union{Nothing,Ferrite.AbstractTopology},SU<:Makie.Observable,M,TRI} <: AbstractPlotter
     dh::DH
     u::Makie.Observable{Vector{T1}}   # this dataset's dof vector (possibly lifted from source_u)

@@ -6,3 +6,5 @@ docs/build/*
 Ferrite.jl/
 plan-fable.md
 rewrite-plan.md
+mantle_mwe/*.ppm
+mantle_mwe/Manifest.toml

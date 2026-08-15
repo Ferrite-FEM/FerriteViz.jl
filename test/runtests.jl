@@ -173,6 +173,8 @@ end
     end
 end
 
+include("isubd.jl")
+
 @testset "tessellation defaults" begin
     @test FerriteViz.ntriangles(Triangle((1,2,3))) == 1
     @test FerriteViz.ntriangles(Quadrilateral((1,2,3,4))) == 4
@@ -909,6 +911,8 @@ end
     @test FerriteViz._buffer_data(ds.coords_buffer) isa Vector
     @test FerriteViz._buffer_data([1, 2]) == [1, 2]
 end
+
+include("adaptive.jl")
 
 @testset "source hygiene" begin
     src = joinpath(@__DIR__, "..", "src")

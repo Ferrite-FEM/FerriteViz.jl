@@ -8,15 +8,20 @@ import GeometryBasics
 import ShaderAbstractions
 import LinearAlgebra
 
+const ComputePipeline = Makie.ComputePipeline
+
 abstract type AbstractPlotter end
 abstract type AbstractFilter end
 
 include("tessellation.jl")
 include("qptessellation.jl")
+include("isubd.jl")
+include("polyeval.jl")
 include("dataset.jl")
 include("gradient.jl")
 include("filters.jl")
 include("representations.jl")
+include("adaptive.jl")
 include("viewer.jl")
 
 export FEData, apply

@@ -12,12 +12,12 @@ ShaderAbstractions = "65257c39-d410-5151-9873-9b3e5be5013e"
 Tensors = "48a634ad-e948-5137-8d70-aa71f2a747f4"
 
 [compat]
-Ferrite = "1"
+Ferrite = "1.6"
 GeometryBasics = "0.5"
-Makie = "0.24"
+Makie = "0.24.13"
 ShaderAbstractions = "0.3,0.4,0.5"
 Tensors = "1"
-julia = "1"
+julia = "1.10"
 
 [extras]
 Makie = "ee78f7c6-11fb-53f2-987a-cfe4a2b5a57a"

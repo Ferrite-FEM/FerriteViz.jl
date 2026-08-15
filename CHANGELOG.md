@@ -7,7 +7,149 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+ - Compat floors raised for this release: Makie `0.24.13` (the ComputePipeline
+   surface the migrated recipes build on), Ferrite `1.6`, Julia `1.10` (the
+   LTS, which CI tests).
+ - The Makie recipes were migrated to the new-style `@recipe` with declared,
+   documented attribute blocks, and compute derived values in the plot's
+   `ComputeGraph` (Makie ≥ 0.24 / ComputePipeline) instead of Observable
+   lift chains: `FEData`'s Observables enter the graph via `add_input!`,
+   transformations are `map!` edges, and child plots draw from graph nodes.
+   User-facing API is unchanged; recipe defaults are now visible to Makie
+   (e.g. a spec-linked `Colorbar` resolves the recipe's colormap by itself),
+   the plots' attribute docstrings are auto-generated, and common Makie
+   attributes (`alpha`, `colorscale`, `lowclip`/`highclip`, `transparency`,
+   `visible`, …) now forward to the drawn primitives. Passing an *unknown*
+   keyword to a recipe is now an error instead of being silently ignored.
+
 ### Added
+ - `FerriteViz.regrid!(ds, dh_new, u_new)`: swap a root dataset's grid world —
+   a new dof handler over a (re)generated grid with its solution — while the
+   dataset and its solution observables keep their identity. Built for
+   adaptive (AMR/`ForestBWG`) workflows where every refinement step changes
+   the element count: adaptive plots (`solutionplot`/`meshplot` with
+   `adaptive=true`) rebuild their tessellation state against the new grid on
+   their next update and keep animating; static plots made before the regrid
+   hold the old state (stale but alive) and are recreated; derived datasets
+   re-apply their filter chain to the regridded root.
+ - Non-conforming (`ForestBWG`/AMR) grids draw watertight: the adaptive base
+   splits every fan rim at the grid's hanging nodes (via `conformity_info`),
+   so both sides of a 2:1 interface carry the same rim segments with the same
+   node ids and the conforming machinery closes the interface like any other
+   edge; a hanging face centre becomes its facet's fan centre. Surface
+   detection on these grids is conformity-aware (a fine facet whose hanging
+   nodes are replaced by their masters matches the coarse facet across the
+   interface), where `ExclusiveTopology` — which is skipped for them — would
+   call every AMR interface "boundary" and draw coincident facets twice.
+   Together with `regrid!` this is the `ForestBWG` workflow: refine/balance
+   the forest, `creategrid`, rebuild the dof handler, `regrid!` — the live
+   adaptive plots follow.
+ - Experimental error-adaptive tessellation for `solutionplot` (#161):
+   `solutionplot(ds; adaptive=true)` re-tessellates the visible cells by
+   longest-edge bisection driven by two interpolation-error estimators —
+   how badly the flat triangles approximate the exact geometry (dofhandler
+   interpolation, including warps; `geometry_tol`, relative to the grid's
+   bounding-box diagonal) and how badly the linear vertex colors approximate
+   the exact field polynomial (`solution_tol`, relative to the field's value
+   span) — refining where either asks. Refinement is *conforming*: a triangle
+   is always split together with the leaf across its split edge (forced down
+   first when it is coarser), so every drawn edge is a full edge of the
+   triangle on the other side and the rendered surface is watertight — no
+   hanging nodes, gaps or color seams at refinement-level boundaries. The
+   estimators additionally measure every triangle edge, so the residual
+   deviation of any drawn edge is bounded by the tolerance.
+   In 3D the adaptive path extracts the actual surface — the facets whose
+   neighbour is missing or was removed by a [`CrinkleClip`](@ref) — instead of
+   tessellating every facet of every visible cell, so it draws a closed
+   manifold with several times fewer triangles than the static path.
+   [`meshplot`](@ref) takes the same `adaptive` flag: the wireframe is then
+   the element edges as the refinement subdivided them, rather than a fixed
+   number of segments per edge. Paired with an adaptive `solutionplot` at the
+   same `geometry_tol`, every wireframe segment is an edge of the drawn
+   surface exactly, so the lines cannot drift off the surface they trace.
+   The whole chain (solution →
+   subdivision keys → decoded triangles → per-vertex field evaluation) lives
+   in the plot's ComputeGraph and follows `FerriteViz.update!` — and slider-
+   driven `WarpByVector` scales, which move an adaptive plot just like they
+   move a static one; the camera is never an input. Geometry, connectivity
+   and colors are emitted by a single graph edge, so rapid event bursts can
+   never render them against different refinement states. The color must be a
+   dof field name, a *derived* quantity, or a plain color. The derivation
+   filters ([`Derive`](@ref), [`VonMises`](@ref), [`Magnitude`](@ref),
+   [`ExtractComponent`](@ref), [`Threshold`](@ref), ...) record the function
+   they apply alongside the array they register, so an adaptive plot
+   re-evaluates e.g. an elastic von Mises stress
+   (`ds |> Gradient(:u) |> Derive(∇u -> vonmises(σ(∇u)))`) at the refined
+   vertices instead of refusing it. The refinement criterion samples the
+   chain's *source fields* (`u`, `:gradient`), not the derived quantity —
+   in FE computations the solution is the object of highest regularity and
+   every pointwise-derived quantity is at most as regular, so resolving the
+   sources resolves the derived pictures with them, and a solution update
+   moves colors and tessellation together. Quadrature-point data draws
+   adaptively too: [`AddQuadraturePointData`](@ref) records its partition, and
+   `solutionplot(qds; color=:qpdata, adaptive=true)` rebuilds the Voronoi
+   regions as the adaptive base — every region fanned so its rim consists of
+   split edges, which bisection subdivides but never crosses — refined by the
+   *geometry* criterion alone (piecewise-constant data has nothing to say
+   about refinement) and colored by a flat per-region gather from the live
+   `values`. Internal variables on curved or warped cells thus render to
+   `geometry_tol` instead of as fixed chords, with the piecewise-constant
+   jumps exactly on the (curved) region boundaries; the adaptive `meshplot`
+   wireframe keeps drawing element edges only. Because the partition record
+   survives a [`CrinkleClip`](@ref) (the sampled array does not), the
+   adaptive path is also what draws internal variables on the clip surface
+   of a 3D body. Only *raw* registered arrays (`set_point_data!`) stay bound
+   to the static tessellation and cannot be resampled.
+   `AddQuadraturePointData` now drops upstream `WarpByVector` records, which
+   its rebuilt static geometry never honored — apply warps after it, as
+   documented. Everything the adaptive path
+   derives from the dataset alone — the base domain and its adjacency, the
+   continuous geometry mapping, the field evaluators with their coefficient
+   buffers — is built lazily and shared by all adaptive plots of one
+   `FEData`; only the key and decode buffers are per plot. The estimators'
+   sampled deviations are memoized per key on that shared substrate (they
+   contain neither the tolerance nor any refinement state, so they are valid
+   until the next solution or warp change): a second plot of the same
+   dataset — a wireframe next to its surface, a second field — decides its
+   mesh from lookups instead of re-sampling the fields (measured 236x on a
+   97k-cell hex block, at 4.3 MiB of memo per criterion term), and retuning
+   a tolerance re-evaluates nothing that was already measured. `FEData` records
+   upstream `WarpByVector` applications in a
+   new `deformation` field (with the dof handler and solution of the stage
+   the warp was applied to, so a warp survives a later `Gradient` rebinding
+   both), and a `solid` field recording which cells
+   make up the body (as opposed to `visible`, the cells contributing surface)
+   so the surface facets can be identified after a clip.
+   Benchmarked against uniform `Refine` at matched geometry *and* solution
+   error (`benchmarks/adaptive_vs_uniform.jl`): a localized feature needs
+   3–10× fewer triangles adaptively, while a globally smooth field (where
+   uniform refinement is near optimal) saves only about 12 %. Updates cost
+   3–9× less than the first working version — field values are summed straight
+   from the reference shape functions instead of through `PointValues` (3×,
+   and again that much for vectorized interpolations), the estimators sample
+   four points instead of sixteen, decoded vertices are shared within a cell
+   (5× fewer), connectivity is a separate graph node from the values it
+   carries, the nodes hand out their buffers instead of copies, and every
+   field is rewritten once per update into per-cell monomial coefficients so a
+   sample is a few multiply-adds. What remains is dominated by pointwise
+   evaluation inside the estimators: deciding a mesh costs about 30 field
+   evaluations per triangle against the ~1 that filling a fixed one needs, so
+   the adaptive path is not yet faster in wall clock even where it draws far
+   fewer triangles.
+ - `mantle_mwe/`: a self-contained example of the adaptive pipeline with no
+   FerriteViz, Ferrite or Makie dependency — two hard-coded curved cells, the
+   key-update and decode passes as KernelAbstractions kernels, per-cell
+   coefficient buffers, per-fragment field evaluation, and a software
+   rasterizer producing the reference image. Written for prototyping the
+   pipeline against a GPU backend; its README states exactly which primitives
+   the backend has to provide.
+ - Internal (unexported) CPU core for view-adaptive tessellation via implicit
+   longest-edge bisection (`src/isubd.jl`, in the spirit of jdupuy's
+   demo-isubd-terrain, #161): `UInt64` subdivision keys, a split/merge/keep
+   streaming pass with an isotropic screen-space LoD criterion, and a
+   buffer-reusing triangle-soup decode carrying per-vertex reference
+   coordinates. Not yet wired into any recipe.
  - `ReferenceTessellation` now carries the wireframe edge segments of its
    reference shape (from `Ferrite.reference_edges`) next to the surface
    triangles, and `FEData` instantiates them per cell like the triangles:

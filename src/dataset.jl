@@ -164,12 +164,14 @@ cell — with adaptivity on, curved rendering comes from the adaptive path.
 For a uniformly subdivided static tessellation instead, compose explicitly:
 `FEData(dh, u; adaptivity=false) |> Refine(2)` (or [`Refine`](@ref)`()` for
 its automatic per-cell-type choice).
+
+!!! note
+    The struct is mutable for one reason: [`regrid!`](@ref FerriteViz.regrid!)
+    swaps the grid-derived state (an adaptive `ForestBWG`-style workflow
+    changes the number of elements between solves) while the dataset — and
+    its solution observables — keep their identity, so live adaptive plots
+    follow the new grid instead of dying with the old one.
 """
-# Mutable for one reason: `regrid!` swaps the grid-derived state (an adaptive
-# ForestBWG-style workflow changes the number of elements between solves)
-# while the dataset object — and its solution observables — keep their
-# identity, so live adaptive plots follow the new grid instead of dying with
-# the old one.
 mutable struct FEData{dim,DH<:Ferrite.AbstractDofHandler,T1,TOP<:Union{Nothing,Ferrite.AbstractTopology},SU<:Makie.Observable,M,TRI} <: AbstractPlotter
     dh::DH
     u::Makie.Observable{Vector{T1}}   # this dataset's dof vector (possibly lifted from source_u)

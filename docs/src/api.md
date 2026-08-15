@@ -6,6 +6,7 @@
 FerriteViz.FEData
 FerriteViz.Adaptivity
 FerriteViz.update!
+FerriteViz.regrid!
 FerriteViz.point_data
 FerriteViz.cell_data
 FerriteViz.set_point_data!

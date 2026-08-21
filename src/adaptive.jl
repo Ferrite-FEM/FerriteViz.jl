@@ -46,7 +46,10 @@
 struct FieldEvaluator{IP,PF}
     ips::Vector{IP}                   # one interpolation per subdofhandler with the field
     sdh_of_cell::Vector{Int}          # cell -> index into ips, 0 when the field is absent
-    celldofs_field::Vector{Vector{Int}}  # cell -> global dofs of the field, empty when absent
+    # cell -> global dofs of the field, an empty view when absent. CSR-style
+    # (one flat data vector + offsets) so the hot loops read contiguously and
+    # the map uploads to a device as two plain buffers.
+    celldofs_field::Ferrite.ArrayOfVectorViews{Int,1}
     ncomps::Int
     # Monomial coefficients per cell, when the interpolation admits them (see
     # polyeval.jl). `prepare!` fills them for the cells that will be sampled;
@@ -63,12 +66,16 @@ function FieldEvaluator(dh::Ferrite.DofHandler, field::Symbol)
     ips = [Ferrite.getfieldinterpolation(sdh, field) for sdh in sdhs]
     ncells = Ferrite.getncells(Ferrite.get_grid(dh))
     sdh_of_cell = zeros(Int, ncells)
-    celldofs_field = [Int[] for _ in 1:ncells]
-    for (si, sdh) in enumerate(sdhs)
-        rng = Ferrite.dof_range(sdh, field)
-        for cell_idx in sdh.cellset
-            sdh_of_cell[cell_idx] = si
-            celldofs_field[cell_idx] = Ferrite.celldofs(dh, cell_idx)[rng]
+    sizehint = length(Ferrite.dof_range(first(sdhs), field))
+    celldofs_field = Ferrite.ArrayOfVectorViews(Int[], (ncells,); sizehint) do buf
+        for (si, sdh) in enumerate(sdhs)
+            rng = Ferrite.dof_range(sdh, field)
+            for cell_idx in sdh.cellset
+                sdh_of_cell[cell_idx] = si
+                for d in view(Ferrite.celldofs(dh, cell_idx), rng)
+                    Ferrite.push_at_index!(buf, d, cell_idx)
+                end
+            end
         end
     end
     # only a single interpolation can share one coefficient layout
@@ -137,7 +144,7 @@ end
 
 # function barrier: the interpolation is only abstractly typed in the vector
 # above, and this loop must specialize on it
-function _sum_shape_values(ip, dofs::Vector{Int}, ξ, u::AbstractVector)
+function _sum_shape_values(ip, dofs::AbstractVector{Int}, ξ, u::AbstractVector)
     val = Ferrite.reference_shape_value(ip, ξ, 1) * u[dofs[1]]
     @inbounds for i in 2:length(dofs)
         val += Ferrite.reference_shape_value(ip, ξ, i) * u[dofs[i]]
@@ -150,7 +157,7 @@ end
 # underneath — so a displacement field costs `vdim` times what it needs to.
 # Evaluate the scalar basis once instead and gather the components (Ferrite
 # numbers them consecutively per scalar base function).
-function _sum_shape_values(ip::Ferrite.VectorizedInterpolation{vdim}, dofs::Vector{Int},
+function _sum_shape_values(ip::Ferrite.VectorizedInterpolation{vdim}, dofs::AbstractVector{Int},
                            ξ, u::AbstractVector) where {vdim}
     sip = ip.ip
     val = zero(Tensors.Vec{vdim,Float64})

@@ -225,6 +225,34 @@ end
     @test maxgap <= tol + 1e-12
 end
 
+@testset "DeviationLoD: configurable sample points" begin
+    base = diamond_base()
+    f0 = (b, ξ) -> 0.0
+    @test FV.DeviationLoD(f0, 1e-3).samples == FV.DEVIATION_SAMPLES
+    @test_throws ArgumentError FV.DeviationLoD(f0, 1e-3; samples = ())
+    @test_throws ArgumentError FV.DeviationLoD(f0, 1e-3; samples = ((0.5, 0.5, 0.5),))
+    @test_throws ArgumentError FV.DeviationLoD(f0, 1e-3; samples = ((1.5, -0.5, 0.0),))
+
+    # A sampled deviation is only a lower bound: this quintic vanishes at the
+    # corners, the edge midpoints and the centroid of both root triangles, so
+    # the default samples miss it entirely — a denser set catches it.
+    p(t) = t * (t - 1 / 3) * (t - 1 / 2) * (t - 2 / 3) * (t - 1)
+    blind = (b, ξ) -> p(ξ[1])
+    tol = 1e-4
+    lod_default = FV.DeviationLoD(blind, tol)
+    lod_dense = FV.DeviationLoD(blind, tol;
+                                samples = (FV.DEVIATION_SAMPLES..., (0.7, 0.2, 0.1)))
+    for k in FV.root_keys(base)
+        @test FV.deviation(lod_default, base, k) == 0.0
+        @test FV.deviation(lod_dense, base, k) > tol
+    end
+    keys, scratch = FV.root_keys(base), UInt64[]
+    FV.refine_keys!(keys, scratch, base, lod_default)
+    @test maximum(FV.key_depth, keys) == 0
+    FV.refine_keys!(keys, scratch, base, lod_dense; max_depth = 6)
+    @test maximum(FV.key_depth, keys) > 0
+end
+
 @testset "isubd merge under sharp level jumps" begin
     base = diamond_base()
     mesh = FV.IsubdMesh(base)

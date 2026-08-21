@@ -178,31 +178,43 @@ excess_levels(lod::UniformLoD, base::IsubdBase, k::UInt64) = Float64(lod.target 
 # trilinear field over hexahedra that reduction stopped the refinement
 # altogether — zero deviation on every edge it still looked at. The quarter
 # points, on the other hand, add nothing measurable and are not sampled.
+# This is the default; `DeviationLoD` accepts a denser set when a field's
+# order calls for one.
 const DEVIATION_SAMPLES = (
     (0.5, 0.0, 0.5), (0.5, 0.5, 0.0), (0.0, 0.5, 0.5), (1 / 3, 1 / 3, 1 / 3),
 )
 
 """
-    DeviationLoD(f, tol[, cache])
+    DeviationLoD(f, tol[, cache]; samples = DEVIATION_SAMPLES)
 
 Split until the triangle's linear interpolation approximates `f(base_id, ξ)`
-to within `tol`. The deviation is sampled over the whole triangle — along
-every edge and across the interior (see `DEVIATION_SAMPLES`) — against the
-barycentric interpolation of the corner values, and `excess_levels` is
-`log2(deviation / tol)`: the deviation of a smooth function under linear
-interpolation is O(h²) and bisection halves an edge every *second* level, so
-each level buys a factor 2. `f` may return points (geometry error: pass the
-base's `mapping`) or scalars (solution error: pass the colour evaluation);
-`tol` is absolute, in the units of `norm` of `f`'s values.
+to within `tol`. The deviation is sampled over the whole triangle — by
+default along every edge and across the interior (`DEVIATION_SAMPLES`) —
+against the barycentric interpolation of the corner values, and
+`excess_levels` is `log2(deviation / tol)`: the deviation of a smooth
+function under linear interpolation is O(h²) and bisection halves an edge
+every *second* level, so each level buys a factor 2. `f` may return points
+(geometry error: pass the base's `mapping`) or scalars (solution error: pass
+the colour evaluation); `tol` is absolute, in the units of `norm` of `f`'s
+values.
 
-The deviation of a key is a pure function of `f` — it contains neither the
-tolerance nor any refinement state — so it can be memoized across refinement
-calls, plots and tolerance changes for as long as `f` does not change. Pass a
-`Dict{UInt64,Float64}` as `cache` to do so; the *caller* owns the dict and is
-responsible for emptying it when `f`'s underlying data changes (the adaptive
-plots key this to the substrate's solution epoch). Without a cache every
-query samples `f` afresh, which a measured 4-sample 3D query puts at ~500ns
-against ~2ns for a cache hit.
+`samples` is the set of barycentric points the deviation is measured at, each
+a weight triple over the key's corners. A sampled deviation is a *lower*
+bound: finitely many points can miss the peak of a high-order field between
+them (four samples resolve the quadratic deviation profile exactly, but from
+cubic order on the true maximum can fall between the sampled points), so pass
+a denser set to tighten the bound — for diagnostics, or when a high-order
+field under-refines. Each triple must be nonnegative and sum to 1.
+
+The deviation of a key is a pure function of `f` and the sample set — it
+contains neither the tolerance nor any refinement state — so it can be
+memoized across refinement calls, plots and tolerance changes for as long as
+`f` does not change. Pass a `Dict{UInt64,Float64}` as `cache` to do so; the
+*caller* owns the dict and is responsible for emptying it when `f`'s
+underlying data changes (the adaptive plots key this to the substrate's
+solution epoch), and must not share it between criteria with different
+sample sets. Without a cache every query samples `f` afresh, which a
+measured 4-sample 3D query puts at ~500ns against ~2ns for a cache hit.
 
 Sampling the interior is what makes the criterion bound what is actually
 drawn — for curved geometry the deviation peaks in the middle of a face, and
@@ -218,12 +230,25 @@ stay finer than one refined up from the roots, because the passes never
 discard detail whose deviation still exceeds the tolerance. The finer of the
 two states is the more accurate one.
 """
-struct DeviationLoD{F,T,C<:Union{Nothing,Dict{UInt64,Float64}}} <: AbstractLoD
+struct DeviationLoD{F,T,S<:Tuple,C<:Union{Nothing,Dict{UInt64,Float64}}} <: AbstractLoD
     f::F
     tol::T
-    cache::C
+    samples::S      # NTuple{3,Float64} barycentric weights, in the type so
+    cache::C        # the sampling loop unrolls like the former constant did
 end
-DeviationLoD(f, tol) = DeviationLoD(f, tol, nothing)
+
+function DeviationLoD(f, tol, cache::Union{Nothing,Dict{UInt64,Float64}} = nothing;
+                      samples::Tuple = DEVIATION_SAMPLES)
+    isempty(samples) && throw(ArgumentError("samples must contain at least one point"))
+    canonical = map(samples) do s
+        length(s) == 3 || throw(ArgumentError("a sample must be a barycentric triple, got $s"))
+        w = (Float64(s[1]), Float64(s[2]), Float64(s[3]))
+        all(>=(0.0), w) && isapprox(sum(w), 1.0; atol = 1e-8) ||
+            throw(ArgumentError("a sample must be nonnegative and sum to 1, got $s"))
+        w
+    end
+    return DeviationLoD(f, tol, canonical, cache)
+end
 
 """
     deviation(lod::DeviationLoD, base, key) -> Float64
@@ -242,7 +267,7 @@ function _deviation(lod::DeviationLoD, base::IsubdBase, k::UInt64)
     b = key_base(k)
     f1, f2, f3 = lod.f(b, c1), lod.f(b, c2), lod.f(b, c3)
     err = 0.0
-    for (a1, a2, a3) in DEVIATION_SAMPLES
+    for (a1, a2, a3) in lod.samples
         exact = lod.f(b, a1 * c1 + a2 * c2 + a3 * c3)
         linear = a1 * f1 + a2 * f2 + a3 * f3
         err = max(err, Float64(LinearAlgebra.norm(exact - linear)))

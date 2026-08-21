@@ -16,14 +16,21 @@ an element-wise pass over flat buffers, so a GPU port (KernelAbstractions
 kernel / Mantle compute pass) is a lowering, not a rewrite.
 
 Pointwise field evaluation — the hot path, since the estimators query it far
-more often than the rendering does — goes through per-cell monomial
-coefficients ([`FerriteViz.PolyBasis`](@ref),
-[`FerriteViz.PolyField`](@ref), `src/polyeval.jl`): on a fixed cell the field
-is a polynomial in the reference coordinate, so it is rewritten once per
-solution update and then evaluated with a handful of multiply-adds. This is
-also the representation the planned fragment-shader evaluation needs. The
-basis verifies itself against the shape functions before use, and
-interpolations it cannot represent fall back to summing shape functions.
+more often than the rendering does — has two tiers. The baseline, valid for
+every nodal (identity-mapped) interpolation the package supports, sums the
+reference shape values directly: for H1 fields the value mapping is the
+identity, so `Σᵢ N̂ᵢ(ξ)·uᵢ` *is* the answer and none of `PointValues`'
+buffering or Jacobian machinery is needed. On top of it sit per-cell
+monomial coefficients ([`FerriteViz.PolyBasis`](@ref),
+[`FerriteViz.PolyField`](@ref), `src/polyeval.jl`) as a fast path: on a
+fixed cell the field is a polynomial in the reference coordinate, so it is
+rewritten once per solution update and then evaluated with a handful of
+multiply-adds — also the representation the planned fragment-shader
+evaluation needs. The rewrite is purely an optimization, never a support
+boundary: an interpolation it cannot represent (serendipity basis counts,
+mapped values) simply keeps the direct sum, and the basis verifies itself
+against the shape functions before it is ever used, so a wrong fit cannot
+slip through.
 
 The pipeline samples in a configurable number type ([`FEData`](@ref)'s
 `sample_type` keyword, `Float32` by default — what GLMakie uploads; a dataset

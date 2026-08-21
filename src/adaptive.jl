@@ -265,9 +265,19 @@ function _isubd_base_cells(ds::FEData)
         refshape = getrefshape(cell)
         tess = reference_tessellation(refshape)
         isempty(tess.triangles) && continue     # e.g. line cells carry no surface
-        if refdim == 2 && !isempty(tess.edges)
+        if refdim == 2
+            # The fan runs over the *element edges*: they become the split
+            # edges, which is what makes the base compatible with conforming
+            # refinement (see above). A tessellation that does not identify
+            # them cannot yield a watertight base, so it is refused rather
+            # than silently degraded.
+            isempty(tess.edges) &&
+                error("adaptive tessellation of $refshape needs the element edges of its " *
+                      "reference tessellation: the base triangles are fanned over them so every " *
+                      "split edge is an element edge, which the conforming (watertight) " *
+                      "refinement rests on. This tessellation lists none — plot it with " *
+                      "adaptive=false instead.")
             gids = _vertex_gids(cell, tess.coords, counter)
-            # the element edges, in whatever order the tessellation lists them
             rim = unique(Iterators.flatten(tess.edges))
             centre = sum(tess.coords[i] for i in rim) / length(rim)
             centre_gid = (counter[] -= 1)
@@ -287,15 +297,8 @@ function _isubd_base_cells(ds::FEData)
                            [vcoords[v] for v in face], [vgids[v] for v in face], counter)
             end
         else
-            gids = _vertex_gids(cell, tess.coords, counter)
-            for tri in tess.triangles
-                c = leb_order((tess.coords[tri[1]], tess.coords[tri[2]], tess.coords[tri[3]]))
-                # recover the permutation leb_order applied, to keep the ids aligned
-                perm = map(x -> findfirst(i -> tess.coords[i] === x, tri), c)
-                push!(corners, c)
-                push!(cornergids, (gids[tri[perm[1]]], gids[tri[perm[2]]], gids[tri[perm[3]]]))
-                push!(cellmap, cell_id)
-            end
+            error("adaptive tessellation draws surfaces of 2D and 3D reference shapes; " *
+                  "$refshape has reference dimension $refdim")
         end
     end
     isempty(corners) && error("adaptive tessellation found no visible cells to tessellate")

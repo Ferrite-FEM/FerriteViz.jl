@@ -104,6 +104,13 @@ high-order-deformed cells render curved — at the price of more triangles (see
 tessellation for every cell); custom levels are a filter application:
 `FEData(dh, u; adaptive=false) |> Refine(2)`.
 
+`sample_type` (default `Float32`, what GLMakie uploads) is the number type
+the *error-adaptive* plot pipeline (`solutionplot(...; adaptive=true)`)
+samples geometry and fields in: the refinement estimators then measure what
+the renderer actually draws, and tolerances are floored at the type's
+resolution. Pass `Float64` to sample at full precision. A dataset property —
+every adaptive plot of the dataset shares it — carried through filters.
+
 !!! note
     The tessellation `adaptive=true` picks may change in a future release; such
     a change is breaking. `adaptive=false` and explicit `Refine(n)` counts are
@@ -156,6 +163,14 @@ struct FEData{dim,DH<:Ferrite.AbstractDofHandler,T1,TOP<:Union{Nothing,Ferrite.A
     # what identifies the surface facets — those whose neighbour is missing or
     # not solid — for consumers that extract the boundary surface themselves.
     solid::Vector{Bool}
+    # The number type the adaptive-tessellation pipeline samples geometry and
+    # fields in, Float32 by default (what GLMakie uploads): the estimators
+    # then measure what the renderer actually draws, and tolerances are
+    # floored at this type's resolution. A dataset property — the substrate
+    # below is shared by every adaptive plot — carried through filters. A
+    # plain field rather than a type parameter: only the substrate build
+    # consumes it, behind the same function barrier as `subd_cache`.
+    sample_type::DataType
     # Lazily built adaptive-tessellation substrate (`IsubdSubstrate`), shared
     # by every adaptive plot of this dataset; `nothing` until the first one
     # asks. Everything in it is a pure function of the fields above, so it is
@@ -183,14 +198,15 @@ function _check_reserved_fieldnames(dh::Ferrite.AbstractDofHandler)
 end
 
 function FEData(dh::Ferrite.AbstractDofHandler, u::AbstractVector;
-                topology=_default_topology(Ferrite.get_grid(dh)), adaptive::Bool=true)
+                topology=_default_topology(Ferrite.get_grid(dh)), adaptive::Bool=true,
+                sample_type::Type{<:AbstractFloat}=Float32)
     # copy: update! writes into this array and must not mutate the caller's u
-    return FEData(dh, Makie.Observable(collect(u)); topology, adaptive)
+    return FEData(dh, Makie.Observable(collect(u)); topology, adaptive, sample_type)
 end
 
 function FEData(dh::Ferrite.AbstractDofHandler, u::Makie.Observable;
                 topology=_default_topology(Ferrite.get_grid(dh)), source_u::Makie.Observable=u,
-                adaptive::Bool=true)
+                adaptive::Bool=true, sample_type::Type{<:AbstractFloat}=Float32)
     _check_reserved_fieldnames(dh)
     grid = Ferrite.get_grid(dh)
     sdim = Ferrite.getspatialdim(grid)
@@ -211,13 +227,15 @@ function FEData(dh::Ferrite.AbstractDofHandler, u::Makie.Observable;
     # means the default costs nothing over constructing flat and filtering
     # afterwards.
     refinement = adaptive ? Refine() : Refine(0)
-    return _build_dataset(dh, u, source_u, topology, visible, _tessellation_provider(refinement, dh))
+    return _build_dataset(dh, u, source_u, topology, visible,
+                          _tessellation_provider(refinement, dh); sample_type)
 end
 
 # Shared tessellation-instantiation core of the FEData constructor and the
 # Refine filter: lay out `tess_for(cell)` per cell with duplicated vertices.
 function _build_dataset(dh::Ferrite.AbstractDofHandler, u::Makie.Observable, source_u::Makie.Observable,
-                        topology, visible::Vector{Bool}, tess_for)
+                        topology, visible::Vector{Bool}, tess_for;
+                        sample_type::Type{<:AbstractFloat}=Float32)
     grid = Ferrite.get_grid(dh)
     cells = Ferrite.getcells(grid)
     sdim = Ferrite.getspatialdim(grid)
@@ -274,7 +292,7 @@ function _build_dataset(dh::Ferrite.AbstractDofHandler, u::Makie.Observable, sou
         reference_coords, mesh,
         Dict{Symbol,Makie.Observable}(), Dict{Symbol,Makie.Observable}(),
         Dict{Symbol,DerivedPointData}(), nothing,
-        Deformation[], fill(true, ncells), Ref{Any}(nothing))
+        Deformation[], fill(true, ncells), sample_type, Ref{Any}(nothing))
 end
 
 function _instantiate_cell!(physical_coords::Vector{GeometryBasics.Point{sdim,Float32}}, reference_coords,

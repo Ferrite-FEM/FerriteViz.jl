@@ -99,13 +99,16 @@ is_conformable(base::IsubdBase) = any(t -> any(e -> e[1] != 0, t), base.adjacenc
 
 root_keys(base::IsubdBase) = [root_key(i) for i in 1:length(base.corners)]
 
-# Reference-space corners of the key's sub-triangle.
-function key_corners(base::IsubdBase, k::UInt64)
+# Reference-space corners of the key's sub-triangle. The barycentric
+# combination runs in the transform's Float64 (its weights are dyadic, so it
+# is exact) and is rounded once into the base's corner type — the same key
+# always yields bit-identical corners, which the vertex dedup relies on.
+function key_corners(base::IsubdBase{RV}, k::UInt64) where {RV}
     r1, r2, r3 = base.corners[key_base(k)]
     X = key_xform(k)
-    return (X[1, 1] * r1 + X[2, 1] * r2 + X[3, 1] * r3,
-            X[1, 2] * r1 + X[2, 2] * r2 + X[3, 2] * r3,
-            X[1, 3] * r1 + X[2, 3] * r2 + X[3, 3] * r3)
+    return (convert(RV, X[1, 1] * r1 + X[2, 1] * r2 + X[3, 1] * r3),
+            convert(RV, X[1, 2] * r1 + X[2, 2] * r2 + X[3, 2] * r3),
+            convert(RV, X[1, 3] * r1 + X[2, 3] * r2 + X[3, 3] * r3))
 end
 
 """

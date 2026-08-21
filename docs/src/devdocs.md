@@ -25,6 +25,17 @@ also the representation the planned fragment-shader evaluation needs. The
 basis verifies itself against the shape functions before use, and
 interpolations it cannot represent fall back to summing shape functions.
 
+The pipeline samples in a configurable number type ([`FEData`](@ref)'s
+`sample_type` keyword, `Float32` by default — what GLMakie uploads; a dataset
+property since every adaptive plot shares the substrate, and carried through
+filters), so the estimators
+measure the geometry and fields the viewer actually sees. Requested
+tolerances are floored at that type's resolution
+(`FerriteViz._tol_floor`): refining below it would chase the pipeline's own
+rounding noise and differences no drawn pixel can show. The base build and
+its vertex-identity bookkeeping stay exact in `Float64`; the corners are
+rounded into the sample type once, after the adjacency table is built.
+
 Refinement is driven by interpolation-error estimators
 ([`FerriteViz.DeviationLoD`](@ref), combined with
 [`FerriteViz.CombinedLoD`](@ref)) rather than by the camera, and it is

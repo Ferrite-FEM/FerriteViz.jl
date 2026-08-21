@@ -43,7 +43,14 @@
 # back — is pure overhead, worth a measured 3x. Fields whose values are
 # mapped (Piola, i.e. H(curl)/H(div)) would need the real thing; they are
 # unsupported here as in the rest of the package (#151).
-struct FieldEvaluator{IP,PF}
+#
+# `Tv` is the sample type the coefficient buffers hold, Float32 by default:
+# it is what the renderer draws (GLMakie uploads Float32), so sampling in it
+# means the estimators measure the field the viewer actually sees — and the
+# matching eps(Tv)-scaled tolerance floors keep refinement from chasing
+# deviations below that resolution. Pass Float64 where evaluation itself is
+# the point (tests, diagnostics).
+struct FieldEvaluator{Tv,IP,PF}
     ips::Vector{IP}                   # one interpolation per subdofhandler with the field
     sdh_of_cell::Vector{Int}          # cell -> index into ips, 0 when the field is absent
     # cell -> global dofs of the field, an empty view when absent. CSR-style
@@ -57,7 +64,8 @@ struct FieldEvaluator{IP,PF}
     poly::PF
 end
 
-function FieldEvaluator(dh::Ferrite.DofHandler, field::Symbol)
+function FieldEvaluator(dh::Ferrite.DofHandler, field::Symbol,
+                        ::Type{Tv} = Float32) where {Tv<:AbstractFloat}
     sdhs = getsubdofhandlers(dh, field)
     isempty(sdhs) && error("field :$field not found in the DofHandler")
     ip_field = Ferrite.getfieldinterpolation(first(sdhs), field)
@@ -80,15 +88,18 @@ function FieldEvaluator(dh::Ferrite.DofHandler, field::Symbol)
     end
     # only a single interpolation can share one coefficient layout
     basis = length(ips) == 1 ? PolyBasis(only(ips)) : nothing
-    T = ncomps == 1 ? Float64 : Tensors.Vec{ncomps,Float64}
+    T = ncomps == 1 ? Tv : Tensors.Vec{ncomps,Tv}
     poly = basis === nothing ? nothing : PolyField(basis, ncells, T)
-    return FieldEvaluator(ips, sdh_of_cell, celldofs_field, ncomps, poly)
+    return FieldEvaluator{Tv,eltype(ips),typeof(poly)}(ips, sdh_of_cell, celldofs_field,
+                                                       ncomps, poly)
 end
+
+_sample_type(::FieldEvaluator{Tv}) where {Tv} = Tv
 
 # Fill the coefficients of the cells that will be evaluated. Cheap (one small
 # matvec per cell) next to the sampling that follows, and skipped entirely
 # when the field has no polynomial form.
-prepare!(::FieldEvaluator{IP,Nothing}, cells, u::AbstractVector) where {IP} = nothing
+prepare!(::FieldEvaluator{<:Any,<:Any,Nothing}, cells, u::AbstractVector) = nothing
 function prepare!(ev::FieldEvaluator, cells, u::AbstractVector)
     pf = ev.poly
     nodal = _nodal_buffer(pf)
@@ -116,16 +127,17 @@ function _refresh!(ev::FieldEvaluator, cells, u::AbstractVector, epoch::Int)
     return nothing
 end
 
-function _gather_nodal!(nodal::Vector{Float64}, dofs, u, ::Int)
+function _gather_nodal!(nodal::Vector{T}, dofs, u, ::Int) where {T<:AbstractFloat}
     @inbounds for k in eachindex(nodal)
         nodal[k] = u[dofs[k]]
     end
     return nodal
 end
-function _gather_nodal!(nodal::Vector{Tensors.Vec{vdim,Float64}}, dofs, u, ::Int) where {vdim}
+function _gather_nodal!(nodal::Vector{Tensors.Vec{vdim,T}}, dofs, u,
+                        ::Int) where {vdim,T<:AbstractFloat}
     @inbounds for k in eachindex(nodal)
         o = (k - 1) * vdim
-        nodal[k] = Tensors.Vec{vdim}(ntuple(c -> u[dofs[o + c]], vdim))
+        nodal[k] = Tensors.Vec{vdim,T}(ntuple(c -> u[dofs[o + c]], vdim))
     end
     return nodal
 end
@@ -427,15 +439,15 @@ struct WarpEval{EV<:FieldEvaluator,UO<:Makie.Observable,SO<:Makie.Observable}
     built_for::Base.RefValue{Symbol}
 end
 
-function WarpEval(d::Deformation)
-    ev = FieldEvaluator(d.dh, d.field[])
+function WarpEval(d::Deformation, ::Type{Tv} = Float32) where {Tv<:AbstractFloat}
+    ev = FieldEvaluator(d.dh, d.field[], Tv)
     return WarpEval{typeof(ev),typeof(d.u),typeof(d.scale)}(
         d.dh, d.u, d.field, d.scale, Ref(ev), Ref(d.field[]))
 end
 
 function _refresh_warp!(w::WarpEval{EV}, cells, epoch::Int) where {EV}
     if w.name[] !== w.built_for[]
-        newev = FieldEvaluator(w.dh, w.name[])
+        newev = FieldEvaluator(w.dh, w.name[], _sample_type(w.ev[]))
         newev isa EV ||
             error("switching the warp field from :$(w.built_for[]) to :$(w.name[]) changes the " *
                   "field's interpolation, which an adaptive plot cannot follow — recreate the plot")
@@ -449,16 +461,19 @@ end
 # Continuous geometry x(ξ) [+ Σ scaleᵢ · fieldᵢ(ξ) for upstream warps] of one
 # cell, as the isubd mapping closure. Reads the current solution and warp
 # scales non-reactively — reactivity is the graph nodes' concern (they list
-# the warp observables as inputs, see `_warp_inputs!`). Full Float64: the
-# geometry-error estimator measures deviations far below Float32 noise (only
-# the positions handed to Makie get truncated, in the decode node).
-function _isubd_mapping(ds::FEData{dim}, cellmap::Vector{Int}, cellcoords, warps) where {dim}
+# the warp observables as inputs, see `_warp_inputs!`). Evaluated in the
+# substrate's sample type `T` (Float32 by default — what the renderer draws),
+# so the geometry estimator measures the surface the viewer actually sees;
+# the eps(T)-scaled tolerance floors keep it from chasing deviations below
+# that resolution.
+function _isubd_mapping(ds::FEData{dim}, cellmap::Vector{Int}, cellcoords,
+                        warps, ::Type{T}) where {dim,T}
     grid = Ferrite.get_grid(ds.dh)
     cells = Ferrite.getcells(grid)
     gips = [Ferrite.geometric_interpolation(typeof(c)) for c in cells]
     # The geometry's own coefficients never change — the node coordinates are
     # fixed — so they are computed once here rather than per update.
-    geo = _geometry_poly(gips, cellcoords, cellmap, Val(dim))
+    geo = _geometry_poly(gips, cellcoords, cellmap, Val(dim), T)
     function mapping(base_id::Int, ξ)
         cell_id = cellmap[base_id]
         x = (geo !== nothing && geo.filled[cell_id]) ? evaluate(geo, cell_id, ξ) :
@@ -466,17 +481,19 @@ function _isubd_mapping(ds::FEData{dim}, cellmap::Vector{Int}, cellcoords, warps
         for w in warps
             d = evaluate_at(w.ev[], cell_id, ξ, w.u[])
             d === nothing && continue
-            x += Float64(w.scale[]) * d
+            x += T(w.scale[]) * d
         end
-        return x
+        # the warp fallback path may accumulate in Float64; pin the closure's
+        # return type to the sample type either way
+        return Tensors.Vec{dim,T}(Tuple(x))
     end
     return mapping
 end
 
-function _geometry_poly(gips, cellcoords, cellmap, ::Val{dim}) where {dim}
+function _geometry_poly(gips, cellcoords, cellmap, ::Val{dim}, ::Type{T}) where {dim,T}
     basis = PolyBasis(first(gips))
     basis === nothing && return nothing
-    poly = PolyField(basis, length(gips), Tensors.Vec{dim,Float64})
+    poly = PolyField(basis, length(gips), Tensors.Vec{dim,T})
     for cell in unique(cellmap)
         # a differently interpolated cell keeps the shape-function path
         PolyBasis(gips[cell]) === nothing && continue
@@ -486,10 +503,9 @@ function _geometry_poly(gips, cellcoords, cellmap, ::Val{dim}) where {dim}
     return poly
 end
 
-# Positions leave the graph as Float32 points for rendering; the pipeline
-# itself stays in Float64 (the geometry estimator measures deviations far
-# below Float32 noise). Filled into a buffer that is handed out as is, see
-# `_adaptive_solutionplot!`.
+# Positions leave the graph as Float32 points for rendering (a plain copy
+# when the substrate already samples in Float32, the default). Filled into a
+# buffer that is handed out as is, see `_adaptive_solutionplot!`.
 function _render_positions!(out::Vector{GeometryBasics.Point{dim,Float32}}, ps) where {dim}
     resize!(out, length(ps))
     @inbounds for i in eachindex(ps)
@@ -540,14 +556,24 @@ struct IsubdSubstrate{B<:IsubdBase,CC,W<:Vector}
     dev_epoch::Base.RefValue{Int}       # epoch the memos are valid for
 end
 
-function _build_substrate(ds::FEData)
+# The id bookkeeping of the base build works on exact Float64 reference
+# coordinates; the corners the pipeline then samples at are rounded once into
+# the sample type here.
+function _corners_as(corners::Vector{NTuple{3,Ferrite.Vec{refdim,Float64}}},
+                     ::Type{T}) where {refdim,T}
+    T === Float64 && return corners
+    return [ntuple(i -> Tensors.Vec{refdim,T}(Tuple(tri[i])), 3) for tri in corners]
+end
+
+function _build_substrate(ds::FEData{dim}, ::Type{T}) where {dim,T}
     corners, cornergids, cellmap, groupmap, qpmap, edgemask = _isubd_base_triangles(ds)
     adjacency, _ = _base_adjacency(cornergids)
     grid = Ferrite.get_grid(ds.dh)
-    cellcoords = [Ferrite.getcoordinates(grid, i) for i in 1:Ferrite.getncells(grid)]
-    warps = [WarpEval(d) for d in ds.deformation]
-    mapping = _isubd_mapping(ds, cellmap, cellcoords, warps)
-    base = IsubdBase(corners, mapping, adjacency)
+    cellcoords = [[Tensors.Vec{dim,T}(Tuple(x)) for x in Ferrite.getcoordinates(grid, i)]
+                  for i in 1:Ferrite.getncells(grid)]
+    warps = [WarpEval(d, T) for d in ds.deformation]
+    mapping = _isubd_mapping(ds, cellmap, cellcoords, warps, T)
+    base = IsubdBase(_corners_as(corners, T), mapping, adjacency)
     epoch = Ref(0)
     bump(_) = (epoch[] += 1; nothing)
     Makie.on(bump, ds.u)
@@ -572,15 +598,19 @@ end
 function _substrate(ds::FEData)
     cached = ds.subd_cache[]
     cached === nothing || return cached::IsubdSubstrate
-    sub = _build_substrate(ds)
+    sub = _build_substrate(ds, ds.sample_type)
     ds.subd_cache[] = sub
     return sub
 end
 
+# The sample type every evaluation of this substrate runs in, recovered from
+# the base's reference-corner type.
+_sample_type(sub::IsubdSubstrate) = eltype(eltype(eltype(sub.base.corners)))
+
 # The substrate-wide evaluator of one dof field, shared (with its coefficient
 # buffers) by every plot sampling that field.
 _field_evaluator(sub::IsubdSubstrate, dh, name::Symbol) =
-    get!(() -> FieldEvaluator(dh, name), sub.evaluators, name)
+    get!(() -> FieldEvaluator(dh, name, _sample_type(sub)), sub.evaluators, name)
 
 # The deviation memo of one criterion term, valid for the current epoch. The
 # staleness check clears *all* terms at once (they share the epoch), lazily at
@@ -648,7 +678,7 @@ function _chain_node(sub::IsubdSubstrate, ds::FEData, src::FieldSource, ::Val{sd
         # a source rebound away by a later filter: private evaluator, and a
         # memo key that cannot collide with a field of the plotted handler
         term = Symbol(src.name, :_, string(objectid(src.dh); base=16))
-        se = SourceEval(FieldEvaluator(src.dh, src.name), src.u, src.name, term)
+        se = SourceEval(FieldEvaluator(src.dh, src.name, _sample_type(sub)), src.u, src.name, term)
         # its solution must invalidate the shared epoch too (duplicate
         # listeners from several plots only advance the counter faster)
         src.u === ds.u || Makie.on(_ -> (sub.epoch[] += 1; nothing), src.u)
@@ -741,13 +771,16 @@ function _scalar_probe(ev::FieldEvaluator, cellmap::Vector{Int}, u::AbstractVect
     return probe
 end
 
-# Value span of the drawn scalar — the reference scale for the relative
-# solution tolerance — from the field's dof values on the sampled cells. For
-# the nodal (Lagrange) bases supported here the dof values are the function's
-# values at the interpolation nodes, including the edge/face/interior nodes no
-# base-triangle corner visits. Sampling the corners instead once collapsed the
-# reference to noise level for a field peaking between them, which then
-# refined a visually flat surface to the depth cap.
+# Value span and magnitude of the drawn scalar — the span is the reference
+# scale for the relative solution tolerance, the magnitude the reference for
+# the sample type's noise floor (a large constant field samples with noise
+# proportional to its value while its span is zero) — from the field's dof
+# values on the sampled cells. For the nodal (Lagrange) bases supported here
+# the dof values are the function's values at the interpolation nodes,
+# including the edge/face/interior nodes no base-triangle corner visits.
+# Sampling the corners instead once collapsed the reference to noise level
+# for a field peaking between them, which then refined a visually flat
+# surface to the depth cap.
 function _field_span(ev::FieldEvaluator, cells, u::AbstractVector; reduce::Bool)
     lo, hi = Inf, -Inf
     n = ev.ncomps
@@ -775,8 +808,25 @@ function _field_span(ev::FieldEvaluator, cells, u::AbstractVector; reduce::Bool)
             end
         end
     end
-    return hi > lo ? hi - lo : 0.0
+    hi >= lo || return (0.0, 0.0)
+    return (hi - lo, max(abs(lo), abs(hi)))
 end
+
+# The finest relative tolerance worth resolving in sample type `T`: below
+# ~100 ulps a measured "deviation" is the pipeline's own rounding noise, and
+# the renderer — which draws `T` — cannot show the difference either.
+# Requested tolerances are floored here, so the Float32 default caps
+# adaptation at ~1e-5 of the reference scale however small a tolerance is
+# asked for. (Grids offset far from the origin relative to their size carry
+# coordinate noise beyond any diagonal-scaled floor — those need
+# `sample_type = Float64`.)
+_tol_floor(::Type{T}) where {T<:AbstractFloat} = 100 * Float64(eps(T))
+
+# The tolerance of one solution term: the requested fraction of the span,
+# floored at the noise level of the field's magnitude. A (near-)constant
+# field never asks for refinement.
+_solution_tol(rel::Float64, (span, mag)::NTuple{2,Float64}, ::Type{T}) where {T} =
+    max(rel * span, _tol_floor(T) * mag)
 
 function _grid_diagonal(grid)
     nodes = Ferrite.getnodes(grid)
@@ -849,10 +899,11 @@ function _wire_adaptive_wireframe!(WF, ds::FEData{dim}, sub::IsubdSubstrate) whe
     base = sub.base
     state = (keys=root_keys(base), prev=UInt64[], scratch=UInt64[])
     diag = sub.diag
+    T = _sample_type(sub)
     ComputePipeline.register_computation!(graph, [:subd_u, :geometry_tol, :max_depth, warp_inputs...],
                                           [:subd_keys]) do inputs, changed, cached
         _refresh_all!(sub, nothing, inputs.subd_u)
-        lod = DeviationLoD(base.mapping, Float64(inputs.geometry_tol) * diag,
+        lod = DeviationLoD(base.mapping, max(Float64(inputs.geometry_tol), _tol_floor(T)) * diag,
                            _dev_cache(sub, :geometry))
         refine_keys!(state.keys, state.scratch, base, lod; max_depth=Int(inputs.max_depth))
         cached !== nothing && state.keys == state.prev && return nothing
@@ -923,35 +974,35 @@ function _wire_adaptive_solutionplot!(SP, ds::FEData{dim}, sub::IsubdSubstrate, 
     cellmap = sub.cellmap
     state = (keys=root_keys(base), scratch=UInt64[], prev=UInt64[])
     diag = sub.diag
-    span = Ref(NaN)
-    spans = chain === nothing ? Float64[] : fill(NaN, length(chain.sources))
+    T = _sample_type(sub)
+    span = Ref((NaN, NaN))
+    spans = chain === nothing ? NTuple{2,Float64}[] : fill((NaN, NaN), length(chain.sources))
     keyinputs = [:subd_u, :geometry_tol, :solution_tol, :max_depth, warp_inputs...]
     ComputePipeline.register_computation!(graph, keyinputs, [:subd_keys]) do inputs, changed, cached
         _refresh_all!(sub, ev, inputs.subd_u)
         _refresh_chain!(sub, chain)
-        geo = DeviationLoD(base.mapping, Float64(inputs.geometry_tol) * diag,
+        geo = DeviationLoD(base.mapping, max(Float64(inputs.geometry_tol), _tol_floor(T)) * diag,
                            _dev_cache(sub, :geometry))
         lods = (geo,)
         if ev !== nothing
             probe = _scalar_probe(ev, cellmap, inputs.subd_u; reduce)
-            if isnan(span[]) || changed.subd_u
+            if isnan(span[][1]) || changed.subd_u
                 span[] = _field_span(ev, sub.used_cells, inputs.subd_u; reduce)
             end
-            # a (near-)constant field never asks for refinement
-            tol = max(Float64(inputs.solution_tol) * span[], 1e-12)
+            tol = _solution_tol(Float64(inputs.solution_tol), span[], T)
             lods = (lods..., DeviationLoD(probe, tol, _dev_cache(sub, fname)))
         elseif chain !== nothing
             # the regularity principle: the criterion samples the chain's dof
             # field *sources* (a vector source through its magnitude), not the
             # derived quantity — the mesh follows u, the colors follow the mesh
-            if isnan(spans[1]) || changed.subd_u
+            if isnan(spans[1][1]) || changed.subd_u
                 for (i, s) in enumerate(chain.sources)
                     spans[i] = _field_span(s.ev, sub.used_cells, s.u[]; reduce=s.ev.ncomps > 1)
                 end
             end
             src_lods = ntuple(length(chain.sources)) do i
                 s = chain.sources[i]
-                tol = max(Float64(inputs.solution_tol) * spans[i], 1e-12)
+                tol = _solution_tol(Float64(inputs.solution_tol), spans[i], T)
                 DeviationLoD(_scalar_probe(s.ev, cellmap, s.u[]; reduce=s.ev.ncomps > 1), tol,
                              _dev_cache(sub, s.term))
             end
@@ -1035,10 +1086,11 @@ function _wire_adaptive_qpplot!(SP, ds::FEData{dim}, sub::IsubdSubstrate, qp::QP
     base = sub.base
     state = (keys=root_keys(base), scratch=UInt64[], prev=UInt64[])
     diag = sub.diag
+    T = _sample_type(sub)
     ComputePipeline.register_computation!(graph, [:subd_u, :geometry_tol, :max_depth, warp_inputs...],
                                           [:subd_keys]) do inputs, changed, cached
         _refresh_all!(sub, nothing, inputs.subd_u)
-        lod = DeviationLoD(base.mapping, Float64(inputs.geometry_tol) * diag,
+        lod = DeviationLoD(base.mapping, max(Float64(inputs.geometry_tol), _tol_floor(T)) * diag,
                            _dev_cache(sub, :geometry))
         refine_keys!(state.keys, state.scratch, base, lod; max_depth=Int(inputs.max_depth))
         cached !== nothing && state.keys == state.prev && return nothing

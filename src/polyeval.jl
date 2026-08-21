@@ -96,12 +96,14 @@ function _verifies(basis::PolyBasis{refdim,N,P}, ip) where {refdim,N,P}
     return true
 end
 
-# The monomials at ξ, from powers computed once per dimension.
+# The monomials at ξ, from powers computed once per dimension. Computed in
+# ξ's number type: the adaptive pipeline samples in its (typically Float32)
+# type end to end, the basis verification in Float64.
 @inline function monomials(basis::PolyBasis{refdim,N,P}, ξ) where {refdim,N,P}
-    pw = ntuple(d -> _powers(Float64(ξ[d]), Val(P)), refdim)
+    pw = ntuple(d -> _powers(ξ[d], Val(P)), refdim)
     return ntuple(m -> begin
                       e = basis.exponents[m]
-                      v = 1.0
+                      v = one(ξ[1])
                       @inbounds for d in 1:refdim
                           v *= pw[d][e[d] + 1]
                       end
@@ -111,7 +113,7 @@ end
 
 # Unrolled at the type level, so each entry is a literal power the compiler
 # turns into multiplications.
-@inline _powers(x::Float64, ::Val{P}) where {P} = ntuple(i -> x^(i - 1), Val(P))
+@inline _powers(x::Real, ::Val{P}) where {P} = ntuple(i -> x^(i - 1), Val(P))
 
 """
     PolyField(basis, ncells, T) -> PolyField

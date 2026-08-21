@@ -510,10 +510,45 @@ end
     ds = FEData(dh, u)
 
     ev = FerriteViz.FieldEvaluator(dh, :p)
-    @test FerriteViz._field_span(ev, 1:Ferrite.getncells(grid), u; reduce=false) > 0.9
+    span, mag = FerriteViz._field_span(ev, 1:Ferrite.getncells(grid), u; reduce=false)
+    @test span > 0.9
+    @test mag >= span
     # relative to the true span, a 50% tolerance asks for almost nothing
     _, _, sp = solutionplot(ds; adaptive=true, solution_tol=0.5, max_depth=10)
     @test length(sp.subd_keys[]) < 3 * 4 * Ferrite.getncells(grid)
+end
+
+@testset "adaptive: the pipeline samples in the render number type" begin
+    grid = generate_grid(QuadraticQuadrilateral, (2, 2))
+    dh = DofHandler(grid)
+    add!(dh, :p, Lagrange{RefQuadrilateral,2}())
+    close!(dh)
+    u = zeros(ndofs(dh))
+    Ferrite.apply_analytical!(u, dh, :p, x -> sin(pi * x[1]) * x[2])
+    ds = FEData(dh, u)
+
+    _, _, sp = solutionplot(ds; adaptive=true)
+    sub = ds.subd_cache[]
+    @test ds.sample_type === Float32
+    @test FerriteViz._sample_type(sub) === Float32
+    @test eltype(eltype(eltype(sub.base.corners))) === Float32
+    @test sub.base.mapping(1, sub.base.corners[1][1]) isa Tensors.Vec{2,Float32}
+
+    # Float64 stays available as an opt-in — a dataset property, carried
+    # through filters
+    ds64 = FEData(dh, u; sample_type=Float64)
+    @test (ds64 |> FerriteViz.Refine(1)).sample_type === Float64
+    solutionplot(ds64; adaptive=true)
+    @test FerriteViz._sample_type(ds64.subd_cache[]) === Float64
+
+    # the eps-scaled tolerance floor: a large constant field samples with
+    # Float32 noise proportional to its value, which must never read as
+    # deviation — however tight the requested tolerance
+    uc = fill(5.0, ndofs(dh))
+    dsc = FEData(dh, uc)
+    nbase = 4 * Ferrite.getncells(grid)
+    _, _, spc = solutionplot(dsc; adaptive=true, solution_tol=1e-9, max_depth=8)
+    @test length(spc.subd_keys[]) == nbase
 end
 
 @testset "per-cell coefficients agree with the shape-function sum" begin
@@ -531,7 +566,8 @@ end
     # a vectorized interpolation reuses its scalar basis
     @test FerriteViz.PolyBasis(Lagrange{RefQuadrilateral,2}()^2) !== nothing
 
-    # and the coefficients reproduce the shape-function sum exactly
+    # and the coefficients reproduce the shape-function sum — exactly in
+    # Float64, to the sample type's resolution in the Float32 default
     for (celltype, ip) in ((Quadrilateral, Lagrange{RefQuadrilateral,1}()),
                            (QuadraticQuadrilateral, Lagrange{RefQuadrilateral,2}()),
                            (Triangle, Lagrange{RefTriangle,1}()))
@@ -539,9 +575,11 @@ end
         dh = DofHandler(grid); add!(dh, :f, ip); close!(dh)
         u = zeros(ndofs(dh))
         Ferrite.apply_analytical!(u, dh, :f, x -> sin(pi * x[1]) + x[2]^2)
-        ev = FerriteViz.FieldEvaluator(dh, :f)
+        ev = FerriteViz.FieldEvaluator(dh, :f, Float64)
+        ev32 = FerriteViz.FieldEvaluator(dh, :f)
         @test ev.poly !== nothing
         FerriteViz.prepare!(ev, 1:Ferrite.getncells(grid), u)
+        FerriteViz.prepare!(ev32, 1:Ferrite.getncells(grid), u)
         inside = Ferrite.getrefshape(ip) === RefTriangle ?
                  (Ferrite.Vec(0.2, 0.3), Ferrite.Vec(0.1, 0.6), Ferrite.Vec(0.0, 0.0)) :
                  (Ferrite.Vec(0.13, -0.21), Ferrite.Vec(-0.7, 0.4), Ferrite.Vec(0.9, 0.9))
@@ -549,6 +587,7 @@ end
             direct = FerriteViz._sum_shape_values(ev.ips[1], ev.celldofs_field[cell], ξ, u)
             @test FerriteViz.evaluate(ev.poly, cell, ξ) ≈ direct atol = 1e-12
             @test FerriteViz.evaluate_at(ev, cell, ξ, u) ≈ direct atol = 1e-12
+            @test FerriteViz.evaluate_at(ev32, cell, ξ, u) ≈ direct atol = 1e-5
         end
     end
 end

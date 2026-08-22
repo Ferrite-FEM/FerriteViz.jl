@@ -159,9 +159,13 @@ struct FEData{dim,DH<:Ferrite.AbstractDofHandler,T1,TOP<:Union{Nothing,Ferrite.A
     deformation::Vector{Deformation}
     # Which cells make up the body, as opposed to `visible`, which marks the
     # cells contributing surface. In 3D an interior cell is solid but not
-    # visible; a cell removed by CrinkleClip is neither. The distinction is
-    # what identifies the surface facets — those whose neighbour is missing or
-    # not solid — for consumers that extract the boundary surface themselves.
+    # visible; a cell removed by CrinkleClip is neither (visible implies
+    # solid). The distinction is what identifies the surface facets — those
+    # whose neighbour is missing or not solid. Consumed only by the adaptive
+    # path, through `_is_surface_facet`, which both base builds
+    # (`_isubd_base_cells`, `_isubd_base_qp`) gate their 3D facet loops on;
+    # the static path deliberately ignores it and draws every facet of every
+    # visible cell.
     solid::Vector{Bool}
     # The number type the adaptive-tessellation pipeline samples geometry and
     # fields in, Float32 by default (what GLMakie uploads): the estimators

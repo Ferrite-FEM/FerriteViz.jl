@@ -143,7 +143,13 @@ function _gather_nodal!(nodal::Vector{Tensors.Vec{vdim,T}}, dofs, u,
 end
 
 # Evaluate at one reference point of one cell; `nothing` outside the field's
-# subdomain.
+# subdomain. `nothing` — not an error — because visiting such cells is
+# normal: every *visible* cell is tessellated, including cells of a
+# subdomain the field is not defined on, and those must still render. Each
+# consumer maps it to its own neutral element: the color transfer to NaN (a
+# hole, as in the static path), the deviation probe to zero (a field-less
+# cell has nothing to refine for — sound, because a probe never samples
+# across a cell boundary).
 @inline function evaluate_at(ev::FieldEvaluator, cell_idx::Int, ξ, u::AbstractVector)
     si = ev.sdh_of_cell[cell_idx]
     si == 0 && return nothing
@@ -429,10 +435,17 @@ end
 # One upstream WarpByVector, ready to evaluate: the `Deformation` record with
 # the FieldEvaluator built for its field — against the dof handler and
 # solution *captured at warp time*, so a later Gradient rebinding the
-# dataset's handler does not orphan the warp. The evaluator sits in a Ref
-# because switching the warp's field observable rebuilds it; the Ref is typed
-# so the mapping's hot loop stays concretely dispatched, which is also why a
-# switch to a differently interpolated field cannot be followed.
+# dataset's handler does not orphan the warp.
+#
+# `u`, `name` and `scale` are the warp's *inputs* and stay the Deformation's
+# Observables: graph nodes list them as dependencies, so changing any of
+# them reruns refinement. `ev` and `built_for` are *derived state*, not
+# inputs — the evaluator built for the current field name, and which name it
+# was built for. Nothing may react to them (they change as a consequence of
+# a `name` change, inside `_refresh_warp!`, never as a source of updates),
+# so they are plain Refs rather than Observables. The Ref is concretely
+# typed so the mapping's hot loop stays concretely dispatched, which is also
+# why a switch to a differently interpolated field cannot be followed.
 struct WarpEval{EV<:FieldEvaluator,UO<:Makie.Observable,SO<:Makie.Observable}
     dh::Ferrite.AbstractDofHandler   # cold: only touched on a rebuild
     u::UO
@@ -554,7 +567,7 @@ struct IsubdSubstrate{B<:IsubdBase,CC,W<:Vector}
     # function of (key, term, epoch) — it contains no tolerance and no
     # refinement state — so within one epoch the second plot's refinement, a
     # re-tolerated first plot, or the wireframe next to the surface all decide
-    # from lookups (~2ns) instead of re-sampling the fields (~500ns/key).
+    # from lookups instead of re-sampling the fields per key.
     dev_caches::Dict{Symbol,Dict{UInt64,Float64}}
     dev_epoch::Base.RefValue{Int}       # epoch the memos are valid for
 end
@@ -784,6 +797,18 @@ end
 # Sampling the corners instead once collapsed the reference to noise level
 # for a field peaking between them, which then refined a visually flat
 # surface to the depth cap.
+#
+# The nodal values are a *lower* bound on the true span: a high-order field
+# can peak between its nodes. For a tolerance reference the lower bound errs
+# on the safe side — a smaller span means a tighter tolerance and *more*
+# refinement, never a missed feature. Such a peak cannot be flattened into
+# clipped color either: the deviation criterion measures the field itself,
+# so a spike between nodes reads as deviation and attracts refinement, and
+# the colorrange autoscales from the emitted vertex colors, which after
+# refinement include vertices on the spike. An upper range bound (from the
+# monomial coefficients, say) must NOT be used here: over-estimating the
+# span loosens the tolerance and under-refines — it belongs to an explicit
+# colorrange computation, if one is ever added.
 function _field_span(ev::FieldEvaluator, cells, u::AbstractVector; reduce::Bool)
     lo, hi = Inf, -Inf
     n = ev.ncomps

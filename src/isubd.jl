@@ -216,8 +216,8 @@ memoized across refinement calls, plots and tolerance changes for as long as
 *caller* owns the dict and is responsible for emptying it when `f`'s
 underlying data changes (the adaptive plots key this to the substrate's
 solution epoch), and must not share it between criteria with different
-sample sets. Without a cache every query samples `f` afresh, which a
-measured 4-sample 3D query puts at ~500ns against ~2ns for a cache hit.
+sample sets. Without a cache every query samples `f` afresh — orders of
+magnitude more expensive than a cache hit.
 
 Sampling the interior is what makes the criterion bound what is actually
 drawn — for curved geometry the deviation peaks in the middle of a face, and
@@ -287,10 +287,10 @@ excess_levels(lod::DeviationLoD, base::IsubdBase, k::UInt64) =
 Memoize a criterion per key. For a fixed solution the excess is a pure
 function of the key, but the passes ask for the same keys again and again —
 every refinement round re-tests the surviving leaves, and the conforming
-closure additionally asks about parents and neighbours. With an FE evaluation
-behind every query (a `PointValues` reinit per sample point) that repetition
-dominates; [`refine_keys!`](@ref) therefore wraps its criterion in this for
-the duration of the call.
+closure additionally asks about parents and neighbours. With an FE
+evaluation behind every sample point that repetition dominates;
+[`refine_keys!`](@ref) therefore wraps its criterion in this for the
+duration of the call.
 """
 struct CachedLoD{L<:AbstractLoD} <: AbstractLoD
     inner::L

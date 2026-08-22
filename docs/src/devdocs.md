@@ -1,6 +1,9 @@
 # Developer Documentation
 
-Note that these functions could be removed or change in behavior between minor version changes! Use and dispatch on these with care!
+Everything on this page is internal API, documented for contributors:
+unexported, not covered by semantic versioning, and free to change or
+disappear between minor versions. Do not build on it from downstream
+packages.
 
 ## Implicit adaptive subdivision (isubd)
 

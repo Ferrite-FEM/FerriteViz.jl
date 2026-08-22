@@ -518,6 +518,31 @@ end
     @test length(sp.subd_keys[]) < 3 * 4 * Ferrite.getncells(grid)
 end
 
+@testset "adaptive: cells outside the field's subdomain render as holes" begin
+    # every visible cell is tessellated, including cells of a subdomain the
+    # color field is not defined on: evaluation there yields `nothing`, which
+    # the color transfer maps to NaN (a hole, as in the static path) and the
+    # deviation probe to zero (nothing to refine for) — not an error
+    grid = generate_grid(Quadrilateral, (4, 2))
+    dh = DofHandler(grid)
+    sdh1 = SubDofHandler(dh, Set(1:4))
+    add!(sdh1, :p, Lagrange{RefQuadrilateral,2}())
+    sdh2 = SubDofHandler(dh, Set(5:8))
+    add!(sdh2, :q, Lagrange{RefQuadrilateral,1}())
+    close!(dh)
+    u = collect(range(0.0, 1.0, ndofs(dh)))
+    ds = FEData(dh, u)
+
+    _, _, sp = solutionplot(ds; adaptive=true, color=:p)
+    col = sp.subd_color[]
+    @test any(isnan, col)      # the :q half renders as holes
+    @test any(!isnan, col)     # the :p half renders values
+    ev = FerriteViz._field_evaluator(ds.subd_cache[], dh, :p)
+    ξ = Ferrite.Vec(0.25, -0.5)
+    @test FerriteViz.evaluate_at(ev, 5, ξ, u) === nothing
+    @test FerriteViz.evaluate_at(ev, 1, ξ, u) isa Real
+end
+
 @testset "adaptive: the pipeline samples in the render number type" begin
     grid = generate_grid(QuadraticQuadrilateral, (2, 2))
     dh = DofHandler(grid)

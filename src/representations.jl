@@ -136,31 +136,17 @@ Contour plot of a scalar data array on the finite element mesh.
 Deformation is an upstream concern: `solutionplot(ds |> WarpByVector(:u, 2.0))`.
 """
 Makie.@recipe SolutionPlot (dataset,) begin
-    """
-    Experimental: error-adaptive tessellation (#161). Instead of drawing the
-    dataset's static tessellation, the visible cells are re-tessellated by
-    longest-edge bisection until the flat triangles approximate the exact
-    geometry (dofhandler interpolation, including warps) to within
-    `geometry_tol` *and* the linear vertex-color interpolation approximates
-    the exact field polynomial to within `solution_tol` — refinement happens
-    where either estimator asks for it, and follows [`FerriteViz.update!`](@ref).
-    The refined mesh is always conforming (watertight). The color must be a
-    dof field name (or a plain color) — it is evaluated at the refined
-    vertices. Read once at plot creation.
-    """
-    adaptive = false
-    "Adaptive: geometry-error tolerance, as a fraction of the grid's bounding-box diagonal."
-    geometry_tol = 1.0e-3
-    "Adaptive: solution-error tolerance, as a fraction of the color field's value span."
-    solution_tol = 5.0e-3
-    "Adaptive: maximum bisection depth per base triangle."
-    max_depth = 10
     base_fe_attributes()...
 end
 
+# Adaptivity is a dataset property (see `Adaptivity`), not a plot attribute:
+# the dataset draws error-adaptively unless constructed with
+# adaptivity=false, or unless the color cannot be re-evaluated at refined
+# vertices (a raw data array on the static tessellation) — then this plot
+# falls back to the static tessellation.
 function Makie.plot!(SP::SolutionPlot{<:Tuple{<:FEData}})
     ds = SP.dataset[]
-    if SP.adaptive[]
+    if _adaptive_capable(ds) && _adaptive_colorable(ds, SP.color[])
         _adaptive_solutionplot!(SP, ds)
     else
         _mesh!(SP, ds, color=_graph_color!(SP, ds))
@@ -240,19 +226,6 @@ Makie.@recipe MeshPlot (dataset,) begin
     celllabelcolor = :darkred
     "Color cells by their cellset association."
     cellsets = false
-    """
-    Experimental: draw the wireframe from an error-adaptive re-tessellation
-    (#161) instead of the dataset's fixed one, so the element edges follow the
-    curved geometry to a tolerance rather than to a fixed subdivision count.
-    The refinement is always conforming. Pair it with
-    `solutionplot(...; adaptive=true)` — both then resolve the geometry to
-    `geometry_tol` and stay on top of each other. Read once at plot creation.
-    """
-    adaptive = false
-    "Adaptive: geometry-error tolerance, as a fraction of the grid's bounding-box diagonal."
-    geometry_tol = 1.0e-3
-    "Adaptive: maximum bisection depth per base triangle."
-    max_depth = 10
     Makie.filter_attributes(Makie.mixin_generic_plot_attributes(); exclude = (:depth_shift,))...
     "Depth shift drawing the wireframe in front of surface plots."
     depth_shift = -0.0001f0
@@ -271,7 +244,9 @@ function Makie.plot!(WF::MeshPlot{<:Tuple{<:FEData{dim}}}) where {dim}
     # visible cells' edge segments. The index list is static; every dynamic
     # concern (deformation, curved geometry, refinement) is already baked into
     # ds.coords by the upstream pipeline, and clipping into ds.visible.
-    if WF.adaptive[]
+    # adaptivity is a dataset property (see `Adaptivity`): the wireframe
+    # follows the curved geometry whenever the dataset draws adaptively
+    if _adaptive_capable(ds)
         _adaptive_wireframe!(WF, ds)
     else
         edge_indices = _visible_edge_indices(ds)

@@ -35,8 +35,8 @@ mapped values) simply keeps the direct sum, and the basis verifies itself
 against the shape functions before it is ever used, so a wrong fit cannot
 slip through.
 
-The pipeline samples in a configurable number type ([`FEData`](@ref)'s
-`sample_type` keyword, `Float32` by default — what GLMakie uploads; a dataset
+The pipeline samples in a configurable number type ([`Adaptivity`](@ref)'s
+`sample_type`, `Float32` by default — what GLMakie uploads; a dataset
 property since every adaptive plot shares the substrate, and carried through
 filters), so the estimators
 measure the geometry and fields the viewer actually sees. Requested
@@ -79,11 +79,10 @@ FerriteViz is structured in three layers, following the ParaView model:
    finite element edges. [`FEData`](@ref) lays this out per cell with
    *duplicated* vertices, so discontinuous (L2) fields render with their
    inter-element jumps intact, and maps reference coordinates through the cell's
-   geometric interpolation. High-order cells (or high-order fields) get their
-   reference tessellation subdivided first ([`FerriteViz.subdivide`](@ref),
-   driven by the [`Refine`](@ref) filter whose automatic mode `FEData`
-   applies unless constructed with `adaptive=false`), so curved geometry
-   and deformation render curved. Since the wireframe's vertices are ordinary
+   geometric interpolation. The static tessellation is the flat base per cell;
+   uniform subdivision is the [`Refine`](@ref) filter's job
+   ([`FerriteViz.subdivide`](@ref)), while curved rendering comes from the
+   error-adaptive path by default. Since the wireframe's vertices are ordinary
    tessellation vertices, [`meshplot`](@ref) inherits warping, clipping and
    refinement from the pipeline without any special-casing.
    `src/qptessellation.jl` adds a second, quadrature

@@ -4,6 +4,7 @@
 
 ```@docs
 FerriteViz.FEData
+FerriteViz.Adaptivity
 FerriteViz.update!
 FerriteViz.point_data
 FerriteViz.cell_data

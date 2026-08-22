@@ -35,7 +35,7 @@ function _rebind(ds::FEData{dim}, dh, u::Makie.Observable;
         ds.all_triangles, ds.vis_triangles, ds.triangle_cell_map, ds.cell_triangle_offsets,
         ds.cell_vertex_offsets, ds.all_edges, ds.edge_cell_map, ds.cell_edge_offsets,
         ds.reference_coords, ds.mesh, point_data, cell_data, derivations, ds.qp_partition,
-        ds.deformation, ds.solid, ds.sample_type, Ref{Any}(nothing))
+        ds.deformation, ds.solid, ds.adaptivity, Ref{Any}(nothing))
 end
 
 ################
@@ -100,7 +100,7 @@ function apply(w::WarpByVector, ds::FEData{dim}) where {dim}
         ds.reference_coords, mesh, copy(ds.point_data), copy(ds.cell_data),
         copy(ds.point_derivations), ds.qp_partition,
         vcat(ds.deformation, [Deformation(ds.dh, ds.u, fname, scale)]), ds.solid,
-        ds.sample_type, Ref{Any}(nothing))
+        ds.adaptivity, Ref{Any}(nothing))
 end
 
 # Register a listener for cleanup when `owner` (a plot) is deleted; without an
@@ -185,7 +185,7 @@ function apply(c::CrinkleClip, ds::FEData{3})
         ds.reference_coords, mesh,
         Dict{Symbol,Makie.Observable}(), copy(ds.cell_data),
         Dict{Symbol,DerivedPointData}(), ds.qp_partition, ds.deformation, solid,
-        ds.sample_type, Ref{Any}(nothing))
+        ds.adaptivity, Ref{Any}(nothing))
 end
 
 ##########
@@ -212,12 +212,12 @@ before.
 
 A count given as `nothing` is chosen per cell type: no subdivision when the
 geometry and every dof field are (multi-)linear, otherwise 1 surface and
-3 edge rounds. [`FEData`](@ref) applies this automatic mode by default —
-construct with `adaptive=false` to opt out, e.g. to subdivide only one branch
-of a pipeline:
+3 edge rounds. [`FEData`](@ref) itself always builds the flat base
+tessellation (curved rendering comes from the adaptive path); uniform static
+subdivision is an explicit composition, e.g. for one branch of a pipeline:
 
 ```julia
-ds = FEData(dh, u; adaptive=false)
+ds = FEData(dh, u; adaptivity=false)
 meshplot(ds)                          # flat, cheap
 solutionplot(ds |> Refine(2))         # this plot resolved finer
 ```
@@ -227,8 +227,7 @@ solutionplot(ds |> Refine(2))         # this plot resolved finer
     the tessellation vertices (each of which carries solution values per
     field). The automatic mode therefore costs high-order cell types about 4×
     the memory of the flat tessellation; edge rounds are comparatively cheap
-    (segments only double). On large high-order grids opt out with
-    `FEData(dh, u; adaptive=false)`.
+    (segments only double).
 
 !!! note
     The choice made for a `nothing` count may change in a future release; such a
@@ -312,7 +311,7 @@ end
 
 function apply(f::Refine, ds::FEData)
     out = _build_dataset(ds.dh, ds.u, ds.source_u, ds.topology, ds.visible,
-                         _tessellation_provider(f, ds.dh); sample_type=ds.sample_type)
+                         _tessellation_provider(f, ds.dh); adaptivity=ds.adaptivity)
     merge!(out.cell_data, ds.cell_data) # cell data is layout independent
     return out
 end
@@ -516,7 +515,7 @@ function apply(f::AddQuadraturePointData, ds::FEData{dim}) where {dim}
         # the geometry was rebuilt from the grid: upstream warps are baked
         # into nothing here — apply WarpByVector after this filter (the static
         # coords and the adaptive substrate then agree on the deformation)
-        Deformation[], ds.solid, ds.sample_type, Ref{Any}(nothing))
+        Deformation[], ds.solid, ds.adaptivity, Ref{Any}(nothing))
 
     ncomponents = length(_qp_components(f.extract(_qp_at(values, 1, 1))))
     data = Makie.lift(f.values) do vals

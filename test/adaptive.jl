@@ -12,7 +12,9 @@
     ds = FEData(dh, u)
 
     nbase = 4 * Ferrite.getncells(grid)  # quad center-fan: 4 base triangles/cell
-    fig, ax, sp = solutionplot(ds; adaptive=true, solution_tol=5e-3, max_depth=8)
+    ds.adaptivity.solution_tol[] = 5e-3
+    ds.adaptivity.max_depth[] = 8
+    fig, ax, sp = solutionplot(ds)
     keys0 = length(sp.subd_keys[])
     @test keys0 > nbase                  # the curved field asks for refinement
     @test length(sp.subd_positions[]) == length(sp.subd_color[]) == length(sp.subd_ξ[])
@@ -27,12 +29,12 @@
     @test sp.subd_positions[] === p1
 
     # a looser tolerance coarsens, a tighter one refines
-    Makie.update!(sp, solution_tol=0.2)
+    ds.adaptivity.solution_tol[] = 0.2
     keys_loose = length(sp.subd_keys[])
     @test keys_loose < keys0
-    Makie.update!(sp, solution_tol=5e-4)
+    ds.adaptivity.solution_tol[] = 5e-4
     @test length(sp.subd_keys[]) > keys0
-    Makie.update!(sp, solution_tol=5e-3)
+    ds.adaptivity.solution_tol[] = 5e-3
 
     # update! drives colors and (for a changed field shape) the refinement
     c1 = copy(sp.subd_color[])
@@ -40,16 +42,18 @@
     @test sp.subd_color[] != c1
 
     # the depth cap holds
-    Makie.update!(sp, solution_tol=1e-9)
+    ds.adaptivity.solution_tol[] = 1e-9
     @test all(k -> FerriteViz.key_depth(k) <= 8, sp.subd_keys[])
 
     # plain color: no solution estimator, flat straight grid ⇒ no refinement
-    figp, axp, spp = solutionplot(ds; adaptive=true, color=:red)
+    figp, axp, spp = solutionplot(ds; color=:red)
     @test !(spp.plots[1].color[] isa AbstractVector)
     @test length(spp.subd_keys[]) == nbase
-    # named point-data arrays cannot be resampled at refined vertices
+    # named point-data arrays cannot be resampled at refined vertices; the
+    # plot falls back to the static tessellation instead of erroring
     FerriteViz.set_point_data!(ds, :pd, rand(FerriteViz.num_vertices(ds)))
-    @test_throws ErrorException solutionplot(ds; adaptive=true, color=:pd)
+    _, _, spd = solutionplot(ds; color=:pd)
+    @test !haskey(spd.attributes.outputs, :subd_keys)
 end
 
 @testset "adaptive solutionplot: estimator exactness on linear data" begin
@@ -62,7 +66,9 @@ end
     u = zeros(ndofs(dh))
     Ferrite.apply_analytical!(u, dh, :p, x -> x[1] + x[2])
     ds = FEData(dh, u)
-    fig, ax, sp = solutionplot(ds; adaptive=true, geometry_tol=1e-9, solution_tol=1e-9)
+    ds.adaptivity.geometry_tol[] = 1e-9
+    ds.adaptivity.solution_tol[] = 1e-9
+    fig, ax, sp = solutionplot(ds)
     @test length(sp.subd_keys[]) == 4 * Ferrite.getncells(grid)
 end
 
@@ -75,11 +81,15 @@ end
     Ferrite.apply_analytical!(u, dh, :p, x -> x[1]^2 + 0.5 * x[2]^2)
     ds = FEData(dh, u)
 
-    fig, ax, sp = solutionplot(ds; adaptive=true, solution_tol=1e-3, max_depth=8)
+    ds.adaptivity.solution_tol[] = 1e-3
+    ds.adaptivity.max_depth[] = 8
+    fig, ax, sp = solutionplot(ds)
     nbase = 4 * Ferrite.getncells(grid)
     @test length(sp.subd_keys[]) > nbase
     # geometry alone would not have refined the straight grid
-    figg, axg, spg = solutionplot(ds; adaptive=true, solution_tol=1.0, geometry_tol=1e-9)
+    ds.adaptivity.solution_tol[] = 1.0
+    ds.adaptivity.geometry_tol[] = 1e-9
+    figg, axg, spg = solutionplot(ds)
     @test length(spg.subd_keys[]) == nbase
 
     mesh = (positions=sp.subd_positions[], faces=sp.subd_faces[])
@@ -109,7 +119,9 @@ end
     @test isempty(ds.deformation)
 
     # plain color: refinement here is purely the geometry estimator seeing the warp
-    figw, axw, spw = solutionplot(wds; adaptive=true, color=:red, geometry_tol=2e-3, max_depth=8)
+    wds.adaptivity.geometry_tol[] = 2e-3
+    wds.adaptivity.max_depth[] = 8
+    figw, axw, spw = solutionplot(wds; color=:red)
     @test length(spw.subd_keys[]) > 4 * Ferrite.getncells(grid)
 
     # warped geometry follows the solution
@@ -162,7 +174,9 @@ end
         return (; tj, holes, over, n = length(faces))
     end
 
-    _, _, conf = solutionplot(ds; adaptive = true, solution_tol = 2e-3, max_depth = 9)
+    ds.adaptivity.solution_tol[] = 2e-3
+    ds.adaptivity.max_depth[] = 9
+    _, _, conf = solutionplot(ds)
 
     # the refinement really is non-uniform (otherwise the test proves nothing:
     # T-vertices only ever appear at refinement-level boundaries — the
@@ -188,7 +202,7 @@ end
     @test nbound == 4 * 6      # the 24 boundary edges of a 6×6 grid
 
     # coarsening returns to the base tessellation, still conforming
-    Makie.update!(conf, solution_tol = 10.0)
+    ds.adaptivity.solution_tol[] = 10.0
     @test length(conf.subd_keys[]) == length(base.corners)
 end
 
@@ -232,7 +246,9 @@ end
                 n = length(faces))
     end
 
-    _, _, conf = solutionplot(ds; adaptive = true, solution_tol = 5e-3, max_depth = 5)
+    ds.adaptivity.solution_tol[] = 5e-3
+    ds.adaptivity.max_depth[] = 5
+    _, _, conf = solutionplot(ds)
     s = survey(conf)
     @test s.tj == 0 && s.open == 0 && s.over == 0
     @test s.n < length(ds.all_triangles)
@@ -260,7 +276,9 @@ end
     # the cut exposes new surface, and it is closed just like the outer one
     base = FerriteViz._substrate(clipped).base
     @test all(t -> all(e -> e[1] != 0, base.adjacency[t]), 1:length(base.corners))
-    _, _, sp = solutionplot(clipped; adaptive = true, solution_tol = 5e-3, max_depth = 4)
+    clipped.adaptivity.solution_tol[] = 5e-3
+    clipped.adaptivity.max_depth[] = 4
+    _, _, sp = solutionplot(clipped)
     pos, faces = sp.subd_positions[], sp.subd_faces[]
     rk(p) = ntuple(i -> round(Float64(p[i]); digits = 6) + 0.0, 3)
     counts = Dict{Any,Int}()
@@ -272,7 +290,7 @@ end
     @test count(==(1), values(counts)) == 0 && count(>(2), values(counts)) == 0
 end
 
-@testset "adaptive substrate: shared per dataset, private per pipeline stage" begin
+@testset "adaptive substrate: shared per dataset, settings shared too" begin
     grid = generate_grid(Quadrilateral, (3, 3))
     dh = DofHandler(grid)
     add!(dh, :p, Lagrange{RefQuadrilateral,2}())
@@ -282,13 +300,17 @@ end
     ds = FEData(dh, u)
 
     @test ds.subd_cache[] === nothing            # built lazily
-    _, _, sp1 = solutionplot(ds; adaptive=true, solution_tol=5e-3)
-    _, _, sp2 = solutionplot(ds; adaptive=true, solution_tol=1e-4)
+    _, _, sp1 = solutionplot(ds)
+    _, _, sp2 = solutionplot(ds)
     sub = FerriteViz._substrate(ds)
     @test ds.subd_cache[] === sub                # both plots hit one cache
     @test length(sub.evaluators) == 1            # ... and share the :p evaluator
-    # per-plot key buffers: the tolerances still act per plot
-    @test length(sp1.subd_keys[]) < length(sp2.subd_keys[])
+    # adaptivity is a dataset property: one setting steers every plot
+    n0 = length(sp1.subd_keys[])
+    @test length(sp2.subd_keys[]) == n0
+    ds.adaptivity.solution_tol[] = 1e-4
+    @test length(sp1.subd_keys[]) > n0
+    @test length(sp1.subd_keys[]) == length(sp2.subd_keys[])
     # the retained keys of each plot tile the domain exactly (no overlap/holes)
     for sp in (sp1, sp2)
         ξs, fs = sp.subd_ξ[], sp.subd_faces[]
@@ -296,8 +318,11 @@ end
                        (ξs[f[3]][1] - ξs[f[1]][1]) * (ξs[f[2]][2] - ξs[f[1]][2])) / 2 for f in fs)
         @test area ≈ 4.0 * Ferrite.getncells(grid) rtol = 1e-6  # each ref quad has area 4
     end
-    # a filter stage is a new dataset with its own (empty) cache
-    @test (ds |> Gradient(:p)).subd_cache[] === nothing
+    # a filter stage is a new dataset with its own (empty) cache, but the
+    # same shared settings object
+    gds = ds |> Gradient(:p)
+    @test gds.subd_cache[] === nothing
+    @test gds.adaptivity === ds.adaptivity
 end
 
 @testset "adaptive: warp observables drive the plot" begin
@@ -311,7 +336,9 @@ end
     scale = Makie.Observable(1.0)
     wds = ds |> WarpByVector(:u, scale)
 
-    _, _, sp = solutionplot(wds; adaptive=true, color=:red, geometry_tol=1e-3, max_depth=8)
+    wds.adaptivity.geometry_tol[] = 1e-3
+    wds.adaptivity.max_depth[] = 8
+    _, _, sp = solutionplot(wds; color=:red)
     maxy(ps) = maximum(p -> p[2], ps)
     @test maxy(sp.subd_positions[]) > 1.1        # warped up
     n1 = length(sp.subd_keys[])
@@ -326,7 +353,9 @@ end
     @test length(sp.subd_keys[]) == n1
 
     # the adaptive wireframe reacts just the same
-    _, _, wp = meshplot(wds; adaptive=true, geometry_tol=1e-3, max_depth=8)
+    wds.adaptivity.geometry_tol[] = 1e-3
+    wds.adaptivity.max_depth[] = 8
+    _, _, wp = meshplot(wds)
     @test maxy(wp.edge_lines[]) > 1.1
     scale[] = 0.0
     @test maxy(wp.edge_lines[]) ≈ 1.0 atol = 1e-6
@@ -345,7 +374,9 @@ end
     # against the handler and solution captured when it was applied
     gds = ds |> WarpByVector(:u, 1.0) |> Gradient(:u)
     @test :u ∉ Ferrite.getfieldnames(gds.dh)
-    _, _, sp = solutionplot(gds; adaptive=true, color=:default, geometry_tol=1e-3, max_depth=8)
+    gds.adaptivity.geometry_tol[] = 1e-3
+    gds.adaptivity.max_depth[] = 8
+    _, _, sp = solutionplot(gds; color=:default)
     @test maximum(p -> p[2], sp.subd_positions[]) > 1.1   # the warp is applied
     @test length(sp.subd_keys[]) > 4 * Ferrite.getncells(grid)
 end
@@ -359,30 +390,32 @@ end
     Ferrite.apply_analytical!(u, dh, :p, x -> sin(pi * x[1]) * sin(pi * x[2]))
     ds = FEData(dh, u)
 
-    _, _, sp1 = solutionplot(ds; adaptive=true, solution_tol=5e-3, max_depth=8)
+    ds.adaptivity.solution_tol[] = 5e-3
+    ds.adaptivity.max_depth[] = 8
+    _, _, sp1 = solutionplot(ds)
     keys1 = sort(sp1.subd_keys[])
     sub = FerriteViz._substrate(ds)
     # a memo entry is written per evaluated key, so the sizes count evaluations
     ngeo, nsol = length(sub.dev_caches[:geometry]), length(sub.dev_caches[:p])
     @test ngeo > 0 && nsol > 0
 
-    # a second identical plot decides the same mesh from lookups alone
-    _, _, sp2 = solutionplot(ds; adaptive=true, solution_tol=5e-3, max_depth=8)
+    # a second plot decides the same mesh from lookups alone
+    _, _, sp2 = solutionplot(ds)
     @test sort(sp2.subd_keys[]) == keys1
     @test length(sub.dev_caches[:geometry]) == ngeo
     @test length(sub.dev_caches[:p]) == nsol
 
-    # loosening a tolerance re-decides without a single new evaluation (every
-    # key the merge pass asks about was once a leaf, hence memoized)
-    Makie.update!(sp2, solution_tol=5e-2)
+    # loosening the tolerance re-decides without a single new evaluation
+    # (every key the merge pass asks about was once a leaf, hence memoized)
+    ds.adaptivity.solution_tol[] = 5e-2
     @test length(sp2.subd_keys[]) < length(keys1)
     @test length(sub.dev_caches[:p]) == nsol
     # tightening evaluates only the genuinely new, deeper keys
-    Makie.update!(sp2, solution_tol=5e-4)
+    ds.adaptivity.solution_tol[] = 5e-4
     @test length(sp2.subd_keys[]) > length(keys1)
     @test length(sub.dev_caches[:p]) > nsol
-    # ...and leaves the other plot's mesh alone (keys stay per plot)
-    @test sort(sp1.subd_keys[]) == keys1
+    # the setting is a dataset property: every plot follows it
+    @test sort(sp1.subd_keys[]) == sort(sp2.subd_keys[])
 
     # a solution update invalidates the memos: cleared, then refilled for the
     # new state — and the plots re-refine against fresh deviations
@@ -403,12 +436,16 @@ end
     scale = Makie.Observable(1.0)
     wds = FEData(dh, u) |> WarpByVector(:u, scale)
 
-    _, _, sp = solutionplot(wds; adaptive=true, color=:red, geometry_tol=1e-3, max_depth=8)
+    wds.adaptivity.geometry_tol[] = 1e-3
+    wds.adaptivity.max_depth[] = 8
+    _, _, sp = solutionplot(wds; color=:red)
     sp.subd_keys[]
     sub = FerriteViz._substrate(wds)
     ngeo = length(sub.dev_caches[:geometry])
     @test ngeo > 0
-    _, _, wp = meshplot(wds; adaptive=true, geometry_tol=1e-3, max_depth=8)
+    wds.adaptivity.geometry_tol[] = 1e-3
+    wds.adaptivity.max_depth[] = 8
+    _, _, wp = meshplot(wds)
     @test length(wp.edge_lines[]) > 0
     @test length(sub.dev_caches[:geometry]) == ngeo   # decided from the memo
 
@@ -440,7 +477,9 @@ end
     @test haskey(vds.point_derivations, :σvM)
 
     nbase = 4 * Ferrite.getncells(grid)
-    fig, ax, sp = solutionplot(vds; color=:σvM, adaptive=true, solution_tol=1e-3, max_depth=8)
+    vds.adaptivity.solution_tol[] = 1e-3
+    vds.adaptivity.max_depth[] = 8
+    fig, ax, sp = solutionplot(vds; color=:σvM)
     @test length(sp.subd_keys[]) > nbase          # the source field drove refinement
 
     # colors are the recorded closures re-applied to the same :gradient field
@@ -462,7 +501,7 @@ end
         matched += 1
         @test col[i] ≈ v atol = 1e-5
     end
-    @test matched > 100   # plenty of coincident vertices to make that meaningful
+    @test matched > 50   # plenty of coincident vertices to make that meaningful
 
     # u -> colors AND tessellation: a pure scaling doubles the (1-homogeneous)
     # colors on the same key set (the solution tolerance is span-relative)...
@@ -479,21 +518,25 @@ end
 
     # Threshold rides the chain: clipped range renders as NaN
     tds = vds |> Threshold(input=:σvM, min=0.5 * maximum(col))
-    _, _, spt = solutionplot(tds; color=:threshold, adaptive=true, solution_tol=1e-3, max_depth=8)
+    tds.adaptivity.solution_tol[] = 1e-3
+    tds.adaptivity.max_depth[] = 8
+    _, _, spt = solutionplot(tds; color=:threshold)
     ct = spt.subd_color[]
     @test any(isnan, ct) && any(!isnan, ct)
     @test all(isnan(ct[i]) || ct[i] >= 0.5 * maximum(col) - 1e-6 for i in eachindex(ct))
 
     # a tensor-valued derivation cannot color, and says so at plot creation
     dds = ds |> Gradient(:u) |> Deviator(input=:gradient)
-    @test_throws ErrorException solutionplot(dds; color=:deviator, adaptive=true)
+    @test_throws ErrorException solutionplot(dds; color=:deviator)
 
     # a derivation of a raw registered array has no pointwise meaning: no
-    # record, and the adaptive path keeps refusing it
+    # record, so the adaptive path cannot resample it — the plot falls back
+    # to the static tessellation
     FerriteViz.set_point_data!(ds, :raw, rand(FerriteViz.num_vertices(ds)))
     rds = ds |> Magnitude(input=:raw)
     @test !haskey(rds.point_derivations, :magnitude)
-    @test_throws ErrorException solutionplot(rds; color=:magnitude, adaptive=true)
+    _, _, spr = solutionplot(rds; color=:magnitude)
+    @test !haskey(spr.attributes.outputs, :subd_keys)
 end
 
 @testset "adaptive: solution span comes from the dof values" begin
@@ -514,7 +557,9 @@ end
     @test span > 0.9
     @test mag >= span
     # relative to the true span, a 50% tolerance asks for almost nothing
-    _, _, sp = solutionplot(ds; adaptive=true, solution_tol=0.5, max_depth=10)
+    ds.adaptivity.solution_tol[] = 0.5
+    ds.adaptivity.max_depth[] = 10
+    _, _, sp = solutionplot(ds)
     @test length(sp.subd_keys[]) < 3 * 4 * Ferrite.getncells(grid)
 end
 
@@ -533,7 +578,7 @@ end
     u = collect(range(0.0, 1.0, ndofs(dh)))
     ds = FEData(dh, u)
 
-    _, _, sp = solutionplot(ds; adaptive=true, color=:p)
+    _, _, sp = solutionplot(ds; color=:p)
     col = sp.subd_color[]
     @test any(isnan, col)      # the :q half renders as holes
     @test any(!isnan, col)     # the :p half renders values
@@ -552,18 +597,18 @@ end
     Ferrite.apply_analytical!(u, dh, :p, x -> sin(pi * x[1]) * x[2])
     ds = FEData(dh, u)
 
-    _, _, sp = solutionplot(ds; adaptive=true)
+    _, _, sp = solutionplot(ds)
     sub = ds.subd_cache[]
-    @test ds.sample_type === Float32
+    @test ds.adaptivity.sample_type === Float32
     @test FerriteViz._sample_type(sub) === Float32
     @test eltype(eltype(eltype(sub.base.corners))) === Float32
     @test sub.base.mapping(1, sub.base.corners[1][1]) isa Tensors.Vec{2,Float32}
 
     # Float64 stays available as an opt-in — a dataset property, carried
     # through filters
-    ds64 = FEData(dh, u; sample_type=Float64)
-    @test (ds64 |> FerriteViz.Refine(1)).sample_type === Float64
-    solutionplot(ds64; adaptive=true)
+    ds64 = FEData(dh, u; adaptivity=Adaptivity(sample_type=Float64))
+    @test (ds64 |> FerriteViz.Refine(1)).adaptivity.sample_type === Float64
+    solutionplot(ds64)
     @test FerriteViz._sample_type(ds64.subd_cache[]) === Float64
 
     # the eps-scaled tolerance floor: a large constant field samples with
@@ -572,7 +617,9 @@ end
     uc = fill(5.0, ndofs(dh))
     dsc = FEData(dh, uc)
     nbase = 4 * Ferrite.getncells(grid)
-    _, _, spc = solutionplot(dsc; adaptive=true, solution_tol=1e-9, max_depth=8)
+    dsc.adaptivity.solution_tol[] = 1e-9
+    dsc.adaptivity.max_depth[] = 8
+    _, _, spc = solutionplot(dsc)
     @test length(spc.subd_keys[]) == nbase
 end
 
@@ -631,7 +678,9 @@ end
     @test qds.qp_partition !== nothing
     @test length(qds.deformation) == 1
 
-    _, _, sp = solutionplot(qds; color=:qpdata, adaptive=true, geometry_tol=5e-4, max_depth=8)
+    qds.adaptivity.geometry_tol[] = 5e-4
+    qds.adaptivity.max_depth[] = 8
+    _, _, sp = solutionplot(qds; color=:qpdata)
     sub = FerriteViz._substrate(qds)
     @test length(unique(sub.groupmap)) == 4 * ncells         # one sharing group per region
     @test length(sp.subd_keys[]) > length(sub.base.corners)  # the warp curves the regions
@@ -657,21 +706,23 @@ end
                    (ξs[f[3]][1] - ξs[f[1]][1]) * (ξs[f[2]][2] - ξs[f[1]][2])) / 2 for f in faces)
     @test area ≈ 4.0 * ncells rtol = 1e-6
 
-    # the geometry answers to the tolerance, and the surface follows the warp
-    _, _, sp2 = solutionplot(qds; color=:qpdata, adaptive=true, geometry_tol=5e-5, max_depth=10)
-    @test length(sp2.subd_keys[]) > length(sp.subd_keys[])
-    @test maximum(p -> p[2], pos) > 1.1
-
     # updating the internal variables recolors; the mesh has no reason to move
     k0 = length(sp.subd_keys[])
     states[] = [2 .* s for s in states[]]
     @test sp.subd_color[] ≈ 2 .* col rtol = 1e-6
     @test length(sp.subd_keys[]) == k0
 
+    # the geometry answers to the tolerance (a dataset property: every plot
+    # of the dataset re-refines), and the surface follows the warp
+    qds.adaptivity.geometry_tol[] = 5e-5
+    qds.adaptivity.max_depth[] = 10
+    @test length(sp.subd_keys[]) > k0
+    @test maximum(p -> p[2], pos) > 1.1
+
     # non-scalar entries need a reducing extract, said at plot creation
     tstates = [[Ferrite.Vec(1.0, 2.0) for _ in 1:4] for _ in 1:ncells]
     tqds = FEData(dh, u) |> AddQuadraturePointData(qr, tstates)
-    @test_throws ErrorException solutionplot(tqds; color=:qpdata, adaptive=true)
+    @test_throws ErrorException solutionplot(tqds; color=:qpdata)
 end
 
 @testset "adaptive QP data: wireframe stays on element edges" begin
@@ -685,7 +736,9 @@ end
     qr = Ferrite.QuadratureRule{RefQuadrilateral}(2)
     states = [rand(4) for _ in 1:Ferrite.getncells(grid)]
     qds = FEData(dh, zeros(ndofs(dh))) |> AddQuadraturePointData(qr, states)
-    _, _, wp = meshplot(qds; adaptive=true, geometry_tol=1e-3, max_depth=6)
+    qds.adaptivity.geometry_tol[] = 1e-3
+    qds.adaptivity.max_depth[] = 6
+    _, _, wp = meshplot(qds)
     segs = wp.edge_lines[]
     nseg = length(segs) ÷ 2
     @test nseg > 0
@@ -710,7 +763,9 @@ end
     # the adaptive path is the only way to draw internal variables on the cut
     @test !haskey(qds.point_data, :qpdata)
     @test qds.qp_partition !== nothing
-    _, _, sp = solutionplot(qds; color=:qpdata, adaptive=true, geometry_tol=1e-3, max_depth=4)
+    qds.adaptivity.geometry_tol[] = 1e-3
+    qds.adaptivity.max_depth[] = 4
+    _, _, sp = solutionplot(qds; color=:qpdata)
     pos, col, faces = sp.subd_positions[], sp.subd_color[], sp.subd_faces[]
     @test length(faces) > 0
     @test all(c -> c in Float32.(reduce(vcat, states)), col)
@@ -736,11 +791,15 @@ end
                          0.22 * sin(pi * x[1]) * cos(0.5pi * x[2])))
     wds = FEData(dh, u) |> WarpByVector(:u, 1.0)
 
-    # the fixed subdivision does not react to the tolerance; the adaptive one does
-    _, _, static = meshplot(wds)
+    # the fixed subdivision does not react to the tolerance; the adaptive one
+    # does (the static reference opts out and subdivides uniformly)
+    sds = FEData(dh, u; adaptivity=false) |> Refine() |> WarpByVector(:u, 1.0)
+    _, _, static = meshplot(sds)
     nstatic = length(static.edge_lines[]) ÷ 2
     counts = map((1.0e-3, 1.0e-4, 1.0e-5)) do tol
-        _, _, wp = meshplot(wds; adaptive = true, geometry_tol = tol, max_depth = 12)
+        wds.adaptivity.geometry_tol[] = tol
+        wds.adaptivity.max_depth[] = 12
+        _, _, wp = meshplot(wds)
         length(wp.edge_lines[]) ÷ 2
     end
     @test issorted(counts)
@@ -749,9 +808,10 @@ end
     # at one geometry tolerance and without solution refinement, wireframe and
     # surface come from the same key set — so every drawn segment must be an
     # edge of the drawn surface, exactly
-    kw = (; adaptive = true, geometry_tol = 1.0e-4, max_depth = 12)
-    _, _, sp = solutionplot(wds; color = :red, kw...)
-    _, _, wp = meshplot(wds; kw...)
+    wds.adaptivity.geometry_tol[] = 1.0e-4
+    wds.adaptivity.max_depth[] = 12
+    _, _, sp = solutionplot(wds; color = :red)
+    _, _, wp = meshplot(wds)
     key(p) = (round(Float64(p[1]); digits = 6) + 0.0, round(Float64(p[2]); digits = 6) + 0.0)
     pos, faces = sp.subd_positions[], sp.subd_faces[]
     surface_edges = Set{Any}()

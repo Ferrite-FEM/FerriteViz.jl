@@ -59,11 +59,11 @@ This package offers a set of unique features that are not easily reproducible wi
 - support for custom cell types by implementing a single [`FerriteViz.reference_tessellation`](@ref)
   method (walked through on the [custom cells](cohesive.md) page)
 - `Wedge` and `Pyramid` cells out of the box; curved (higher-order geometry) cells render
-  curved — surfaces *and* the [`FerriteViz.meshplot`](@ref) wireframe are subdivided in
-  reference space and mapped through the geometric interpolation via the
-  [`FerriteViz.Refine`](@ref) filter, applied automatically whenever the geometry or a
-  field is nonlinear (so a quadratic displacement warp bends edges too; opt out with
-  `FEData(dh, u; adaptive=false)`)
+  curved — by default surfaces *and* the [`FerriteViz.meshplot`](@ref) wireframe refine
+  error-adaptively until they resolve the exact geometry and solution (see
+  [`Adaptivity`](@ref); a quadratic displacement warp bends edges too; opt out with
+  `FEData(dh, u; adaptivity=false)` and subdivide uniformly with
+  [`FerriteViz.Refine`](@ref))
 - full integration into the Makie ecosystem, e.g. themes, layouts etc. 
 - GPU powered plotting with GLMakie.jl, jupyter/pluto notebook plotting with WGLMakie.jl and vector graphics with CairoMakie.jl
 - visualization of high order solutions via reference-space subdivision ([`FerriteViz.Refine`](@ref))

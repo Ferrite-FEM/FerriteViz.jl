@@ -1,6 +1,6 @@
 # Error-adaptive tessellation: the glue between FEData and the isubd core
-# (src/isubd.jl), and the compute-graph wiring for `solutionplot(...;
-# adaptive=true)` and `meshplot(...; adaptive=true)` (#161).
+# (src/isubd.jl), and the compute-graph wiring behind `solutionplot` and
+# `meshplot` of a dataset with adaptivity enabled — the default (#161).
 #
 # Refinement is driven by two interpolation-error estimators, both instances
 # of DeviationLoD along a triangle's edges, refining when *either* asks:
@@ -281,8 +281,8 @@ function _isubd_base_cells(ds::FEData)
                 error("adaptive tessellation of $refshape needs the element edges of its " *
                       "reference tessellation: the base triangles are fanned over them so every " *
                       "split edge is an element edge, which the conforming (watertight) " *
-                      "refinement rests on. This tessellation lists none — plot it with " *
-                      "adaptive=false instead.")
+                      "refinement rests on. This tessellation lists none — construct the dataset " *
+                      "with adaptivity=false instead.")
             gids = _vertex_gids(cell, tess.coords, counter)
             rim = unique(Iterators.flatten(tess.edges))
             centre = sum(tess.coords[i] for i in rim) / length(rim)
@@ -612,11 +612,24 @@ end
 # immediately pass the result through a function barrier, so the untypedness
 # costs one dynamic dispatch per plot creation.
 function _substrate(ds::FEData)
+    cfg = ds.adaptivity
+    cfg === nothing && error("this dataset was constructed with adaptivity=false")
     cached = ds.subd_cache[]
     cached === nothing || return cached::IsubdSubstrate
-    sub = _build_substrate(ds, ds.sample_type)
+    sub = _build_substrate(ds, cfg.sample_type)
     ds.subd_cache[] = sub
     return sub
+end
+
+# Wire the dataset's Adaptivity settings as graph inputs: assigning
+# `ds.adaptivity.solution_tol[] = ...` re-refines every open plot of the
+# dataset. There are deliberately no per-plot overrides — the substrate and
+# its refinement state are shared per dataset.
+function _adaptivity_inputs!(graph, cfg::Adaptivity; solution::Bool)
+    ComputePipeline.add_input!(graph, :geometry_tol, cfg.geometry_tol)
+    ComputePipeline.add_input!(graph, :max_depth, cfg.max_depth)
+    solution && ComputePipeline.add_input!(graph, :solution_tol, cfg.solution_tol)
+    return nothing
 end
 
 # The sample type every evaluation of this substrate runs in, recovered from
@@ -923,6 +936,7 @@ _adaptive_wireframe!(WF, ds::FEData) = _wire_adaptive_wireframe!(WF, ds, _substr
 function _wire_adaptive_wireframe!(WF, ds::FEData{dim}, sub::IsubdSubstrate) where {dim}
     graph = WF.attributes
     ComputePipeline.add_input!(graph, :subd_u, ds.u)
+    _adaptivity_inputs!(graph, ds.adaptivity; solution=false)
     warp_inputs = _warp_inputs!(graph, sub)
     base = sub.base
     state = (keys=root_keys(base), prev=UInt64[], scratch=UInt64[])
@@ -950,6 +964,47 @@ end
 # The adaptive branch of solutionplot's plot!. The dataset, its visibility and
 # the color resolution are read eagerly (as everywhere in the recipes); the
 # solution, the warps and the tolerances drive the graph.
+# Whether the adaptive path applies to this dataset at all: it draws
+# surfaces, so a dataset whose cells have reference dimension < 2 (line
+# grids) has nothing for it to tessellate and uses the static path, as does
+# a dataset constructed with adaptivity=false.
+function _adaptive_capable(ds::FEData)
+    ds.adaptivity === nothing && return false
+    cells = Ferrite.getcells(Ferrite.get_grid(ds.dh))
+    isempty(cells) && return false
+    return Ferrite.getrefdim(Ferrite.geometric_interpolation(typeof(first(cells)))) >= 2
+end
+
+# Whether the adaptive path can produce this plot's colors. It re-evaluates
+# the color at the refined vertices, so the color must be a plain color, a
+# dof field (scalar, or :default reducing to the magnitude), a recorded
+# derivation of dof fields, or a scalar quadrature-point output. Anything
+# else — a raw data array registered on the static tessellation vertices in
+# particular — cannot be resampled; the plot then draws the static
+# tessellation instead of erroring.
+function _adaptive_colorable(ds::FEData, colorval)
+    colorval isa AbstractArray && return false   # values on the static vertex layout
+    colorval isa Symbol || return true           # a plain color needs no resampling
+    qp = ds.qp_partition
+    if qp !== nothing && colorval === qp.output
+        return qp.extract(_qp_at(qp.values[], 1, 1)) isa Number
+    end
+    if colorval === :default
+        return !isempty(Ferrite.getfieldnames(ds.dh))
+    end
+    _data_association(ds, colorval) === :none && return true   # a color name like :red
+    if colorval in Ferrite.getfieldnames(ds.dh)
+        return _field_ncomps(ds.dh, colorval) == 1
+    end
+    return haskey(ds.point_derivations, colorval)
+end
+
+function _field_ncomps(dh, fname::Symbol)
+    ip = Ferrite.getfieldinterpolation(first(getsubdofhandlers(dh, fname)), fname)
+    ξ0 = Ferrite.Vec(ntuple(d -> 0.0, Ferrite.getrefdim(ip)))
+    return length(Ferrite.reference_shape_value(ip, ξ0, 1))
+end
+
 function _adaptive_solutionplot!(SP, ds::FEData)
     sub = _substrate(ds)
 
@@ -984,7 +1039,7 @@ function _adaptive_solutionplot!(SP, ds::FEData)
             error("adaptive solutionplot colors by evaluating a dof field — or a derivation of dof " *
                   "fields (Derive, VonMises, ...) — at the refined vertices; :$fname is a raw data " *
                   "array on the static tessellation and cannot be resampled. " *
-                  "Color by a dof field, a derived quantity or a plain color, or use adaptive=false.")
+                  "Color by a dof field, a derived quantity or a plain color.")
         end
     end
 
@@ -997,6 +1052,7 @@ function _wire_adaptive_solutionplot!(SP, ds::FEData{dim}, sub::IsubdSubstrate, 
                                       reduce::Bool) where {dim}
     graph = SP.attributes
     ComputePipeline.add_input!(graph, :subd_u, ds.u)
+    _adaptivity_inputs!(graph, ds.adaptivity; solution=true)
     warp_inputs = _warp_inputs!(graph, sub)
     base = sub.base
     cellmap = sub.cellmap
@@ -1110,6 +1166,7 @@ function _wire_adaptive_qpplot!(SP, ds::FEData{dim}, sub::IsubdSubstrate, qp::QP
     graph = SP.attributes
     ComputePipeline.add_input!(graph, :subd_u, ds.u)
     ComputePipeline.add_input!(graph, :subd_qpvalues, qp.values)
+    _adaptivity_inputs!(graph, ds.adaptivity; solution=false)
     warp_inputs = _warp_inputs!(graph, sub)
     base = sub.base
     state = (keys=root_keys(base), scratch=UInt64[], prev=UInt64[])

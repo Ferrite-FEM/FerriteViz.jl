@@ -81,7 +81,50 @@ struct QPPartition{Q,V<:Makie.Observable,F}
 end
 
 """
-    FEData(dh::Ferrite.AbstractDofHandler, u::Vector; topology, adaptive=true)
+    Adaptivity(; geometry_tol=1e-3, solution_tol=5e-3, max_depth=10, sample_type=Float32)
+
+How a dataset's plots refine — the error-adaptive tessellation settings,
+owned by the [`FEData`](@ref) (every plot of a dataset follows the same
+settings; there are no per-plot overrides). The tolerances and the depth cap
+are Observables: assigning them (`ds.adaptivity.solution_tol[] = 1e-4`)
+re-refines every open plot of the dataset.
+
+- `geometry_tol`: geometry-error tolerance, as a fraction of the grid's
+  bounding-box diagonal. The drawn triangles approximate the exact geometry
+  (dofhandler interpolation, including warps) to within it.
+- `solution_tol`: solution-error tolerance, as a fraction of the color
+  field's value span. The linear vertex-color interpolation approximates the
+  exact field polynomial to within it.
+- `max_depth`: maximum bisection depth per base triangle.
+- `sample_type`: the number type the pipeline samples geometry and fields in,
+  by default what the renderer draws (GLMakie uploads Float32). Tolerances
+  are floored at its resolution; pass `Float64` to sample at full precision.
+
+Construct `FEData(dh, u; adaptivity=Adaptivity(...))` to tweak,
+`adaptivity=false` to disable and always draw the static tessellation.
+"""
+struct Adaptivity
+    geometry_tol::Makie.Observable{Float64}
+    solution_tol::Makie.Observable{Float64}
+    max_depth::Makie.Observable{Int}
+    sample_type::DataType
+end
+
+function Adaptivity(; geometry_tol::Real=1e-3, solution_tol::Real=5e-3, max_depth::Integer=10,
+                    sample_type::Type{<:AbstractFloat}=Float32)
+    return Adaptivity(Makie.Observable(Float64(geometry_tol)),
+                      Makie.Observable(Float64(solution_tol)),
+                      Makie.Observable(Int(max_depth)), sample_type)
+end
+
+# The constructor's `adaptivity` keyword: a config, `true` for the defaults,
+# or `false`/`nothing` to disable.
+_adaptivity_config(a::Adaptivity) = a
+_adaptivity_config(a::Bool) = a ? Adaptivity() : nothing
+_adaptivity_config(::Nothing) = nothing
+
+"""
+    FEData(dh::Ferrite.AbstractDofHandler, u::Vector; topology, adaptivity=Adaptivity())
 
 Source node of the visualization pipeline: builds the static "L2" triangulation
 of `Ferrite.get_grid(dh)` (nodes shared between cells are duplicated per cell so
@@ -96,25 +139,22 @@ Transformations are applied by piping into filters:
 For large 3D grids, pass a precomputed `topology::Ferrite.ExclusiveTopology`
 to avoid rebuilding it.
 
-`adaptive=true` (the default) tessellates with the [`Refine`](@ref) filter's
-automatic choice: cell types whose geometry and fields are all (multi-)linear
-keep the flat base tessellation, everything else is subdivided so curved and
-high-order-deformed cells render curved — at the price of more triangles (see
-[`Refine`](@ref) for the numbers). Opt out with `adaptive=false` (flat base
-tessellation for every cell); custom levels are a filter application:
-`FEData(dh, u; adaptive=false) |> Refine(2)`.
+`adaptivity` controls how this dataset's plots refine: by default an
+[`Adaptivity`](@ref) with its default tolerances, so `solutionplot` and
+`meshplot` re-tessellate the visible cells by longest-edge bisection until
+the drawn triangles resolve both the exact geometry and the color field —
+watertight, camera-independent, following [`FerriteViz.update!`](@ref).
+Pass `Adaptivity(...)` to tweak the tolerances, or `adaptivity=false` to
+always draw the static tessellation. The setting is a dataset property,
+shared by every plot of it and carried through filters. A color the
+adaptive path cannot re-evaluate at refined vertices (a raw point-data
+array) falls back to the static tessellation for that plot.
 
-`sample_type` (default `Float32`, what GLMakie uploads) is the number type
-the *error-adaptive* plot pipeline (`solutionplot(...; adaptive=true)`)
-samples geometry and fields in: the refinement estimators then measure what
-the renderer actually draws, and tolerances are floored at the type's
-resolution. Pass `Float64` to sample at full precision. A dataset property —
-every adaptive plot of the dataset shares it — carried through filters.
-
-!!! note
-    The tessellation `adaptive=true` picks may change in a future release; such
-    a change is breaking. `adaptive=false` and explicit `Refine(n)` counts are
-    stable.
+The *static* tessellation the constructor builds is the flat base for every
+cell — with adaptivity on, curved rendering comes from the adaptive path.
+For a uniformly subdivided static tessellation instead, compose explicitly:
+`FEData(dh, u; adaptivity=false) |> Refine(2)` (or [`Refine`](@ref)`()` for
+its automatic per-cell-type choice).
 """
 struct FEData{dim,DH<:Ferrite.AbstractDofHandler,T1,TOP<:Union{Nothing,Ferrite.AbstractTopology},SU<:Makie.Observable,M,TRI} <: AbstractPlotter
     dh::DH
@@ -167,14 +207,14 @@ struct FEData{dim,DH<:Ferrite.AbstractDofHandler,T1,TOP<:Union{Nothing,Ferrite.A
     # the static path deliberately ignores it and draws every facet of every
     # visible cell.
     solid::Vector{Bool}
-    # The number type the adaptive-tessellation pipeline samples geometry and
-    # fields in, Float32 by default (what GLMakie uploads): the estimators
-    # then measure what the renderer actually draws, and tolerances are
-    # floored at this type's resolution. A dataset property — the substrate
-    # below is shared by every adaptive plot — carried through filters. A
-    # plain field rather than a type parameter: only the substrate build
-    # consumes it, behind the same function barrier as `subd_cache`.
-    sample_type::DataType
+    # How this dataset's plots refine (`Adaptivity`), or `nothing` for the
+    # static tessellation. A dataset property — the substrate below is shared
+    # by every adaptive plot, so there are no per-plot overrides — carried
+    # through filters *by reference*: a filtered dataset shares the config,
+    # so one knob steers the whole pipeline family. Untyped concerns
+    # (sample_type as a plain DataType) stay behind the `_substrate` function
+    # barrier.
+    adaptivity::Union{Nothing,Adaptivity}
     # Lazily built adaptive-tessellation substrate (`IsubdSubstrate`), shared
     # by every adaptive plot of this dataset; `nothing` until the first one
     # asks. Everything in it is a pure function of the fields above, so it is
@@ -202,15 +242,14 @@ function _check_reserved_fieldnames(dh::Ferrite.AbstractDofHandler)
 end
 
 function FEData(dh::Ferrite.AbstractDofHandler, u::AbstractVector;
-                topology=_default_topology(Ferrite.get_grid(dh)), adaptive::Bool=true,
-                sample_type::Type{<:AbstractFloat}=Float32)
+                topology=_default_topology(Ferrite.get_grid(dh)), adaptivity=Adaptivity())
     # copy: update! writes into this array and must not mutate the caller's u
-    return FEData(dh, Makie.Observable(collect(u)); topology, adaptive, sample_type)
+    return FEData(dh, Makie.Observable(collect(u)); topology, adaptivity)
 end
 
 function FEData(dh::Ferrite.AbstractDofHandler, u::Makie.Observable;
                 topology=_default_topology(Ferrite.get_grid(dh)), source_u::Makie.Observable=u,
-                adaptive::Bool=true, sample_type::Type{<:AbstractFloat}=Float32)
+                adaptivity=Adaptivity())
     _check_reserved_fieldnames(dh)
     grid = Ferrite.get_grid(dh)
     sdim = Ferrite.getspatialdim(grid)
@@ -224,22 +263,21 @@ function FEData(dh::Ferrite.AbstractDofHandler, u::Makie.Observable;
         visible .= true
     end
 
-    # The tessellation choice is the Refine filter's; the constructor merely
-    # applies its automatic mode by default — Refine() picks the subdivision
-    # per cell type (see _pick_subdivision_rounds), Refine(0) pins every cell
-    # to the flat base tessellation. Building through the provider directly
-    # means the default costs nothing over constructing flat and filtering
-    # afterwards.
-    refinement = adaptive ? Refine() : Refine(0)
+    # The static tessellation is the flat base for every cell: with
+    # adaptivity on (the default) the curved rendering comes from the
+    # error-adaptive path, and uniform static subdivision is an explicit
+    # composition — `FEData(dh, u; adaptivity=false) |> Refine(n)` (or
+    # `Refine()` for the automatic per-cell-type choice).
     return _build_dataset(dh, u, source_u, topology, visible,
-                          _tessellation_provider(refinement, dh); sample_type)
+                          _tessellation_provider(Refine(0), dh);
+                          adaptivity=_adaptivity_config(adaptivity))
 end
 
 # Shared tessellation-instantiation core of the FEData constructor and the
 # Refine filter: lay out `tess_for(cell)` per cell with duplicated vertices.
 function _build_dataset(dh::Ferrite.AbstractDofHandler, u::Makie.Observable, source_u::Makie.Observable,
                         topology, visible::Vector{Bool}, tess_for;
-                        sample_type::Type{<:AbstractFloat}=Float32)
+                        adaptivity::Union{Nothing,Adaptivity}=Adaptivity())
     grid = Ferrite.get_grid(dh)
     cells = Ferrite.getcells(grid)
     sdim = Ferrite.getspatialdim(grid)
@@ -296,7 +334,7 @@ function _build_dataset(dh::Ferrite.AbstractDofHandler, u::Makie.Observable, sou
         reference_coords, mesh,
         Dict{Symbol,Makie.Observable}(), Dict{Symbol,Makie.Observable}(),
         Dict{Symbol,DerivedPointData}(), nothing,
-        Deformation[], fill(true, ncells), sample_type, Ref{Any}(nothing))
+        Deformation[], fill(true, ncells), adaptivity, Ref{Any}(nothing))
 end
 
 function _instantiate_cell!(physical_coords::Vector{GeometryBasics.Point{sdim,Float32}}, reference_coords,

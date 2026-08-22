@@ -24,7 +24,7 @@ include("representations.jl")
 include("adaptive.jl")
 include("viewer.jl")
 
-export FEData, apply
+export FEData, Adaptivity, apply
 export set_point_data!, set_cell_data!
 export WarpByVector, Gradient, CrinkleClip, Refine, AddQuadraturePointData
 export ExtractComponent, Magnitude, Norm1, VonMises, Deviator, Threshold, Derive

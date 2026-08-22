@@ -10,6 +10,9 @@ jobs:
   test:
     name: Julia ${{ matrix.julia-version }} - ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    # nightly breakage is upstream signal (e.g. Makie failing to precompile
+    # on a new Base), not a gate for this package
+    continue-on-error: ${{ matrix.julia-version == 'nightly' }}
     strategy:
       fail-fast: false
       matrix:

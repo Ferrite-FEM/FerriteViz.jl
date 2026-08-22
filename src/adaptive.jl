@@ -972,7 +972,23 @@ function _adaptive_capable(ds::FEData)
     ds.adaptivity === nothing && return false
     cells = Ferrite.getcells(Ferrite.get_grid(ds.dh))
     isempty(cells) && return false
-    return Ferrite.getrefdim(Ferrite.geometric_interpolation(typeof(first(cells)))) >= 2
+    refdim = Ferrite.getrefdim(Ferrite.geometric_interpolation(typeof(first(cells))))
+    refdim >= 2 || return false
+    refdim == 2 || return true
+    # The 2D base is fanned over the element edges of each cell type's
+    # reference tessellation. A (custom) tessellation may legitimately list
+    # none — the extension contract allows it, meshplot then draws no
+    # wireframe (see the cohesive-cell docs example) — but without them no
+    # conforming base exists, so such datasets keep the static path.
+    seen = Set{DataType}()
+    for cell in cells
+        typeof(cell) in seen && continue
+        push!(seen, typeof(cell))
+        tess = reference_tessellation(getrefshape(cell))
+        isempty(tess.triangles) && continue      # carries no surface anyway
+        isempty(tess.edges) && return false
+    end
+    return true
 end
 
 # Whether the adaptive path can produce this plot's colors. It re-evaluates

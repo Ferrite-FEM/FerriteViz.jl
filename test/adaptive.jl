@@ -290,6 +290,32 @@ end
     @test count(==(1), values(counts)) == 0 && count(>(2), values(counts)) == 0
 end
 
+# A custom 2D cell whose reference tessellation lists no element edges — the
+# extension contract allows that (meshplot then draws no wireframe, cf. the
+# cohesive-cell docs example). No conforming base exists without the edges,
+# so such datasets must keep the static path rather than error.
+struct RefNoEdgeQuad <: Ferrite.AbstractRefShape{2} end
+struct NoEdgeQuadrilateral <: Ferrite.AbstractCell{RefNoEdgeQuad}
+    nodes::NTuple{4,Int}
+end
+Ferrite.geometric_interpolation(::Type{NoEdgeQuadrilateral}) = Lagrange{RefQuadrilateral,1}()
+FerriteViz.reference_tessellation(::Type{RefNoEdgeQuad}) =
+    FerriteViz.ReferenceTessellation(Ferrite.reference_coordinates(Lagrange{RefQuadrilateral,1}()),
+                                     [(1, 2, 3), (1, 3, 4)])
+
+@testset "custom cells without tessellation edges keep the static path" begin
+    nodes = [Node((0.0, 0.0)), Node((1.0, 0.0)), Node((1.0, 1.0)), Node((0.0, 1.0)),
+             Node((2.0, 0.0)), Node((2.0, 1.0))]
+    cells = Ferrite.AbstractCell[Quadrilateral((1, 2, 3, 4)),
+                                 NoEdgeQuadrilateral((2, 5, 6, 3))]
+    grid = Grid(cells, nodes)
+    ds = FEData(DofHandler(grid), Float64[])
+    @test ds.adaptivity !== nothing                  # the default config is there
+    @test !FerriteViz._adaptive_capable(ds)          # ... but this grid opts out
+    _, _, mp = meshplot(ds)
+    @test !haskey(mp.attributes.outputs, :subd_keys)
+end
+
 @testset "Adaptivity is a filter" begin
     grid = generate_grid(QuadraticQuadrilateral, (2, 2))
     dh = DofHandler(grid)

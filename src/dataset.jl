@@ -89,6 +89,13 @@ settings; there are no per-plot overrides). The tolerances and the depth cap
 are Observables: assigning them (`ds.adaptivity.solution_tol[] = 1e-4`)
 re-refines every open plot of the dataset.
 
+`Adaptivity` is a filter: `ds |> Adaptivity(...)` returns the same dataset
+(geometry and data shared) with these settings — configuring a dataset that
+had adaptivity disabled, or replacing another configuration. The `FEData`
+constructor applies it automatically: `adaptivity=true` (the default) with
+these defaults, `adaptivity=Adaptivity(...)` with yours, `adaptivity=false`
+for the static tessellation.
+
 - `geometry_tol`: geometry-error tolerance, as a fraction of the grid's
   bounding-box diagonal. The drawn triangles approximate the exact geometry
   (dofhandler interpolation, including warps) to within it.
@@ -103,7 +110,7 @@ re-refines every open plot of the dataset.
 Construct `FEData(dh, u; adaptivity=Adaptivity(...))` to tweak,
 `adaptivity=false` to disable and always draw the static tessellation.
 """
-struct Adaptivity
+struct Adaptivity <: AbstractFilter
     geometry_tol::Makie.Observable{Float64}
     solution_tol::Makie.Observable{Float64}
     max_depth::Makie.Observable{Int}
@@ -124,7 +131,7 @@ _adaptivity_config(a::Bool) = a ? Adaptivity() : nothing
 _adaptivity_config(::Nothing) = nothing
 
 """
-    FEData(dh::Ferrite.AbstractDofHandler, u::Vector; topology, adaptivity=Adaptivity())
+    FEData(dh::Ferrite.AbstractDofHandler, u::Vector; topology, adaptivity=true)
 
 Source node of the visualization pipeline: builds the static "L2" triangulation
 of `Ferrite.get_grid(dh)` (nodes shared between cells are duplicated per cell so
@@ -139,16 +146,18 @@ Transformations are applied by piping into filters:
 For large 3D grids, pass a precomputed `topology::Ferrite.ExclusiveTopology`
 to avoid rebuilding it.
 
-`adaptivity` controls how this dataset's plots refine: by default an
-[`Adaptivity`](@ref) with its default tolerances, so `solutionplot` and
-`meshplot` re-tessellate the visible cells by longest-edge bisection until
-the drawn triangles resolve both the exact geometry and the color field —
-watertight, camera-independent, following [`FerriteViz.update!`](@ref).
-Pass `Adaptivity(...)` to tweak the tolerances, or `adaptivity=false` to
-always draw the static tessellation. The setting is a dataset property,
-shared by every plot of it and carried through filters. A color the
-adaptive path cannot re-evaluate at refined vertices (a raw point-data
-array) falls back to the static tessellation for that plot.
+`adaptivity` controls how this dataset's plots refine: `adaptivity=true`
+(the default) applies the [`Adaptivity`](@ref) filter with its default
+tolerances, so `solutionplot` and `meshplot` re-tessellate the visible cells
+by longest-edge bisection until the drawn triangles resolve both the exact
+geometry and the color field — watertight, camera-independent, following
+[`FerriteViz.update!`](@ref). Pass an `Adaptivity(...)` of your own to
+tweak the tolerances (equivalent to `FEData(...; adaptivity=false) |>
+Adaptivity(...)`), or `adaptivity=false` to always draw the static
+tessellation. The setting is a dataset property, shared by every plot of it
+and carried through filters. A color the adaptive path cannot re-evaluate
+at refined vertices (a raw point-data array) falls back to the static
+tessellation for that plot.
 
 The *static* tessellation the constructor builds is the flat base for every
 cell — with adaptivity on, curved rendering comes from the adaptive path.
@@ -242,14 +251,14 @@ function _check_reserved_fieldnames(dh::Ferrite.AbstractDofHandler)
 end
 
 function FEData(dh::Ferrite.AbstractDofHandler, u::AbstractVector;
-                topology=_default_topology(Ferrite.get_grid(dh)), adaptivity=Adaptivity())
+                topology=_default_topology(Ferrite.get_grid(dh)), adaptivity=true)
     # copy: update! writes into this array and must not mutate the caller's u
     return FEData(dh, Makie.Observable(collect(u)); topology, adaptivity)
 end
 
 function FEData(dh::Ferrite.AbstractDofHandler, u::Makie.Observable;
                 topology=_default_topology(Ferrite.get_grid(dh)), source_u::Makie.Observable=u,
-                adaptivity=Adaptivity())
+                adaptivity=true)
     _check_reserved_fieldnames(dh)
     grid = Ferrite.get_grid(dh)
     sdim = Ferrite.getspatialdim(grid)

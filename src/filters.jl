@@ -38,6 +38,26 @@ function _rebind(ds::FEData{dim}, dh, u::Makie.Observable;
         ds.deformation, ds.solid, ds.adaptivity, Ref{Any}(nothing))
 end
 
+##############
+# Adaptivity #
+##############
+
+# Applying an `Adaptivity` (defined next to FEData, see its docstring)
+# re-configures how the dataset's plots refine: the result is the same
+# dataset — geometry, data and provenance shared — with the given settings
+# and a fresh substrate cache. This is also what the constructor's
+# `adaptivity` keyword stores; `FEData(dh, u; adaptivity=a)` and
+# `FEData(dh, u; adaptivity=false) |> a` are equivalent.
+function apply(a::Adaptivity, ds::FEData{dim}) where {dim}
+    return FEData{dim,typeof(ds.dh),eltype(ds.u[]),typeof(ds.topology),typeof(ds.source_u),typeof(ds.mesh),eltype(ds.all_triangles)}(
+        ds.dh, ds.u, ds.source_u, ds.topology, ds.visible, ds.gridnodes, ds.coords, ds.coords_buffer,
+        ds.all_triangles, ds.vis_triangles, ds.triangle_cell_map, ds.cell_triangle_offsets,
+        ds.cell_vertex_offsets, ds.all_edges, ds.edge_cell_map, ds.cell_edge_offsets,
+        ds.reference_coords, ds.mesh,
+        copy(ds.point_data), copy(ds.cell_data), copy(ds.point_derivations), ds.qp_partition,
+        ds.deformation, ds.solid, a, Ref{Any}(nothing))
+end
+
 ################
 # WarpByVector #
 ################

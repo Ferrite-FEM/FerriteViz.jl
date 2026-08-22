@@ -290,6 +290,38 @@ end
     @test count(==(1), values(counts)) == 0 && count(>(2), values(counts)) == 0
 end
 
+@testset "Adaptivity is a filter" begin
+    grid = generate_grid(QuadraticQuadrilateral, (2, 2))
+    dh = DofHandler(grid)
+    add!(dh, :p, Lagrange{RefQuadrilateral,2}())
+    close!(dh)
+    u = zeros(ndofs(dh))
+    Ferrite.apply_analytical!(u, dh, :p, x -> sin(pi * x[1]) * x[2])
+
+    # keyword sugar: true = defaults, an instance = automatic application
+    @test FEData(dh, u).adaptivity isa Adaptivity
+    @test FEData(dh, u; adaptivity=false).adaptivity === nothing
+    a = Adaptivity(solution_tol=1e-2, max_depth=6)
+    @test FEData(dh, u; adaptivity=a).adaptivity === a
+
+    # the filter configures a static dataset without touching the source
+    ds = FEData(dh, u; adaptivity=false)
+    ads = ds |> Adaptivity(solution_tol=1e-2)
+    @test ds.adaptivity === nothing
+    @test ads.adaptivity.solution_tol[] == 1e-2
+    @test ads.coords === ds.coords               # geometry is shared
+    @test ads.subd_cache[] === nothing           # fresh substrate cache
+    _, _, sp = solutionplot(ads)
+    @test haskey(sp.attributes.outputs, :subd_keys)
+    _, _, ss = solutionplot(ds)
+    @test !haskey(ss.attributes.outputs, :subd_keys)
+
+    # ... and replaces the settings of an adaptive one
+    bds = ads |> Adaptivity(max_depth=4)
+    @test bds.adaptivity.max_depth[] == 4
+    @test bds.adaptivity !== ads.adaptivity
+end
+
 @testset "adaptive substrate: shared per dataset, settings shared too" begin
     grid = generate_grid(Quadrilateral, (3, 3))
     dh = DofHandler(grid)

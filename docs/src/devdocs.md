@@ -120,8 +120,15 @@ FerriteViz.reference_tessellation(::Type{Ferrite.RefPyramid}) =
 For 2D shapes, construct the [`FerriteViz.ReferenceTessellation`](@ref)
 directly (coordinates in reference space, triangles and wireframe edge
 segments indexing into them; shared coordinates are fine — per-cell
-duplication is `FEData`'s job). Edges may be omitted, in which case
-[`meshplot`](@ref) draws no wireframe for cells of that shape.
+duplication is `FEData`'s job). The edge list is what [`meshplot`](@ref)
+draws as the wireframe and what the error-adaptive base is fanned over; it
+may be omitted, in which case cells of that shape draw no wireframe and
+their datasets keep the static tessellation. A cell whose node numbering
+does not follow the reference shape's corner loop should also carry a
+geometric interpolation that places each node at its proper reference
+position — the adaptive path evaluates the geometric map *between* the
+corners, where a folded parametrization shows (see the
+[cohesive-cell example](cohesive.md)).
 
 ## Data layout
 

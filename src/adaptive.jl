@@ -507,12 +507,15 @@ function _isubd_mapping(ds::FEData{dim}, cellmap::Vector{Int}, cellcoords,
 end
 
 function _geometry_poly(gips, cellcoords, cellmap, ::Val{dim}, ::Type{T}) where {dim,T}
-    basis = PolyBasis(first(gips))
+    ip = first(gips)
+    basis = PolyBasis(ip)
     basis === nothing && return nothing
     poly = PolyField(basis, length(gips), Tensors.Vec{dim,T})
     for cell in unique(cellmap)
-        # a differently interpolated cell keeps the shape-function path
-        PolyBasis(gips[cell]) === nothing && continue
+        # only cells sharing the reference interpolation share the coefficient
+        # layout — a different one (even of the same size, e.g. a permuted
+        # nodal ordering) keeps the shape-function path
+        gips[cell] == ip || continue
         length(cellcoords[cell]) == size(poly.coeffs, 1) || continue
         refresh_cell!(poly, cell, cellcoords[cell])
     end

@@ -316,6 +316,60 @@ FerriteViz.reference_tessellation(::Type{RefNoEdgeQuad}) =
     @test !haskey(mp.attributes.outputs, :subd_keys)
 end
 
+# The cohesive-cell docs example: the cell's node numbering (facets (1,2) and
+# (3,4)) would make the standard bilinear map fold into a bow-tie, so it
+# carries a geometric interpolation that places node i at the right reference
+# corner. The reference geometry is then just a quadrilateral — tessellation,
+# element edges and the conforming adaptive base included.
+struct RefTestCohesive <: Ferrite.AbstractRefShape{2} end
+struct TestCohesiveQuad <: Ferrite.AbstractCell{RefTestCohesive}
+    nodes::NTuple{4,Int}
+end
+struct TestCohesiveLagrange <: Ferrite.ScalarInterpolation{RefTestCohesive,1} end
+const TCOH_PERM = (1, 2, 4, 3)      # node i sits at reference corner TCOH_PERM[i]
+Ferrite.getnbasefunctions(::TestCohesiveLagrange) = 4
+Ferrite.reference_shape_value(::TestCohesiveLagrange, ξ, i::Int) =
+    Ferrite.reference_shape_value(Lagrange{RefQuadrilateral,1}(), ξ, TCOH_PERM[i])
+Ferrite.reference_coordinates(::TestCohesiveLagrange) =
+    Ferrite.reference_coordinates(Lagrange{RefQuadrilateral,1}())[collect(TCOH_PERM)]
+Ferrite.geometric_interpolation(::Type{TestCohesiveQuad}) = TestCohesiveLagrange()
+FerriteViz.reference_tessellation(::Type{RefTestCohesive}) =
+    FerriteViz.reference_tessellation(Ferrite.RefQuadrilateral)
+
+@testset "custom cells with a clean parametrization refine adaptively" begin
+    # the opened cohesive demo of the docs: two blocks bridged by an interface
+    Δ = 0.5
+    nodes = [Node((0.0, 0.0)), Node((1.0, 0.0)), Node((1.0, 1.0)), Node((0.0, 1.0)),
+             Node((1.0 + Δ, 0.0)), Node((1.0 + Δ, 1.0)), Node((2.0 + Δ, 1.0)), Node((2.0 + Δ, 0.0))]
+    cells = Ferrite.AbstractCell[Quadrilateral((1, 2, 3, 4)), Quadrilateral((5, 6, 7, 8)),
+                                 TestCohesiveQuad((2, 3, 5, 6))]
+    grid = Grid(cells, nodes)
+    ds = FEData(DofHandler(grid), Float64[])
+    @test FerriteViz._adaptive_capable(ds)
+    _, _, mp = meshplot(ds)
+    @test haskey(mp.attributes.outputs, :subd_keys)
+    # every map is affine here, so nothing refines beyond the base fans
+    @test length(mp.subd_keys[]) == 4 * 3
+
+    # the interface facets pair with the neighbouring blocks by node ids, so
+    # the base is conforming across the interface: of the 12 fan triangles,
+    # two diamonds (4 triangles) sit on the interior facets
+    base = FerriteViz._substrate(ds).base
+    @test FerriteViz.is_conformable(base)
+    nbound = count(b -> base.adjacency[b][FerriteViz.EDGE_S][1] == 0, 1:length(base.corners))
+    @test nbound == 8
+
+    # the permuted parametrization maps the reference quad onto the physical
+    # interface without folding: reference corner (1,1) carries node 4 of the
+    # cell (global node 6), not node 3 — a plain bilinear on the cohesive
+    # node order (or coefficients fit against the wrong nodal layout) puts
+    # the opposite node there
+    b = findfirst(==(3), FerriteViz._substrate(ds).cellmap)
+    @test base.mapping(b, Ferrite.Vec(1.0f0, 1.0f0)) ≈ [1.5, 1.0] atol = 1e-5
+    @test base.mapping(b, Ferrite.Vec(-1.0f0, -1.0f0)) ≈ [1.0, 0.0] atol = 1e-5
+    @test base.mapping(b, Ferrite.Vec(0.0f0, 0.0f0)) ≈ [1.25, 0.5] atol = 1e-5
+end
+
 @testset "Adaptivity is a filter" begin
     grid = generate_grid(QuadraticQuadrilateral, (2, 2))
     dh = DofHandler(grid)

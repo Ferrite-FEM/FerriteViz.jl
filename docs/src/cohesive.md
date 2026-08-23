@@ -13,7 +13,8 @@ elements**, as used for modelling delamination and cohesive fracture (e.g. the
 package). A cohesive element has two facets that *coincide* in the undeformed
 configuration and *separate* ("open") under load. That makes its node
 numbering unusual — the two facets are listed one after another — so it needs
-its own reference shape to tessellate into a non-self-intersecting quad.
+its own reference shape, parametrized so the cell renders as a
+non-self-intersecting quad.
 
 The whole example only depends on `Ferrite` and `FerriteViz`.
 
@@ -47,37 +48,48 @@ struct CohesiveQuadrilateral <: Ferrite.AbstractCell{RefCohesiveQuad}
     nodes::NTuple{4,Int}
 end
 
-# the physical position of a rendering vertex still comes from the bilinear map
-# of the four corner nodes
-Ferrite.geometric_interpolation(::Type{CohesiveQuadrilateral}) = Lagrange{RefQuadrilateral,1}()
+# 3. the geometric interpolation: node i sits at reference corner PERM[i], so
+# the facets (1,2) and (3,4) are the bottom and top edges of the reference
+# quadrilateral and the bilinear map never folds
+struct CohesiveLagrange <: Ferrite.ScalarInterpolation{RefCohesiveQuad,1} end
+const PERM = (1, 2, 4, 3)
+Ferrite.getnbasefunctions(::CohesiveLagrange) = 4
+Ferrite.reference_shape_value(::CohesiveLagrange, ξ, i::Int) =
+    Ferrite.reference_shape_value(Lagrange{RefQuadrilateral,1}(), ξ, PERM[i])
+Ferrite.reference_coordinates(::CohesiveLagrange) =
+    Ferrite.reference_coordinates(Lagrange{RefQuadrilateral,1}())[collect(PERM)]
 
-# the element outline used by `meshplot` (the 1 → 2 → 4 → 3 loop)
-Ferrite.edges(c::CohesiveQuadrilateral) = (
-    (c.nodes[1], c.nodes[2]), (c.nodes[2], c.nodes[4]),
-    (c.nodes[4], c.nodes[3]), (c.nodes[3], c.nodes[1]),
-)
+Ferrite.geometric_interpolation(::Type{CohesiveQuadrilateral}) = CohesiveLagrange()
 nothing # hide
 ```
 
+The interpolation is the important design decision. Plugging the cohesive node
+order into a plain `Lagrange{RefQuadrilateral,1}` would trace the loop
+`1 → 2 → 3 → 4` and fold the bilinear map into a bow-tie: the corners land in
+the right places, but the interior of the map self-intersects. The static
+tessellation would never notice (it only ever samples the corners), but
+everything that evaluates the geometry *between* the corners — the
+error-adaptive refinement in particular — would faithfully render the fold.
+Permuting the nodes onto the reference corners keeps the map clean everywhere.
+
 ## The one method FerriteViz needs
 
-The reference tessellation lists the surface vertices (in reference space) and
-the triangles indexing into them. We reuse the four quadrilateral corners — so
-corner `i` maps to node `i` — add a center vertex, and fan the four triangles
-around it using the cohesive `1 → 2 → 4 → 3` loop:
+With a clean parametrization the reference geometry *is* just a quadrilateral,
+so its tessellation — surface triangles, and the element edges that give
+[`meshplot`](@ref) its wireframe — can simply be reused:
 
 ```@example cohesive
-function FerriteViz.reference_tessellation(::Type{RefCohesiveQuad})
-    coords = Ferrite.reference_coordinates(Lagrange{RefQuadrilateral,1}())
-    push!(coords, zero(eltype(coords)))                  # center vertex (id 5)
-    triangles = [(1, 2, 5), (2, 4, 5), (4, 3, 5), (3, 1, 5)]
-    return FerriteViz.ReferenceTessellation(coords, triangles)
-end
+FerriteViz.reference_tessellation(::Type{RefCohesiveQuad}) =
+    FerriteViz.reference_tessellation(Ferrite.RefQuadrilateral)
 nothing # hide
 ```
 
 That is the entire extension. `FEData` and every representation now work for
-grids containing `CohesiveQuadrilateral`s.
+grids containing `CohesiveQuadrilateral`s — including the wireframe and the
+error-adaptive refinement, whose conforming base is fanned over exactly the
+element edges the tessellation lists. (A tessellation may also omit the edge
+list; such cells then draw no wireframe and their datasets keep the static
+tessellation.)
 
 ## A tiny grid with an interface
 
@@ -124,6 +136,6 @@ WGLMakie.Colorbar(f[1, 3], p, label = "interface opening")
 f
 ```
 
-The cohesive cell tessellates and colours just like a native Ferrite cell —
-FerriteViz never needed to know what a cohesive element *is*, only how its
-reference shape triangulates.
+The cohesive cell tessellates, colours and refines just like a native Ferrite
+cell — FerriteViz never needed to know what a cohesive element *is*, only how
+its reference shape is parametrized and triangulated.

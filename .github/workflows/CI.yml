@@ -6,14 +6,20 @@ on:
       - 'master'
     tags:
       - '*'
+concurrency:
+  # Cancel in progress builds for PRs with new commits
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ startsWith(github.ref, 'refs/pull/') && 'pr' || github.sha }}
+  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
 jobs:
   test:
     name: Julia ${{ matrix.julia-version }} - ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    continue-on-error: ${{ matrix.julia-version == 'pre' }}
     strategy:
       fail-fast: false
       matrix:
-        julia-version: ['lts', '1', 'nightly']
+        julia-version: ['lts', '1', 'pre']
         os: ['ubuntu-latest']
         include:
           - os: windows-latest

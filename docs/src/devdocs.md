@@ -13,8 +13,10 @@ longest-edge bisection, in the spirit of
 a persistent buffer of `UInt64` subdivision keys (base triangle id · bisection
 path), a split/merge/keep streaming pass ([`FerriteViz.update_keys!`](@ref))
 driven by a level-of-detail criterion, and a triangle-soup emission pass
-([`FerriteViz.decode_keys!`](@ref)). It is Makie-free and unexported; the
-adaptive recipes wire it into the plots' compute graphs. Every hot function is
+([`FerriteViz.decode_keys!`](@ref)). It is Makie-free, and it is internal
+API: nothing in it is exported, and none of it is part of the public interface,
+so names, signatures and behaviour may change in any release without notice.
+The adaptive recipes wire it into the plots' compute graphs. Every hot function is
 an element-wise pass over flat buffers, so a GPU port (KernelAbstractions
 kernel / Mantle compute pass) is a lowering, not a rewrite.
 

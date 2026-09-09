@@ -374,3 +374,75 @@ function march_triangle!(pool::CutVertexPool, out_segs::Vector{NTuple{2,Int}}, o
     push!(out_cells, cell)
     return nothing
 end
+
+# The coarse volume fan is an indexing rule, not independent connectivity.
+# Keep one orientation bit per cell instead of four indices and one cell id
+# per tetrahedron. Refined/clipped volumes still use explicit arrays.
+struct OffsetCellMap <: AbstractVector{Int}
+    offsets::Vector{Int}
+end
+Base.size(m::OffsetCellMap) = (last(m.offsets),)
+Base.IndexStyle(::Type{OffsetCellMap}) = IndexLinear()
+function Base.getindex(m::OffsetCellMap, i::Int)
+    @boundscheck checkbounds(m,i)
+    return searchsortedfirst(m.offsets,i)-1
+end
+struct FanSimplices{T} <: AbstractVector{NTuple{4,Int}}
+    triangles::T
+    cellmap::OffsetCellMap
+    triangle_offsets::Vector{Int}
+    vertex_offsets::Vector{Int}
+    flips::Vector{Bool}
+end
+Base.size(s::FanSimplices) = size(s.cellmap)
+Base.IndexStyle(::Type{<:FanSimplices}) = IndexLinear()
+_fan_triangle(ts::AbstractMatrix, t) = (ts[t,1],ts[t,2],ts[t,3])
+_fan_triangle(ts::AbstractVector, t) = ntuple(j -> convert(Int, ts[t][j]), 3)
+function Base.getindex(s::FanSimplices, i::Int)
+    cell = s.cellmap[i]
+    t = i-s.cellmap.offsets[cell]+s.triangle_offsets[cell]
+    a,b,c = _fan_triangle(s.triangles,t)
+    d = s.vertex_offsets[cell+1]
+    return s.flips[cell] ? (b,a,c,d) : (a,b,c,d)
+end
+
+struct ClippedSimplices{S<:AbstractVector} <: AbstractVector{NTuple{4,Int}}
+    source::S
+    source_offsets::Vector{Int}
+    remap::Vector{Int}
+    cellmap::OffsetCellMap
+    intact::Vector{Bool}
+    cut_offsets::Vector{Int}
+    cuts::Vector{NTuple{4,Int}}
+end
+Base.size(s::ClippedSimplices) = size(s.cellmap)
+Base.IndexStyle(::Type{<:ClippedSimplices}) = IndexLinear()
+function Base.getindex(s::ClippedSimplices, i::Int)
+    cell = s.cellmap[i]
+    local_index = i-s.cellmap.offsets[cell]
+    if s.intact[cell]
+        tet = s.source[s.source_offsets[cell]+local_index]
+        return map(v -> s.remap[v],tet)
+    end
+    return s.cuts[s.cut_offsets[cell]+local_index]
+end
+
+# Barriers keep an abstract/lazy connectivity field out of the primitive loop.
+function _clip_cell_simplices!(pool, tets, tetcells, tris, tricells, simplices::S,
+                               range, cell, g, vol_tol, area_tol) where {S<:AbstractVector}
+    for i in range
+        clip_tet!(pool,tets,tetcells,tris,tricells,simplices[i],cell,g,vol_tol,area_tol)
+    end
+end
+function _march_cell_simplices!(pool, tris, tricells, edges, edgecells, simplices::S,
+                                range, cell, g, len_tol, area_tol, tag) where {N,S<:AbstractVector{NTuple{N,Int}}}
+    for i in range
+        simplex = simplices[i]
+        any(v -> !isfinite(g[v]),simplex) && continue
+        if N == 4
+            march_tet!(pool,tris,tricells,simplex,cell,g,area_tol,tag)
+        else
+            march_triangle!(pool,edges,edgecells,simplex,cell,g,len_tol,tag)
+        end
+    end
+end

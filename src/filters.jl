@@ -258,8 +258,8 @@ function apply(c::Clip, ds::FEData{3})
     sizehint!(pool, length(pc))
     out_tris = sizehint!(NTuple{3,Int}[], length(ds.all_triangles))
     out_tri_cells = sizehint!(Int[], length(ds.all_triangles))
-    out_tets = sizehint!(NTuple{4,Int}[], length(ds.simplices))
-    out_tet_cells = sizehint!(Int[], length(ds.simplices))
+    out_tets = NTuple{4,Int}[]
+    out_tet_cells = Int[]
     out_edges = sizehint!(NTuple{2,Int}[], length(ds.all_edges))
     out_edge_cells = sizehint!(Int[], length(ds.all_edges))
     solid = copy(ds.solid)
@@ -269,6 +269,9 @@ function apply(c::Clip, ds::FEData{3})
     cell_simplex_offsets = zeros(Int, ncells + 1)
     cell_edge_offsets = zeros(Int, ncells + 1)
     any_cut = false
+    intact = fill(false, ncells)
+    cut_offsets = zeros(Int, ncells+1)
+    retained_simplices = 0
 
     for cell in 1:ncells
         if ds.solid[cell]
@@ -300,11 +303,8 @@ function apply(c::Clip, ds::FEData{3})
                     push!(out_tris, (pool.remap[convert(Int, tri[1])], pool.remap[convert(Int, tri[2])], pool.remap[convert(Int, tri[3])]))
                     push!(out_tri_cells, cell)
                 end
-                for s in simplices_on_cell(ds, cell)
-                    tet = ds.simplices[s]
-                    push!(out_tets, (pool.remap[tet[1]], pool.remap[tet[2]], pool.remap[tet[3]], pool.remap[tet[4]]))
-                    push!(out_tet_cells, cell)
-                end
+                intact[cell] = true
+                retained_simplices += length(simplices_on_cell(ds, cell))
                 for e in edges_on_cell(ds, cell)
                     edge = ds.all_edges[e]
                     push!(out_edges, (pool.remap[edge[1]], pool.remap[edge[2]]))
@@ -328,10 +328,8 @@ function apply(c::Clip, ds::FEData{3})
                 end
                 # caps go into the same triangle list, keeping the cell's
                 # triangles contiguous
-                for s in simplices_on_cell(ds, cell)
-                    clip_tet!(pool, out_tets, out_tet_cells, out_tris, out_tri_cells,
-                              ds.simplices[s], cell, g, vol_tol, area_tol)
-                end
+                _clip_cell_simplices!(pool, out_tets, out_tet_cells, out_tris, out_tri_cells,
+                                      ds.simplices, simplices_on_cell(ds,cell), cell, g, vol_tol, area_tol)
                 for e in edges_on_cell(ds, cell)
                     clip_edge!(pool, out_edges, out_edge_cells, ds.all_edges[e], cell, g)
                 end
@@ -339,10 +337,14 @@ function apply(c::Clip, ds::FEData{3})
         end
         cell_vertex_offsets[cell+1] = nvertices(pool)
         cell_triangle_offsets[cell+1] = length(out_tris)
-        cell_simplex_offsets[cell+1] = length(out_tets)
+        cut_offsets[cell+1] = length(out_tets)
+        cell_simplex_offsets[cell+1] = length(out_tets) + retained_simplices
         cell_edge_offsets[cell+1] = length(out_edges)
     end
 
+    simplex_cell_map = OffsetCellMap(cell_simplex_offsets)
+    simplices = ClippedSimplices(ds.simplices, ds.cell_simplex_offsets, pool.remap,
+                                simplex_cell_map, intact, cut_offsets, out_tets)
     combos = pool.combos
     all_triangles = Vector{GeometryBasics.GLTriangleFace}(undef, length(out_tris))
     for (t, tri) in enumerate(out_tris)
@@ -355,7 +357,7 @@ function apply(c::Clip, ds::FEData{3})
     return _derive(ds; solid, visible, cells_intact=ds.cells_intact && !any_cut,
                    coords, all_triangles, triangle_cell_map=out_tri_cells,
                    cell_triangle_offsets, cell_vertex_offsets,
-                   simplices=out_tets, simplex_cell_map=out_tet_cells, cell_simplex_offsets,
+                   simplices, simplex_cell_map, cell_simplex_offsets,
                    all_edges=out_edges, edge_cell_map=out_edge_cells, cell_edge_offsets,
                    reference_coords, point_data)
 end
@@ -413,7 +415,7 @@ function apply(f::ExtractIsosurfaces, ds::FEData{dim}) where {dim}
     size(A, 2) == 1 ||
         error("ExtractIsosurfaces needs a scalar array, :$name has $(size(A, 2)) components; " *
               "reduce it first, e.g. with Magnitude(input=:$name) or ExtractComponent(i; input=:$name)")
-    values = convert(Vector{Float64}, vec(A))
+    values = convert(Vector{Float64}, vec(A))::Vector{Float64}
     isempty(ds.simplices) &&
         error("ExtractIsosurfaces marches the dataset's volume simplices, but this dataset has none " *
               "(an already-extracted surface, or a grid of only embedded shell/line cells, has no volume)")
@@ -444,7 +446,7 @@ function apply(f::ExtractIsosurfaces, ds::FEData{dim}) where {dim}
     cell_triangle_offsets = zeros(Int, ncells + 1)
     cell_vertex_offsets = zeros(Int, ncells + 1)
     cell_edge_offsets = zeros(Int, ncells + 1)
-    gs = [snap!([v - level for v in values], tol) for level in f.levels]
+    g = Vector{Float64}(undef, length(values))
 
     # cells outermost so the output vertices and triangles stay grouped per
     # cell (vertices_on_cell/transfer_solution rely on contiguous ranges); the
@@ -455,18 +457,14 @@ function apply(f::ExtractIsosurfaces, ds::FEData{dim}) where {dim}
             len_tol = 1e-9 * _cell_diag(pcoords, vertices_on_cell(ds, cell))
             area_tol = len_tol^2
             for (tag, level) in enumerate(f.levels)
-                g = gs[tag]
+                for v in vertices_on_cell(ds, cell)
+                    x = values[v] - level
+                    g[v] = abs(x) <= tol ? 0.0 : x
+                end
                 nv0 = nvertices(pool)
                 n0 = dim == 3 ? length(out_tris) : length(out_edges)
-                for s in simplices_on_cell(ds, cell)
-                    simplex = ds.simplices[s]
-                    any(v -> !isfinite(g[v]), simplex) && continue   # subdomain NaNs
-                    if dim == 3
-                        march_tet!(pool, out_tris, out_tri_cells, simplex, cell, g, area_tol, tag)
-                    else
-                        march_triangle!(pool, out_edges, out_edge_cells, simplex, cell, g, len_tol, tag)
-                    end
-                end
+                _march_cell_simplices!(pool, out_tris, out_tri_cells, out_edges, out_edge_cells,
+                                       ds.simplices, simplices_on_cell(ds,cell), cell, g, len_tol, area_tol, tag)
                 append!(isovalue, fill(level, nvertices(pool) - nv0))
                 (dim == 3 ? length(out_tris) : length(out_edges)) > n0 && (visible[cell] = true)
             end

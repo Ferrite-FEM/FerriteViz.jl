@@ -189,8 +189,8 @@ struct FEData{dim,DH<:Ferrite.AbstractDofHandler,T1,TOP<:Union{Nothing,Ferrite.A
     # shells/lines have no volume). This is what Clip cuts and
     # ExtractIsosurfaces marches; datasets without volume (e.g. an extracted
     # isosurface) have it empty.
-    simplices::Vector{S}
-    simplex_cell_map::Vector{Int}       # simplex -> owning cell
+    simplices::AbstractVector{S}
+    simplex_cell_map::AbstractVector{Int}       # simplex -> owning cell
     cell_simplex_offsets::Vector{Int}   # cell -> range in simplices (see simplices_on_cell)
     # Wireframe segments along the FE cell edges, as pairs of indices into
     # coords. Their endpoints are ordinary tessellation vertices, which is what
@@ -353,8 +353,11 @@ function _build_dataset(dh::Ferrite.AbstractDofHandler, u::Makie.Observable, sou
     physical_coords = Vector{GeometryBasics.Point{sdim,Float32}}(undef, num_verts)
     reference_coords = zeros(Float64, num_verts, sdim)
     S = NTuple{sdim + 1,Int}
-    simplices = Vector{S}(undef, cell_simplex_offsets[end])
-    simplex_cell_map = Vector{Int}(undef, cell_simplex_offsets[end])
+    simplex_cell_map = sdim == 3 ? OffsetCellMap(cell_simplex_offsets) :
+                       Vector{Int}(undef, cell_simplex_offsets[end])
+    simplices = sdim == 3 ? FanSimplices(triangles, simplex_cell_map, cell_triangle_offsets,
+                                        cell_vertex_offsets, fill(false, ncells)) :
+                Vector{S}(undef, cell_simplex_offsets[end])
 
     for (cell_id, cell) in enumerate(cells)
         # Function barrier: `tess_for` and `geometric_interpolation` are only
@@ -372,6 +375,10 @@ function _build_dataset(dh::Ferrite.AbstractDofHandler, u::Makie.Observable, sou
 
     # convert: to_triangles yields an untyped empty vector for 0 triangles
     all_triangles = convert(Vector{GeometryBasics.GLTriangleFace}, Makie.to_triangles(triangles))
+    if simplices isa FanSimplices
+        simplices = FanSimplices(all_triangles, simplex_cell_map, cell_triangle_offsets,
+                                cell_vertex_offsets, simplices.flips)
+    end
     vis_triangles = ShaderAbstractions.Buffer(Makie.Observable(_visibility_triangles(all_triangles, visible, triangle_cell_map)))
     coords = Makie.Observable(physical_coords)
     coords_buffer = ShaderAbstractions.Buffer(coords)
@@ -451,10 +458,14 @@ function _instantiate_cell!(physical_coords::Vector{GeometryBasics.Point{sdim,Fl
                 signed += _signed_tet_volume(a, b, c, cpos)
             end
             flip = signed < 0
-            for (t, tri) in enumerate(tess.triangles)
-                simplices[soff+t] = flip ? (tri[2] + coff, tri[1] + coff, tri[3] + coff, center) :
-                                           (tri[1] + coff, tri[2] + coff, tri[3] + coff, center)
-                simplex_cell_map[soff+t] = cell_id
+            if simplices isa FanSimplices
+                simplices.flips[cell_id] = flip
+            else
+                for (t, tri) in enumerate(tess.triangles)
+                    simplices[soff+t] = flip ? (tri[2] + coff, tri[1] + coff, tri[3] + coff, center) :
+                                               (tri[1] + coff, tri[2] + coff, tri[3] + coff, center)
+                    simplex_cell_map isa OffsetCellMap || (simplex_cell_map[soff+t] = cell_id)
+                end
             end
         end
     end
@@ -488,8 +499,8 @@ function _derive(ds::FEData{dim};
                  triangle_cell_map::Vector{Int}=ds.triangle_cell_map,
                  cell_triangle_offsets::Vector{Int}=ds.cell_triangle_offsets,
                  cell_vertex_offsets::Vector{Int}=ds.cell_vertex_offsets,
-                 simplices::Vector=ds.simplices,
-                 simplex_cell_map::Vector{Int}=ds.simplex_cell_map,
+                 simplices::AbstractVector=ds.simplices,
+                 simplex_cell_map::AbstractVector{Int}=ds.simplex_cell_map,
                  cell_simplex_offsets::Vector{Int}=ds.cell_simplex_offsets,
                  all_edges::Vector{NTuple{2,Int}}=ds.all_edges,
                  edge_cell_map::Vector{Int}=ds.edge_cell_map,

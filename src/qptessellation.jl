@@ -167,10 +167,15 @@ end
 # region wall.
 function _qp_voronoi_volume!(coords::Vector{V}, simplices, vertex_qp, ::Type{RS}, corners::Vector{V}, ξs, tol) where {V,RS}
     nqp = length(ξs)
+    # Degenerate rules render fine on the surface partition but have no valid
+    # volume decomposition; skip it (with a hint) instead of failing the whole
+    # apply — Clip/ExtractIsosurfaces then treat these cells as volume-less.
     for i in 1:nqp, j in (i+1):nqp
-        LinearAlgebra.norm(ξs[i] - ξs[j]) > 1e-9 &&
-            continue
-        error("quadrature points $i and $j coincide; the Voronoi partition needs pairwise distinct points")
+        LinearAlgebra.norm(ξs[i] - ξs[j]) > 1e-9 && continue
+        @warn "quadrature points $i and $j coincide; the volumetric Voronoi partition needs pairwise " *
+              "distinct points, so cells with this rule get no volume decomposition (Clip cuts their " *
+              "surface without caps, ExtractIsosurfaces skips them)" maxlog = 1
+        return nothing
     end
     base_faces = [V[corners[k] for k in face] for face in Ferrite.reference_faces(RS)]
     centroid = sum(corners) / length(corners)
@@ -186,8 +191,10 @@ function _qp_voronoi_volume!(coords::Vector{V}, simplices, vertex_qp, ::Type{RS}
     # to the point is just degenerate and pruned below.
     for (q, ξ) in enumerate(ξs), (n, c) in face_hs
         ξ ⋅ n <= c + 1e-9 && continue
-        error("quadrature point $q at $ξ lies outside the reference cell; " *
-              "the volumetric Voronoi partition fans each region from its point, which must be inside")
+        @warn "quadrature point $q at $ξ lies outside the reference cell; the volumetric Voronoi " *
+              "partition fans each region from its point, so cells with this rule get no volume " *
+              "decomposition (Clip cuts their surface without caps, ExtractIsosurfaces skips them)" maxlog = 1
+        return nothing
     end
     # keep the side closer to ξᵢ: (ξⱼ-ξᵢ)⋅x ≤ (|ξⱼ|²-|ξᵢ|²)/2
     bisector(i, j) = (ξs[j] - ξs[i], (sum(abs2, ξs[j]) - sum(abs2, ξs[i])) / 2)

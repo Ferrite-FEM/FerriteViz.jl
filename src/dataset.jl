@@ -261,17 +261,6 @@ function _default_topology(grid)
     return Ferrite.ExclusiveTopology(grid)
 end
 
-# Whether a centroid fan over `tri` needs its triangle order flipped to give a
-# positively oriented tet (points are 3D physical coordinates).
-function _fan_flips(points, tri, center_pos::Tensors.Vec{3,Float64})
-    a = Tensors.Vec{3,Float64}(NTuple{3,Float64}(points[tri[1]]))
-    b = Tensors.Vec{3,Float64}(NTuple{3,Float64}(points[tri[2]]))
-    c = Tensors.Vec{3,Float64}(NTuple{3,Float64}(points[tri[3]]))
-    return _signed_tet_volume(a, b, c, center_pos) < 0
-end
-_fan_flips(points, tri, center::Int) =
-    _fan_flips(points, tri, Tensors.Vec{3,Float64}(NTuple{3,Float64}(points[center])))
-
 # `:default` is the sentinel every filter and representation resolves to the
 # *first* field of the dof handler (see `_resolve_name`). A dof field actually
 # named `default` could therefore never be addressed: naming it would silently
@@ -431,15 +420,37 @@ function _instantiate_cell!(physical_coords::Vector{GeometryBasics.Point{sdim,Fl
             end
         elseif sdim == 3
             center = coff + nvertices(tess) + 1
+            # The fan apex is the affine mean of the cell's tessellation
+            # vertices in both reference and physical space (the same equal
+            # weights), not the geometric map of the reference centroid: the
+            # fan tiles the *linearized* cell (the flat surface triangles are
+            # what is rendered and cut), and the mapped reference centroid of
+            # a strongly curved cell can fall outside that polyhedron, which
+            # would invert part of the fan. The mean of the mapped vertices is
+            # inside their convex hull, so the fan of a convex cell is valid.
             ξc = sum(tess.coords) / nvertices(tess)
-            x = geometric_map(ip_geo, node_coords, ξc)
-            physical_coords[center] = GeometryBasics.Point{sdim,Float32}(x...)
+            xc = zero(Tensors.Vec{3,Float64})
+            for k in 1:nvertices(tess)
+                xc += Tensors.Vec{3,Float64}(NTuple{3,Float64}(physical_coords[coff+k]))
+            end
+            physical_coords[center] = GeometryBasics.Point{sdim,Float32}((xc / nvertices(tess))...)
             for d in 1:length(ξc)
                 reference_coords[center, d] = ξc[d]
             end
             # tets are stored positively oriented; the surface triangles are
-            # consistently oriented per cell, so one sign check suffices
-            flip = _fan_flips(physical_coords, tess.triangles[1] .+ coff, center)
+            # consistently oriented per cell, so one shared flip decides the
+            # whole fan — taken from the *total* signed fan volume (the
+            # enclosed volume up to sign), which stays reliable when
+            # individual triangles are degenerate
+            cpos = Tensors.Vec{3,Float64}(NTuple{3,Float64}(physical_coords[center]))
+            signed = 0.0
+            for tri in tess.triangles
+                a = Tensors.Vec{3,Float64}(NTuple{3,Float64}(physical_coords[tri[1] + coff]))
+                b = Tensors.Vec{3,Float64}(NTuple{3,Float64}(physical_coords[tri[2] + coff]))
+                c = Tensors.Vec{3,Float64}(NTuple{3,Float64}(physical_coords[tri[3] + coff]))
+                signed += _signed_tet_volume(a, b, c, cpos)
+            end
+            flip = signed < 0
             for (t, tri) in enumerate(tess.triangles)
                 simplices[soff+t] = flip ? (tri[2] + coff, tri[1] + coff, tri[3] + coff, center) :
                                            (tri[1] + coff, tri[2] + coff, tri[3] + coff, center)
@@ -695,6 +706,21 @@ function set_cell_data!(ds::FEData, name::Symbol, data::Makie.Observable)
     return ds
 end
 
+# NaN out the rows of invisible cells (mutating `x`, which must not alias a
+# cached array): interior vertices carry real values since transfer gates on
+# `solid` (the volume filters need them), but colors — and Makie's automatic
+# colorrange — follow the *drawn* geometry, as they did before the volume
+# decomposition existed.
+function _mask_invisible!(ds::FEData, x::Vector{Float64})
+    for cell in 1:length(ds.visible)
+        ds.visible[cell] && continue
+        for v in vertices_on_cell(ds, cell)
+            x[v] = NaN
+        end
+    end
+    return x
+end
+
 # Scalar per-vertex Observable for coloring: point data must have one component
 # (except when resolving :default, where a vector field falls back to its
 # magnitude), cell data (scalar) is expanded to the tessellation vertices.
@@ -705,11 +731,13 @@ function _scalar_data(ds::FEData, name::Symbol; reduce_default::Bool=false)
     if assoc === :cell
         return Makie.lift(v -> transfer_scalar_celldata(ds, v), cell_data(ds, name))
     end
+    all_visible = all(ds.visible)
     return Makie.lift(point_data(ds, name)) do A
         if size(A, 2) == 1
-            vec(A)
+            all_visible ? vec(A) : _mask_invisible!(ds, Float64.(vec(A)))
         elseif reduce_default
-            [LinearAlgebra.norm(view(A, i, :)) for i in 1:size(A, 1)]
+            mags = [LinearAlgebra.norm(view(A, i, :)) for i in 1:size(A, 1)]
+            all_visible ? mags : _mask_invisible!(ds, mags)
         else
             error("point data :$name has $(size(A, 2)) components; reduce it to a scalar first, e.g. with Magnitude(input=:$name) or ExtractComponent(i; input=:$name)")
         end

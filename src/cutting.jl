@@ -164,7 +164,6 @@ _signed_tet_volume(a, b, c, d) = (((b - a) × (c - a)) ⋅ (d - a)) / 6
 _tri_area(a::Tensors.Vec{3}, b, c) = LinearAlgebra.norm((b - a) × (c - a)) / 2
 _tri_area(a::Tensors.Vec{2}, b, c) = abs((b - a)[1] * (c - a)[2] - (b - a)[2] * (c - a)[1]) / 2
 
-_tet_volume_at(pool, t) = abs(_signed_tet_volume(pool.pos[t[1]], pool.pos[t[2]], pool.pos[t[3]], pool.pos[t[4]]))
 _tri_area_at(pool, t) = _tri_area(pool.pos[t[1]], pool.pos[t[2]], pool.pos[t[3]])
 
 # Snap scalar values within `tol` of the cut to exactly 0. Classification below
@@ -212,14 +211,18 @@ function clip_edge!(pool::CutVertexPool, out_edges::Vector{NTuple{2,Int}}, out_c
     i, j = edge
     gi, gj = g[i], g[j]
     if _inside(gi) && _inside(gj)
-        push!(out_edges, (out_vertex!(pool, i), out_vertex!(pool, j)))
+        p, q = out_vertex!(pool, i), out_vertex!(pool, j)
     elseif _inside(gi)
-        push!(out_edges, (out_vertex!(pool, i), cut_vertex!(pool, i, j, gi, gj, 0)))
+        p, q = out_vertex!(pool, i), cut_vertex!(pool, i, j, gi, gj, 0)
     elseif _inside(gj)
-        push!(out_edges, (cut_vertex!(pool, i, j, gi, gj, 0), out_vertex!(pool, j)))
+        p, q = cut_vertex!(pool, i, j, gi, gj, 0), out_vertex!(pool, j)
     else
         return nothing
     end
+    # an endpoint exactly on the plane yields a coincident cut vertex (the
+    # duplication contract) — such a zero-length remainder is dropped
+    (p == q || pool.pos[p] == pool.pos[q]) && return nothing
+    push!(out_edges, (p, q))
     push!(out_cells, cell)
     return nothing
 end

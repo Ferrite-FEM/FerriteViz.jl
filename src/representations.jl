@@ -412,9 +412,29 @@ function Makie.plot!(AR::ArrowPlot{<:Tuple{<:FEData{dim}}}) where {dim}
     # ResolveException from inside the graph edge below
     size(vecdata[], 2) == dim || error("arrowplot needs a $dim-component vector array, :$(fname[]) has $(size(vecdata[], 2))")
     ComputePipeline.add_input!(graph, :vector_data, vecdata)
+    # Arrows only at vertices the drawn geometry references: interior vertices
+    # carry real values (transfer gates on `solid` for the volume filters) and
+    # the 3D fan centroids exist, but neither is part of the rendered surface
+    # or wireframe — NaN directions keep those arrows invisible, as they were
+    # when interior data was NaN.
+    drawn = falses(num_vertices(ds))
+    for (t, cell) in enumerate(ds.triangle_cell_map)
+        ds.visible[cell] || continue
+        tri = ds.all_triangles[t]
+        drawn[convert(Int, tri[1])] = drawn[convert(Int, tri[2])] = drawn[convert(Int, tri[3])] = true
+    end
+    for (e, cell) in enumerate(ds.edge_cell_map)
+        ds.visible[cell] || continue
+        edge = ds.all_edges[e]
+        drawn[edge[1]] = drawn[edge[2]] = true
+    end
     Makie.map!(graph, [:vector_data], :directions) do A
         size(A, 2) == dim || error("arrowplot needs a $dim-component vector array, :$(fname[]) has $(size(A, 2))")
-        _row_vectors(A, Val(dim))
+        dirs = _row_vectors(A, Val(dim))
+        for v in eachindex(dirs)
+            drawn[v] || (dirs[v] = NaN32 * dirs[v])
+        end
+        dirs
     end
     Makie.map!(d -> LinearAlgebra.norm.(d), graph, :directions, :magnitude)
     ComputePipeline.add_input!(_untyped_input, graph, :named_color_data, _named_color_data(AR, ds, AR.color))

@@ -1015,6 +1015,24 @@ end
     @test _kept_volume(r6) ≈ 8.0 atol = 1e-6
     @test _all_positive(r6)
 
+    # curved quadratic cell: the fan apex is the mean of the mapped vertices,
+    # so the fan of the *linearized* cell stays positively oriented even when
+    # the mapped reference centroid falls outside the flat surface
+    ct = [Vec(0.0, 0.0, 0.0), Vec(1.0, 0.0, 0.0), Vec(0.0, 1.0, 0.0), Vec(0.0, 0.0, 1.0)]
+    cbulge(x) = x + 0.08 * Vec(1.0, 1.0, 1.0)
+    cnodes = Node.([ct[1], ct[2], ct[3], ct[4],
+                    cbulge.((0.5 * (ct[1] + ct[2]), 0.5 * (ct[2] + ct[3]), 0.5 * (ct[1] + ct[3]),
+                             0.5 * (ct[1] + ct[4]), 0.5 * (ct[2] + ct[4]), 0.5 * (ct[3] + ct[4])))...])
+    cgrid = Grid([QuadraticTetrahedron(ntuple(i -> i, 10))], cnodes)
+    cdh = DofHandler(cgrid); add!(cdh, :u, Lagrange{RefTetrahedron,2}()); close!(cdh)
+    cds = FEData(cdh, zeros(ndofs(cdh)))
+    @test _all_positive(cds)
+    ncv = Vec(1.0, 1.0, 0.5) / norm(Vec(1.0, 1.0, 0.5))
+    ca = cds |> Clip(ClipPlane(ncv, 0.2))
+    cb = cds |> Clip(ClipPlane(-ncv, -0.2))
+    @test _kept_volume(ca) + _kept_volume(cb) ≈ _kept_volume(cds) atol = 1e-10
+    @test _all_positive(ca) && _all_positive(cb)
+
     # embedded 2D cells in a 3D grid: no volume simplices, Clip cuts the
     # triangles without fabricating caps
     snodes = [Node(Vec(0.0, 0.0, 0.0)), Node(Vec(1.0, 0.0, 0.3)), Node(Vec(1.0, 1.0, 0.5)),
@@ -1232,6 +1250,16 @@ end
     @test _kept_volume(rc) ≈ 1.1 * 4 atol = 1e-5
     @test _cap_area(rc, n, 0.1) ≈ 4.0 atol = 1e-5
 
+    # a subdomain warp leaves cells outside its subdomain with NaN
+    # coordinates; Clip carries those through instead of deleting them
+    dhsw = DofHandler(grid)
+    sw1 = SubDofHandler(dhsw, Set(1:14)); add!(sw1, :d, Lagrange{RefHexahedron,1}()^3)
+    sw2 = SubDofHandler(dhsw, Set(15:27)); add!(sw2, :p, Lagrange{RefHexahedron,1}())
+    close!(dhsw)
+    wsub = FEData(dhsw, zeros(ndofs(dhsw))) |> WarpByVector(:d, 1.0)
+    csub = wsub |> Clip(ClipPlane(n, 0.0))
+    @test all(csub.solid[i] for i in 15:27)
+
     # geometry-rebuilding filters reject cut inputs
     qr = QuadratureRule{RefHexahedron}(2)
     vals = [rand(getnquadpoints(qr)) for _ in 1:getncells(grid)]
@@ -1319,11 +1347,15 @@ end
             @test t.vertex_qp[s[1]] == t.vertex_qp[s[2]] == t.vertex_qp[s[3]] == t.vertex_qp[s[4]]
         end
     end
-    # duplicate / outside points rejected; boundary points (order-2 prism) work
+    # duplicate / outside points still *render* (the surface partition is
+    # unaffected, as before the volume decomposition existed) but get no
+    # volume decomposition, with a warning; boundary points (order-2 prism) work
     dup = QuadratureRule{RefHexahedron}([0.5, 0.5], [Vec(0.1, 0.0, 0.0), Vec(0.1, 0.0, 0.0)])
-    @test_throws ErrorException FerriteViz.qp_voronoi_tessellation(RefHexahedron, dup)
+    tdup = @test_logs (:warn, r"coincide") FerriteViz.qp_voronoi_tessellation(RefHexahedron, dup)
+    @test isempty(tdup.simplices) && !isempty(tdup.triangles)
     outside = QuadratureRule{RefHexahedron}([0.5, 0.5], [Vec(0.1, 0.0, 0.0), Vec(2.0, 0.0, 0.0)])
-    @test_throws ErrorException FerriteViz.qp_voronoi_tessellation(RefHexahedron, outside)
+    tout = @test_logs (:warn, r"outside the reference cell") FerriteViz.qp_voronoi_tessellation(RefHexahedron, outside)
+    @test isempty(tout.simplices) && !isempty(tout.triangles)
     boundary = QuadratureRule{RefHexahedron}([0.5, 0.5], [Vec(0.1, 0.0, 0.0), Vec(1.0, 0.0, 0.0)])
     @test _tessvol(FerriteViz.qp_voronoi_tessellation(RefHexahedron, boundary)) ≈ 8.0 atol = 1e-9
 

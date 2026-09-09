@@ -220,6 +220,9 @@ Nonlinear geometry is treated as linear (the plane cuts the tessellation's
 straight edges); apply [`Refine`](@ref) *before* clipping to resolve
 curvature. Plots of a cut dataset always draw the static tessellation (the
 error-adaptive path refines whole cells and cannot represent cut ones).
+Cells with non-finite coordinates (e.g. cells a subdomain-restricted
+[`WarpByVector`](@ref) could not displace) cannot be classified against the
+plane and are carried through unchanged.
 """
 struct Clip{T} <: AbstractFilter
     plane::ClipPlane{T}
@@ -287,16 +290,21 @@ function apply(c::Clip, ds::FEData{3})
             nneg = count(v -> g[v] < 0, verts)
             nzero = count(v -> g[v] == 0, verts)
             nin = nneg + nzero
+            # a cell with non-finite coordinates (e.g. left unwarped by a
+            # subdomain WarpByVector) cannot be classified against the plane;
+            # it is carried through unchanged rather than silently removed
+            unclassifiable = any(v -> !isfinite(g[v]), verts)
             # a volume cell whose kept part has no interior (nothing strictly
             # inside) is removed — keeping it would only duplicate on-plane
             # faces the inside neighbor already draws; measure-zero shells on
             # the plane are kept
             kept = has_volume ? nneg > 0 : nin > 0
-            if !kept
+            if !kept && !unclassifiable
                 solid[cell] = false
                 visible[cell] = false
-            elseif nin == length(verts)
-                # fully on the kept side: carry the cell over unchanged
+            elseif unclassifiable || nin == length(verts)
+                # fully on the kept side (or unclassifiable): carry the cell
+                # over unchanged
                 for v in verts
                     out_vertex!(pool, v)
                 end
@@ -315,7 +323,7 @@ function apply(c::Clip, ds::FEData{3})
                     push!(out_edges, (pool.remap[edge[1]], pool.remap[edge[2]]))
                     push!(out_edge_cells, cell)
                 end
-                nzero > 0 && (visible[cell] = true)   # touches the plane: reveal
+                (!unclassifiable && nzero > 0) && (visible[cell] = true)   # touches the plane: reveal
             else
                 any_cut = true
                 visible[cell] = true
@@ -413,6 +421,9 @@ function apply(f::ExtractIsosurfaces, ds::FEData{dim}) where {dim}
         error("ExtractIsosurfaces needs a scalar array, :$name has $(size(A, 2)) components; " *
               "reduce it first, e.g. with Magnitude(input=:$name) or ExtractComponent(i; input=:$name)")
     values = vec(A)
+    isempty(ds.simplices) &&
+        error("ExtractIsosurfaces marches the dataset's volume simplices, but this dataset has none " *
+              "(an already-extracted surface, or a grid of only embedded shell/line cells, has no volume)")
 
     # field-space tolerance: relative to the spread of the finite values (never
     # to the level, so variation around a large offset survives)
@@ -491,15 +502,16 @@ function apply(f::ExtractIsosurfaces, ds::FEData{dim}) where {dim}
                    reference_coords, point_data=pd)
 end
 
-function _bbox_diag(coords)
-    isempty(coords) && return 0.0
-    lo = hi = Float64.(coords[1])
+function _bbox_diag(coords::AbstractVector{<:GeometryBasics.Point{dim}}) where {dim}
+    lo = GeometryBasics.Point{dim,Float64}(ntuple(_ -> Inf, dim))
+    hi = -lo
     for p in coords
-        x = Float64.(p)
+        x = GeometryBasics.Point{dim,Float64}(p)
         any(!isfinite, x) && continue
         lo = min.(lo, x)
         hi = max.(hi, x)
     end
+    lo[1] <= hi[1] || return 0.0   # no finite coordinates
     return LinearAlgebra.norm(hi .- lo)
 end
 
@@ -750,6 +762,9 @@ function apply(f::AddQuadraturePointData, ds::FEData{dim}) where {dim}
     cell_edge_offsets[1] = 0
     cell_simplex_offsets[1] = 0
     for (cell_id, cell) in enumerate(cells)
+        nqp = length(Ferrite.getpoints(_qr_for(f.qr, Ferrite.getrefshape(cell))))
+        _qp_nqp(values, cell_id) == nqp ||
+            error("cell $cell_id carries $(_qp_nqp(values, cell_id)) quadrature values, but its rule has $nqp points")
         # removed (e.g. crinkle-clipped) cells contribute no geometry
         if !ds.solid[cell_id]
             cell_triangle_offsets[cell_id+1] = cell_triangle_offsets[cell_id]
@@ -760,13 +775,14 @@ function apply(f::AddQuadraturePointData, ds::FEData{dim}) where {dim}
         end
         tess = tess_for(cell)
         ecoords, eedges = edges_for(cell)
-        nqp = length(Ferrite.getpoints(_qr_for(f.qr, Ferrite.getrefshape(cell))))
-        _qp_nqp(values, cell_id) == nqp ||
-            error("cell $cell_id carries $(_qp_nqp(values, cell_id)) quadrature values, but its rule has $nqp points")
         cell_triangle_offsets[cell_id+1] = cell_triangle_offsets[cell_id] + ntriangles(tess)
         cell_vertex_offsets[cell_id+1] = cell_vertex_offsets[cell_id] + nvertices(tess) + length(ecoords)
         cell_edge_offsets[cell_id+1] = cell_edge_offsets[cell_id] + length(eedges)
-        cell_simplex_offsets[cell_id+1] = cell_simplex_offsets[cell_id] + nsimplices(tess)
+        # embedded cells (reference dim < spatial dim) have no volume; their
+        # tessellation's simplices live in the reference dimension and are
+        # not part of the dataset's (spatial-dim) volume decomposition
+        cell_simplex_offsets[cell_id+1] = cell_simplex_offsets[cell_id] +
+                                          (_cell_has_volume(cell, dim) ? nsimplices(tess) : 0)
     end
     num_triangles = cell_triangle_offsets[end]
     num_verts = cell_vertex_offsets[end]
@@ -824,10 +840,12 @@ function apply(f::AddQuadraturePointData, ds::FEData{dim}) where {dim}
             all_edges[eoff+e] = (edge[1] + evoff, edge[2] + evoff)
             edge_cell_map[eoff+e] = cell_id
         end
-        soff = cell_simplex_offsets[cell_id]
-        for (s, simplex) in enumerate(tess.simplices)
-            simplices[soff+s] = simplex .+ coff
-            simplex_cell_map[soff+s] = cell_id
+        if _cell_has_volume(cell, dim)
+            soff = cell_simplex_offsets[cell_id]
+            for (s, simplex) in enumerate(tess.simplices)
+                simplices[soff+s] = simplex .+ coff
+                simplex_cell_map[soff+s] = cell_id
+            end
         end
     end
 

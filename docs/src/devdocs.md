@@ -132,6 +132,57 @@ position — the adaptive path evaluates the geometric map *between* the
 corners, where a folded parametrization shows (see the
 [cohesive-cell example](cohesive.md)).
 
+## Exact cutting (Clip / ExtractIsosurfaces)
+
+Besides the rendered surface and wireframe, every `FEData` carries a **simplex
+volume decomposition** of each cell (tets in 3D — a centroid fan over the
+surface triangles, requiring convex cells — triangles in 2D, indexing into the
+same vertex array so point data covers the simplex vertices). This is what the
+exact-cutting filters operate on: [`Clip`](@ref) clips the simplices (kept
+tets become the output's volume, cut faces the caps) and
+[`ExtractIsosurfaces`](@ref) marches them. `src/cutting.jl` holds the shared
+machinery: new vertices are *sparse affine combinations of parent vertices*
+([`FerriteViz.AffineCombinations`](@ref)), so coordinates stay `lift`ed from
+the parent (reactive under `update!` with frozen cut topology), registered
+point data interpolates with the identical weights, and reference coordinates
+combine statically so dof fields evaluate at the interpolated reference coordinates.
+Conformity contract: outputs are *geometrically* conforming but topologically
+duplicated — coincident cut vertices on the shared edge of two faces or cells
+are distinct indices (the same deliberate duplication the tessellation itself
+uses), classified identically by a point-local coordinate-rounding bound. This avoids
+erasing small cells because of a large, distant part of a graded mesh.
+Two per-cell states distinguish removal from hiding: `solid` (cell is part of
+the body; clips clear it) versus `visible` (surface currently drawn; 3D
+interior cells are solid but hidden), and `cells_intact` guards filters that
+rebuild whole cells from the grid (`Refine`, `AddQuadraturePointData`)
+against resurrecting cut-away geometry.
+
+The coarse 3D fan is a lazy `FanSimplices` array: connectivity is recovered
+from surface triangles and one orientation flag per cell. `ClippedSimplices`
+retains that indexing rule for whole kept cells and stores explicit tetrahedra
+only for partially cut cells. Isosurface extraction reuses one scalar workspace
+across levels instead of retaining a full vertex array for each level.
+
+`src/adaptive_cut.jl` supplies the live plotting path for whole 3D FE domains
+clipped after their warps. `CutDomain` records the source and planes separately
+from the coarse snapshot. The plot's compute graph samples continuous geometry
+and emits positions, faces, colors, and wireframe together on solution, warp,
+or tolerance changes. Geometry bounds come from the existing `PolyField`
+coefficients evaluated over reference AABBs: geometric nodes alone are not a
+safe bound for high-order cells. Unknown polynomial representations disable
+culling. Hidden interior cells that cannot meet a plane never get decomposed;
+invisible tetrahedron subtrees are discarded during recursive traversal.
+
+Red subdivision uses a common level for conformity, with edge and interior
+geometry/solution probes driving the level. It consumes three bisection-depth
+units per round and stops at `max_depth`. This common-level closure can refine
+more exterior geometry than independent local refinement would. Cut positions
+and scalar colors use identical interpolation weights; this preserves an affine
+physical field on a nonlinearly mapped cell. The stored `FEData` arrays remain
+the coarse snapshot, as with other adaptive plots. QP partitions, raw arrays,
+embedded cells, post-cut warps, and extracted isosurfaces retain the snapshot
+path; see `Clip`'s docstring for the composition limits.
+
 ## Data layout
 
 Point-data arrays are `Matrix{Float64}` (nvertices × ncomponents) with tensor
@@ -167,6 +218,14 @@ FerriteViz.facet_based_tessellation
 FerriteViz.subdivide
 FerriteViz.QPTessellation
 FerriteViz.qp_voronoi_tessellation
+FerriteViz.AffineCombinations
+FerriteViz.combo_identity!
+FerriteViz.combo_pair!
+FerriteViz.combine_points
+FerriteViz.combine_rows
+FerriteViz.clip_tet!
+FerriteViz.march_tet!
+FerriteViz.march_triangle!
 FerriteViz.ntriangles
 FerriteViz.num_vertices
 FerriteViz.transfer_solution

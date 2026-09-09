@@ -20,6 +20,15 @@ function apply end
 
 (f::AbstractFilter)(ds::FEData) = apply(f, ds)
 
+# Filters that rebuild whole cells from the grid cannot run on a dataset whose
+# cells were partially cut away — they would resurrect the removed geometry.
+function _check_whole_cells(ds::FEData, what::String)
+    ds.cells_intact ||
+        error("$what rebuilds whole cells from the grid, but this dataset's cells were cut " *
+              "(by Clip or ExtractIsosurfaces); apply $what before cutting")
+    return nothing
+end
+
 # Filter arguments may be given as a plain value or as an Observable the caller
 # drives (a slider, a menu, ...); wrap the plain ones so the code downstream
 # only ever deals with Observables.
@@ -27,15 +36,10 @@ make_observable(x) = Makie.Observable(x)
 make_observable(x::Makie.Observable) = x
 
 # Rebind dh/u on identical geometry (same grid ⇒ identical tessellation).
-function _rebind(ds::FEData{dim}, dh, u::Makie.Observable;
+function _rebind(ds::FEData, dh, u::Makie.Observable;
                  point_data=Dict{Symbol,Makie.Observable}(), cell_data=Dict{Symbol,Makie.Observable}(),
-                 derivations=copy(ds.point_derivations)) where {dim}
-    return FEData{dim,typeof(dh),eltype(u[]),typeof(ds.topology),typeof(ds.source_u),typeof(ds.mesh),eltype(ds.all_triangles)}(
-        dh, u, ds.source_u, ds.topology, ds.visible, ds.gridnodes, ds.coords, ds.coords_buffer,
-        ds.all_triangles, ds.vis_triangles, ds.triangle_cell_map, ds.cell_triangle_offsets,
-        ds.cell_vertex_offsets, ds.all_edges, ds.edge_cell_map, ds.cell_edge_offsets,
-        ds.reference_coords, ds.mesh, point_data, cell_data, derivations, ds.qp_partition,
-        ds.deformation, ds.solid, ds.adaptivity, Ref{Any}(nothing))
+                 derivations=copy(ds.point_derivations))
+    return _derive(ds; dh, u, point_data, cell_data, point_derivations=derivations)
 end
 
 ##############
@@ -48,15 +52,7 @@ end
 # and a fresh substrate cache. This is also what the constructor's
 # `adaptivity` keyword stores; `FEData(dh, u; adaptivity=a)` and
 # `FEData(dh, u; adaptivity=false) |> a` are equivalent.
-function apply(a::Adaptivity, ds::FEData{dim}) where {dim}
-    return FEData{dim,typeof(ds.dh),eltype(ds.u[]),typeof(ds.topology),typeof(ds.source_u),typeof(ds.mesh),eltype(ds.all_triangles)}(
-        ds.dh, ds.u, ds.source_u, ds.topology, ds.visible, ds.gridnodes, ds.coords, ds.coords_buffer,
-        ds.all_triangles, ds.vis_triangles, ds.triangle_cell_map, ds.cell_triangle_offsets,
-        ds.cell_vertex_offsets, ds.all_edges, ds.edge_cell_map, ds.cell_edge_offsets,
-        ds.reference_coords, ds.mesh,
-        copy(ds.point_data), copy(ds.cell_data), copy(ds.point_derivations), ds.qp_partition,
-        ds.deformation, ds.solid, a, Ref{Any}(nothing))
-end
+apply(a::Adaptivity, ds::FEData) = _derive(ds; adaptivity=a)
 
 ################
 # WarpByVector #
@@ -111,16 +107,8 @@ function apply(w::WarpByVector, ds::FEData{dim}) where {dim}
         vals = Ferrite.evaluate_at_grid_nodes(ds.dh, u, fn)
         _displaced(nodes, vals, s)
     end
-    coords_buffer = ShaderAbstractions.Buffer(coords)
-    mesh = GeometryBasics.Mesh(coords_buffer, ds.vis_triangles)
-    return FEData{dim,typeof(ds.dh),eltype(ds.u[]),typeof(ds.topology),typeof(ds.source_u),typeof(mesh),eltype(ds.all_triangles)}(
-        ds.dh, ds.u, ds.source_u, ds.topology, ds.visible, gridnodes, coords, coords_buffer,
-        ds.all_triangles, ds.vis_triangles, ds.triangle_cell_map, ds.cell_triangle_offsets,
-        ds.cell_vertex_offsets, ds.all_edges, ds.edge_cell_map, ds.cell_edge_offsets,
-        ds.reference_coords, mesh, copy(ds.point_data), copy(ds.cell_data),
-        copy(ds.point_derivations), ds.qp_partition,
-        vcat(ds.deformation, [Deformation(ds.dh, ds.u, fname, scale)]), ds.solid,
-        ds.adaptivity, Ref{Any}(nothing))
+    return _derive(ds; coords, gridnodes,
+                   deformation=vcat(ds.deformation, [Deformation(ds.dh, ds.u, fname, scale)]))
 end
 
 # Register a listener for cleanup when `owner` (a plot) is deleted; without an
@@ -184,29 +172,356 @@ end
 function apply(c::CrinkleClip, ds::FEData{3})
     ds.topology === nothing && error("CrinkleClip needs the dataset's topology; construct FEData with one")
     grid = Ferrite.get_grid(ds.dh)
+    solid = copy(ds.solid)
     visible = copy(ds.visible)
-    # the clipped body: cells the decision keeps, of those that were still
-    # part of the body before (clips compose)
-    solid = [ds.solid[i] && c.decision(grid, i) for i in 1:Ferrite.getncells(grid)]
+    # a neighbor counts as kept only if it survived every previous filter too,
+    # so boundaries created by an earlier (crinkle or exact) clip are revealed
+    kept(cell_id) = ds.solid[cell_id] && c.decision(grid, cell_id)
     for cell_id in 1:Ferrite.getncells(grid)
-        if c.decision(grid, cell_id)
+        if kept(cell_id)
             cell_neighbors = Ferrite.getneighborhood(ds.topology, grid, Ferrite.CellIndex(cell_id))
-            visible[cell_id] = !all(c.decision.((grid,), cell_neighbors)) || ds.visible[cell_id]
+            visible[cell_id] = !all(kept, cell_neighbors) || ds.visible[cell_id]
         else
+            solid[cell_id] = false
             visible[cell_id] = false
         end
     end
-    vis_triangles = ShaderAbstractions.Buffer(Makie.Observable(_visibility_triangles(ds.all_triangles, visible, ds.triangle_cell_map)))
-    mesh = GeometryBasics.Mesh(ds.coords_buffer, vis_triangles)
-    return FEData{3,typeof(ds.dh),eltype(ds.u[]),typeof(ds.topology),typeof(ds.source_u),typeof(mesh),eltype(ds.all_triangles)}(
-        ds.dh, ds.u, ds.source_u, ds.topology, visible, ds.gridnodes, ds.coords, ds.coords_buffer,
-        ds.all_triangles, vis_triangles, ds.triangle_cell_map, ds.cell_triangle_offsets,
-        ds.cell_vertex_offsets, ds.all_edges, ds.edge_cell_map, ds.cell_edge_offsets,
-        ds.reference_coords, mesh,
-        Dict{Symbol,Makie.Observable}(), copy(ds.cell_data),
-        Dict{Symbol,DerivedPointData}(), ds.qp_partition, ds.deformation, solid,
-        ds.adaptivity, Ref{Any}(nothing))
+    # registered point data survives (the vertex layout is unchanged); cached
+    # dof-field transfers are dropped and re-resolve against the new masks
+    return _derive(ds; solid, visible, point_data=_registered_point_data(ds), cut_domain=nothing)
 end
+
+########
+# Clip #
+########
+
+"""
+    Clip(plane::ClipPlane)
+
+Filter cutting a 3D dataset exactly at `plane`, keeping the side
+`normal ⋅ x ≤ distance`. Unlike [`CrinkleClip`](@ref) (which hides whole
+cells), the finite elements themselves are cut: surface triangles and
+wireframe edges are clipped at the plane and the cross-section is capped with
+triangles showing the interior field values. Cap triangles belong to the cell
+they cut through, cut cells become visible (previously hidden interior cells
+included), and the remaining per-cell volume is carried along — so a second
+`Clip` cuts the already-clipped volume, quadrature-point Voronoi regions are
+cut exactly along their walls, and [`ExtractIsosurfaces`](@ref) of a clipped
+dataset stays inside the kept volume.
+
+For whole 3D finite-element domains, `solutionplot` and the `meshplot`
+wireframe re-cut the continuous geometry in their compute graph. They follow
+solution updates and warp scales, including cells that enter the clip later.
+The dataset's `Adaptivity` settings control interior as well as boundary
+refinement; `adaptivity=false` disables adaptive refinement but still re-cuts
+on updates. An explicit upstream `Refine` supplies the starting tessellation.
+Dof fields, their recorded scalar derivations, and plain colors use this path.
+Apply warps before the sequence of clips.
+
+Refinement streams tetrahedra only for exterior cells and possible plane
+intersections. Polynomial bounds include nonnodal extrema; an unsupported
+polynomial representation conservatively disables culling. Geometry and colors
+are interpolated with the same cut weights, so an affine function of physical
+coordinates stays affine on a nonlinearly displaced cut. A common subdivision
+level keeps shared tetrahedron faces conforming. Each eight-child subdivision
+uses three units of `max_depth`.
+
+The arrays stored on the returned `FEData` are the coarse apply-time snapshot,
+like the static arrays underlying ordinary adaptive plots. Their cut weights
+remain fixed; downstream static filters and data inspection use this snapshot.
+Quadrature-point partitions, raw registered point arrays, embedded cells, and
+warps applied after clipping currently use the snapshot rendering path too.
+For those cases, apply `Refine` upstream to resolve curvature and reapply `Clip`
+to change the intersection topology. Registered arrays interpolate linearly;
+dof fields on the snapshot evaluate at the interpolated reference coordinates.
+Cells with non-finite coordinates (e.g. cells a subdomain-restricted
+[`WarpByVector`](@ref) could not displace) cannot be classified against the
+plane and are carried through unchanged. [`meshplot`](@ref)'s node markers
+and labels follow its documented rule — the grid nodes of the visible cells —
+so a cut cell's nodes on the removed side still get markers, beyond the cut
+surface.
+"""
+struct Clip{T} <: AbstractFilter
+    plane::ClipPlane{T}
+end
+
+apply(::Clip, ::FEData{dim}) where {dim} =
+    error("Clip supports only 3D datasets (got spatial dimension $dim); in 2D consider Threshold or ExtractIsosurfaces")
+
+function apply(c::Clip, ds::FEData{3})
+    nn = LinearAlgebra.norm(c.plane.normal)
+    (isfinite(nn) && nn > 0 && isfinite(c.plane.distance)) ||
+        error("Clip plane must have a finite nonzero normal and a finite distance")
+    n = c.plane.normal / nn
+    d = c.plane.distance / nn
+
+    pc = ds.coords[]
+    g = Vector{Float64}(undef, length(pc))
+    for (i, p) in enumerate(pc)
+        x = Tensors.Vec{3,Float64}(NTuple{3,Float64}(p))
+        value = x ⋅ n - d
+        # A point-local rounding bound gives coincident copies the same side
+        # without letting a distant large cell erase a small cell near zero.
+        tol = 4sum(abs(n[j]) * Float64(eps(abs(p[j]))) for j in 1:3) + 8eps(abs(d))
+        g[i] = abs(value) <= tol ? 0.0 : value
+    end
+
+    grid = Ferrite.get_grid(ds.dh)
+    ncells = Ferrite.getncells(grid)
+    pool = CutVertexPool(pc)
+    sizehint!(pool, length(pc))
+    out_tris = sizehint!(NTuple{3,Int}[], length(ds.all_triangles))
+    out_tri_cells = sizehint!(Int[], length(ds.all_triangles))
+    out_tets = NTuple{4,Int}[]
+    out_tet_cells = Int[]
+    out_edges = sizehint!(NTuple{2,Int}[], length(ds.all_edges))
+    out_edge_cells = sizehint!(Int[], length(ds.all_edges))
+    solid = copy(ds.solid)
+    visible = copy(ds.visible)
+    cell_triangle_offsets = zeros(Int, ncells + 1)
+    cell_vertex_offsets = zeros(Int, ncells + 1)
+    cell_simplex_offsets = zeros(Int, ncells + 1)
+    cell_edge_offsets = zeros(Int, ncells + 1)
+    any_cut = false
+    intact = fill(false, ncells)
+    cut_offsets = zeros(Int, ncells+1)
+    retained_simplices = 0
+
+    for cell in 1:ncells
+        if ds.solid[cell]
+            verts = vertices_on_cell(ds, cell)
+            has_volume = ds.cell_simplex_offsets[cell+1] > ds.cell_simplex_offsets[cell]
+            nneg = count(v -> g[v] < 0, verts)
+            nzero = count(v -> g[v] == 0, verts)
+            nin = nneg + nzero
+            # a cell with non-finite coordinates (e.g. left unwarped by a
+            # subdomain WarpByVector) cannot be classified against the plane;
+            # it is carried through unchanged rather than silently removed
+            unclassifiable = any(v -> !isfinite(g[v]), verts)
+            # a volume cell whose kept part has no interior (nothing strictly
+            # inside) is removed — keeping it would only duplicate on-plane
+            # faces the inside neighbor already draws; measure-zero shells on
+            # the plane are kept
+            kept = has_volume ? nneg > 0 : nin > 0
+            if !kept && !unclassifiable
+                solid[cell] = false
+                visible[cell] = false
+            elseif unclassifiable || nin == length(verts)
+                # fully on the kept side (or unclassifiable): carry the cell
+                # over unchanged
+                for v in verts
+                    out_vertex!(pool, v)
+                end
+                for t in triangles_on_cell(ds, cell)
+                    tri = ds.all_triangles[t]
+                    push!(out_tris, (pool.remap[convert(Int, tri[1])], pool.remap[convert(Int, tri[2])], pool.remap[convert(Int, tri[3])]))
+                    push!(out_tri_cells, cell)
+                end
+                intact[cell] = true
+                retained_simplices += length(simplices_on_cell(ds, cell))
+                for e in edges_on_cell(ds, cell)
+                    edge = ds.all_edges[e]
+                    push!(out_edges, (pool.remap[edge[1]], pool.remap[edge[2]]))
+                    push!(out_edge_cells, cell)
+                end
+                (!unclassifiable && nzero > 0) && (visible[cell] = true)   # touches the plane: reveal
+            else
+                any_cut = true
+                visible[cell] = true
+                # degeneracy pruning is cell-local (a global threshold could
+                # discard valid geometry in the small cells of a graded mesh);
+                # only the classification tolerance above is global
+                tol_len = 1e-9 * _cell_diag(pc, verts)
+                area_tol = tol_len^2
+                vol_tol = tol_len^3
+                for t in triangles_on_cell(ds, cell)
+                    tri = ds.all_triangles[t]
+                    clip_triangle!(pool, out_tris, out_tri_cells,
+                                   (convert(Int, tri[1]), convert(Int, tri[2]), convert(Int, tri[3])),
+                                   cell, g, area_tol)
+                end
+                # caps go into the same triangle list, keeping the cell's
+                # triangles contiguous
+                _clip_cell_simplices!(pool, out_tets, out_tet_cells, out_tris, out_tri_cells,
+                                      ds.simplices, simplices_on_cell(ds,cell), cell, g, vol_tol, area_tol)
+                for e in edges_on_cell(ds, cell)
+                    clip_edge!(pool, out_edges, out_edge_cells, ds.all_edges[e], cell, g)
+                end
+            end
+        end
+        cell_vertex_offsets[cell+1] = nvertices(pool)
+        cell_triangle_offsets[cell+1] = length(out_tris)
+        cut_offsets[cell+1] = length(out_tets)
+        cell_simplex_offsets[cell+1] = length(out_tets) + retained_simplices
+        cell_edge_offsets[cell+1] = length(out_edges)
+    end
+
+    simplex_cell_map = OffsetCellMap(cell_simplex_offsets)
+    simplices = ClippedSimplices(ds.simplices, ds.cell_simplex_offsets, pool.remap,
+                                simplex_cell_map, intact, cut_offsets, out_tets)
+    combos = pool.combos
+    all_triangles = Vector{GeometryBasics.GLTriangleFace}(undef, length(out_tris))
+    for (t, tri) in enumerate(out_tris)
+        all_triangles[t] = GeometryBasics.GLTriangleFace(tri[1], tri[2], tri[3])
+    end
+    coords = Makie.lift(p -> combine_points(combos, p), ds.coords)
+    reference_coords = combine_rows(combos, ds.reference_coords)
+    point_data = Dict{Symbol,Makie.Observable}(
+        k => Makie.lift(A -> combine_rows(combos, A), v) for (k, v) in _registered_point_data(ds))
+    return _derive(ds; solid, visible, cells_intact=ds.cells_intact && !any_cut,
+                   cut_domain=CutDomain(ds, c),
+                   coords, all_triangles, triangle_cell_map=out_tri_cells,
+                   cell_triangle_offsets, cell_vertex_offsets,
+                   simplices, simplex_cell_map, cell_simplex_offsets,
+                   all_edges=out_edges, edge_cell_map=out_edge_cells, cell_edge_offsets,
+                   reference_coords, point_data)
+end
+
+######################
+# ExtractIsosurfaces #
+######################
+
+"""
+    ExtractIsosurfaces(levels; input=:default)
+
+Filter extracting the level sets of a scalar point-data array — isosurfaces
+(triangles) in 3D, isolines (segments, drawn by [`solutionplot`](@ref)) in 2D —
+by marching the dataset's volume simplices. `levels` is a single value or a
+vector of values; the output carries an `:isovalue` point-data array naming
+each vertex's level, and all other point data is carried to the extracted
+vertices (registered arrays interpolated linearly, dof fields evaluated
+exactly at the extracted positions).
+
+`input` must resolve to scalar point data — reduce vector/tensor data first,
+e.g. with [`Magnitude`](@ref) or [`ExtractComponent`](@ref). The field is
+linearized per simplex (the standard marching approach): for high-order fields
+apply [`Refine`](@ref) upstream to resolve curvature. Extraction runs through
+hidden interior cells, and on a clipped dataset it stays inside the kept
+volume. The output has no volume itself, so a later [`Clip`](@ref) cuts the
+extracted surface without capping it; plots of it always draw the static
+tessellation (the error-adaptive path refines whole cells).
+
+Like [`Clip`](@ref), the extraction topology is fixed at apply time: positions
+and data stay reactive under [`FerriteViz.update!`](@ref), but a field change
+that moves the level set across simplex edges needs the filter re-applied.
+"""
+struct ExtractIsosurfaces <: AbstractFilter
+    levels::Vector{Float64}
+    input::Symbol
+end
+function ExtractIsosurfaces(levels; input::Symbol=:default)
+    lv = levels isa Real ? [Float64(levels)] : collect(Float64, levels)
+    isempty(lv) && error("ExtractIsosurfaces needs at least one level")
+    all(isfinite, lv) || error("isosurface levels must be finite, got $lv")
+    return ExtractIsosurfaces(lv, input)
+end
+
+apply(::ExtractIsosurfaces, ::FEData{1}) =
+    error("ExtractIsosurfaces supports 2D and 3D datasets, not 1D")
+
+function apply(f::ExtractIsosurfaces, ds::FEData{dim}) where {dim}
+    name = _resolve_name(ds, f.input)
+    assoc = _data_association(ds, name)
+    assoc === :none && error("no data named :$name; available: $(_available_data(ds))")
+    assoc === :cell &&
+        error("ExtractIsosurfaces needs point data, but :$name is cell data (piecewise constant " *
+              "data has no level sets); for cell data use Threshold or CrinkleClip instead")
+    A = point_data(ds, name)[]
+    size(A, 2) == 1 ||
+        error("ExtractIsosurfaces needs a scalar array, :$name has $(size(A, 2)) components; " *
+              "reduce it first, e.g. with Magnitude(input=:$name) or ExtractComponent(i; input=:$name)")
+    values = convert(Vector{Float64}, vec(A))::Vector{Float64}
+    isempty(ds.simplices) &&
+        error("ExtractIsosurfaces marches the dataset's volume simplices, but this dataset has none " *
+              "(an already-extracted surface, or a grid of only embedded shell/line cells, has no volume)")
+
+    # field-space tolerance: relative to the spread of the finite values (never
+    # to the level, so variation around a large offset survives)
+    lo, hi = Inf, -Inf
+    maxabs = 0.0
+    for v in values
+        isfinite(v) || continue
+        lo = min(lo, v)
+        hi = max(hi, v)
+        maxabs = max(maxabs, abs(v))
+    end
+    tol = lo <= hi ? 1e-8 * (hi - lo) + 4 * eps(maxabs) : 0.0
+
+    grid = Ferrite.get_grid(ds.dh)
+    ncells = Ferrite.getncells(grid)
+    pcoords = ds.coords[]
+    pool = CutVertexPool(pcoords)
+
+    out_tris = NTuple{3,Int}[]
+    out_tri_cells = Int[]
+    out_edges = NTuple{2,Int}[]
+    out_edge_cells = Int[]
+    isovalue = Float64[]
+    visible = fill(false, ncells)
+    cell_triangle_offsets = zeros(Int, ncells + 1)
+    cell_vertex_offsets = zeros(Int, ncells + 1)
+    cell_edge_offsets = zeros(Int, ncells + 1)
+    g = Vector{Float64}(undef, length(values))
+
+    # cells outermost so the output vertices and triangles stay grouped per
+    # cell (vertices_on_cell/transfer_solution rely on contiguous ranges); the
+    # pool tag keeps cuts of the same edge at different levels distinct
+    for cell in 1:ncells
+        if ds.solid[cell]
+            # cell-local degeneracy pruning (see Clip)
+            len_tol = 1e-9 * _cell_diag(pcoords, vertices_on_cell(ds, cell))
+            area_tol = len_tol^2
+            for (tag, level) in enumerate(f.levels)
+                for v in vertices_on_cell(ds, cell)
+                    x = values[v] - level
+                    g[v] = abs(x) <= tol ? 0.0 : x
+                end
+                nv0 = nvertices(pool)
+                n0 = dim == 3 ? length(out_tris) : length(out_edges)
+                _march_cell_simplices!(pool, out_tris, out_tri_cells, out_edges, out_edge_cells,
+                                       ds.simplices, simplices_on_cell(ds,cell), cell, g, len_tol, area_tol, tag)
+                append!(isovalue, fill(level, nvertices(pool) - nv0))
+                (dim == 3 ? length(out_tris) : length(out_edges)) > n0 && (visible[cell] = true)
+            end
+        end
+        cell_vertex_offsets[cell+1] = nvertices(pool)
+        cell_triangle_offsets[cell+1] = length(out_tris)
+        cell_edge_offsets[cell+1] = length(out_edges)
+    end
+
+    combos = pool.combos
+    all_triangles = Vector{GeometryBasics.GLTriangleFace}(undef, length(out_tris))
+    for (t, tri) in enumerate(out_tris)
+        all_triangles[t] = GeometryBasics.GLTriangleFace(tri[1], tri[2], tri[3])
+    end
+    coords = Makie.lift(p -> combine_points(combos, p), ds.coords)
+    reference_coords = combine_rows(combos, ds.reference_coords)
+    pd = Dict{Symbol,Makie.Observable}(
+        k => Makie.lift(B -> combine_rows(combos, B), v) for (k, v) in _registered_point_data(ds))
+    pd[:isovalue] = Makie.Observable(reshape(isovalue, :, 1))
+    S = NTuple{dim + 1,Int}
+    return _derive(ds; visible, cells_intact=false, cut_domain=nothing,
+                   coords, all_triangles, triangle_cell_map=out_tri_cells,
+                   cell_triangle_offsets, cell_vertex_offsets,
+                   simplices=S[], simplex_cell_map=Int[], cell_simplex_offsets=zeros(Int, ncells + 1),
+                   all_edges=out_edges, edge_cell_map=out_edge_cells, cell_edge_offsets,
+                   reference_coords, point_data=pd)
+end
+
+function _bbox_diag(coords::AbstractVector{<:GeometryBasics.Point{dim}}) where {dim}
+    lo = GeometryBasics.Point{dim,Float64}(ntuple(_ -> Inf, dim))
+    hi = -lo
+    for p in coords
+        x = GeometryBasics.Point{dim,Float64}(p)
+        any(!isfinite, x) && continue
+        lo = min.(lo, x)
+        hi = max.(hi, x)
+    end
+    lo[1] <= hi[1] || return 0.0   # no finite coordinates
+    return LinearAlgebra.norm(hi .- lo)
+end
+
+_cell_diag(coords, verts) = isempty(verts) ? 0.0 : _bbox_diag(view(coords, verts))
 
 ##########
 # Refine #
@@ -330,8 +645,9 @@ function _tessellation_provider(f::Refine, dh::Ferrite.AbstractDofHandler)
 end
 
 function apply(f::Refine, ds::FEData)
+    _check_whole_cells(ds, "Refine")
     out = _build_dataset(ds.dh, ds.u, ds.source_u, ds.topology, ds.visible,
-                         _tessellation_provider(f, ds.dh); adaptivity=ds.adaptivity)
+                         _tessellation_provider(f, ds.dh); adaptivity=ds.adaptivity, solid=ds.solid)
     merge!(out.cell_data, ds.cell_data) # cell data is layout independent
     return out
 end
@@ -418,6 +734,7 @@ _qp_components(v) = _components(v)
 _qp_components(v::Tensors.SymmetricTensor{2,dim}) where {dim} = _components(convert(Tensors.Tensor{2,dim}, v))
 
 function apply(f::AddQuadraturePointData, ds::FEData{dim}) where {dim}
+    _check_whole_cells(ds, "AddQuadraturePointData")
     grid = Ferrite.get_grid(ds.dh)
     cells = Ferrite.getcells(grid)
     ncells = length(cells)
@@ -445,18 +762,33 @@ function apply(f::AddQuadraturePointData, ds::FEData{dim}) where {dim}
     cell_triangle_offsets = Vector{Int}(undef, ncells + 1)
     cell_vertex_offsets = Vector{Int}(undef, ncells + 1)
     cell_edge_offsets = Vector{Int}(undef, ncells + 1)
+    cell_simplex_offsets = Vector{Int}(undef, ncells + 1)
     cell_triangle_offsets[1] = 0
     cell_vertex_offsets[1] = 0
     cell_edge_offsets[1] = 0
+    cell_simplex_offsets[1] = 0
     for (cell_id, cell) in enumerate(cells)
-        tess = tess_for(cell)
-        ecoords, eedges = edges_for(cell)
         nqp = length(Ferrite.getpoints(_qr_for(f.qr, Ferrite.getrefshape(cell))))
         _qp_nqp(values, cell_id) == nqp ||
             error("cell $cell_id carries $(_qp_nqp(values, cell_id)) quadrature values, but its rule has $nqp points")
+        # removed (e.g. crinkle-clipped) cells contribute no geometry
+        if !ds.solid[cell_id]
+            cell_triangle_offsets[cell_id+1] = cell_triangle_offsets[cell_id]
+            cell_vertex_offsets[cell_id+1] = cell_vertex_offsets[cell_id]
+            cell_edge_offsets[cell_id+1] = cell_edge_offsets[cell_id]
+            cell_simplex_offsets[cell_id+1] = cell_simplex_offsets[cell_id]
+            continue
+        end
+        tess = tess_for(cell)
+        ecoords, eedges = edges_for(cell)
         cell_triangle_offsets[cell_id+1] = cell_triangle_offsets[cell_id] + ntriangles(tess)
         cell_vertex_offsets[cell_id+1] = cell_vertex_offsets[cell_id] + nvertices(tess) + length(ecoords)
         cell_edge_offsets[cell_id+1] = cell_edge_offsets[cell_id] + length(eedges)
+        # embedded cells (reference dim < spatial dim) have no volume; their
+        # tessellation's simplices live in the reference dimension and are
+        # not part of the dataset's (spatial-dim) volume decomposition
+        cell_simplex_offsets[cell_id+1] = cell_simplex_offsets[cell_id] +
+                                          (_cell_has_volume(cell, dim) ? nsimplices(tess) : 0)
     end
     num_triangles = cell_triangle_offsets[end]
     num_verts = cell_vertex_offsets[end]
@@ -468,11 +800,15 @@ function apply(f::AddQuadraturePointData, ds::FEData{dim}) where {dim}
     edge_cell_map = Vector{Int}(undef, num_edges)
     physical_coords = Vector{GeometryBasics.Point{dim,Float32}}(undef, num_verts)
     reference_coords = zeros(Float64, num_verts, dim)
+    S = NTuple{dim + 1,Int}
+    simplices = Vector{S}(undef, cell_simplex_offsets[end])
+    simplex_cell_map = Vector{Int}(undef, cell_simplex_offsets[end])
     # static vertex -> (cell, quadrature point) map; the value lift is a gather
     vertex_cell = Vector{Int}(undef, num_verts)
     vertex_qp = Vector{Int}(undef, num_verts)
 
     for (cell_id, cell) in enumerate(cells)
+        ds.solid[cell_id] || continue
         tess = tess_for(cell)
         ecoords, eedges = edges_for(cell)
         qpoints = Ferrite.getpoints(_qr_for(f.qr, Ferrite.getrefshape(cell)))
@@ -510,13 +846,17 @@ function apply(f::AddQuadraturePointData, ds::FEData{dim}) where {dim}
             all_edges[eoff+e] = (edge[1] + evoff, edge[2] + evoff)
             edge_cell_map[eoff+e] = cell_id
         end
+        if _cell_has_volume(cell, dim)
+            soff = cell_simplex_offsets[cell_id]
+            for (s, simplex) in enumerate(tess.simplices)
+                simplices[soff+s] = simplex .+ coff
+                simplex_cell_map[soff+s] = cell_id
+            end
+        end
     end
 
     all_triangles = convert(Vector{GeometryBasics.GLTriangleFace}, Makie.to_triangles(triangles))
-    vis_triangles = ShaderAbstractions.Buffer(Makie.Observable(_visibility_triangles(all_triangles, ds.visible, triangle_cell_map)))
     coords = Makie.Observable(physical_coords)
-    coords_buffer = ShaderAbstractions.Buffer(coords)
-    mesh = GeometryBasics.Mesh(coords_buffer, vis_triangles)
     # Rebuilding the geometry normally invalidates the upstream point data. A
     # second AddQuadraturePointData with the same rule, however, lays out exactly
     # the same vertices, so those arrays stay valid — which is what lets several
@@ -524,18 +864,19 @@ function apply(f::AddQuadraturePointData, ds::FEData{dim}) where {dim}
     same_layout = size(ds.reference_coords) == size(reference_coords) &&
                   ds.cell_vertex_offsets == cell_vertex_offsets &&
                   ds.reference_coords == reference_coords
-    out = FEData{dim,typeof(ds.dh),eltype(ds.u[]),typeof(ds.topology),typeof(ds.source_u),typeof(mesh),eltype(all_triangles)}(
-        ds.dh, ds.u, ds.source_u, ds.topology, ds.visible, ds.gridnodes, coords, coords_buffer,
-        all_triangles, vis_triangles, triangle_cell_map, cell_triangle_offsets,
-        cell_vertex_offsets, all_edges, edge_cell_map, cell_edge_offsets,
-        reference_coords, mesh,
-        same_layout ? copy(ds.point_data) : Dict{Symbol,Makie.Observable}(), copy(ds.cell_data),
-        same_layout ? copy(ds.point_derivations) : Dict{Symbol,DerivedPointData}(),
-        QPPartition(f.qr, f.values, f.extract, f.output),
-        # the geometry was rebuilt from the grid: upstream warps are baked
-        # into nothing here — apply WarpByVector after this filter (the static
-        # coords and the adaptive substrate then agree on the deformation)
-        Deformation[], ds.solid, ds.adaptivity, Ref{Any}(nothing))
+    out = _derive(ds; coords, all_triangles, triangle_cell_map,
+                  cell_triangle_offsets, cell_vertex_offsets,
+                  simplices, simplex_cell_map, cell_simplex_offsets,
+                  all_edges, edge_cell_map, cell_edge_offsets,
+                  reference_coords,
+                  point_data=same_layout ? copy(ds.point_data) : Dict{Symbol,Makie.Observable}(),
+                  point_derivations=same_layout ? copy(ds.point_derivations) : Dict{Symbol,DerivedPointData}(),
+                  qp_partition=QPPartition(f.qr, f.values, f.extract, f.output),
+                  # the geometry was rebuilt from the grid: upstream warps are
+                  # baked into nothing here — apply WarpByVector after this
+                  # filter (the static coords and the adaptive substrate then
+                  # agree on the deformation)
+                  deformation=Deformation[])
 
     ncomponents = length(_qp_components(f.extract(_qp_at(values, 1, 1))))
     data = Makie.lift(f.values) do vals

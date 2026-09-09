@@ -146,12 +146,45 @@ end
 # falls back to the static tessellation.
 function Makie.plot!(SP::SolutionPlot{<:Tuple{<:FEData}})
     ds = SP.dataset[]
-    if _adaptive_capable(ds) && _adaptive_colorable(ds, SP.color[])
+    if _cut_render_capable(ds) && _adaptive_colorable(ds, SP.color[])
+        _wire_cut_plot!(SP, ds)
+    elseif !ds.cells_intact && isempty(ds.all_triangles) && !isempty(ds.all_edges)
+        _isoline_plot!(SP, ds)
+    elseif _adaptive_capable(ds) && _adaptive_colorable(ds, SP.color[])
         _adaptive_solutionplot!(SP, ds)
     else
         _mesh!(SP, ds, color=_graph_color!(SP, ds))
     end
     return SP
+end
+
+# A pure line dataset (2D isolines from ExtractIsosurfaces): draw segments,
+# gathering positions and colors per edge since vertices are shared.
+function _isoline_plot!(SP, ds::FEData)
+    color_data = _graph_color!(SP, ds)
+    graph = SP.attributes
+    ComputePipeline.add_input!(graph, :ds_coords, ds.coords)
+    edges = ds.all_edges
+    Makie.map!(graph, :ds_coords, :segment_positions) do coords
+        pts = Vector{eltype(coords)}(undef, 2 * length(edges))
+        for (k, e) in enumerate(edges)
+            pts[2k-1] = coords[e[1]]
+            pts[2k] = coords[e[2]]
+        end
+        pts
+    end
+    Makie.map!(graph, :color_data, :segment_color) do c
+        c isa AbstractVector || return c
+        out = Vector{eltype(c)}(undef, 2 * length(edges))
+        for (k, e) in enumerate(edges)
+            out[2k-1] = c[e[1]]
+            out[2k] = c[e[2]]
+        end
+        out
+    end
+    return Makie.linesegments!(SP, SP.segment_positions, color=SP.segment_color,
+                               colormap=SP.colormap, colorrange=SP.colorrange,
+                               nan_color=SP.nan_color, visible=SP.visible)
 end
 
 """
@@ -246,7 +279,9 @@ function Makie.plot!(WF::MeshPlot{<:Tuple{<:FEData{dim}}}) where {dim}
     # ds.coords by the upstream pipeline, and clipping into ds.visible.
     # adaptivity is a dataset property (see `Adaptivity`): the wireframe
     # follows the curved geometry whenever the dataset draws adaptively
-    if _adaptive_capable(ds)
+    if _cut_render_capable(ds)
+        _wire_cut_plot!(WF, ds; wireframe=true)
+    elseif _adaptive_capable(ds)
         _adaptive_wireframe!(WF, ds)
     else
         edge_indices = _visible_edge_indices(ds)
@@ -381,9 +416,29 @@ function Makie.plot!(AR::ArrowPlot{<:Tuple{<:FEData{dim}}}) where {dim}
     # ResolveException from inside the graph edge below
     size(vecdata[], 2) == dim || error("arrowplot needs a $dim-component vector array, :$(fname[]) has $(size(vecdata[], 2))")
     ComputePipeline.add_input!(graph, :vector_data, vecdata)
+    # Arrows only at vertices the drawn geometry references: interior vertices
+    # carry real values (transfer gates on `solid` for the volume filters) and
+    # the 3D fan centroids exist, but neither is part of the rendered surface
+    # or wireframe — NaN directions keep those arrows invisible, as they were
+    # when interior data was NaN.
+    drawn = falses(num_vertices(ds))
+    for (t, cell) in enumerate(ds.triangle_cell_map)
+        ds.visible[cell] || continue
+        tri = ds.all_triangles[t]
+        drawn[convert(Int, tri[1])] = drawn[convert(Int, tri[2])] = drawn[convert(Int, tri[3])] = true
+    end
+    for (e, cell) in enumerate(ds.edge_cell_map)
+        ds.visible[cell] || continue
+        edge = ds.all_edges[e]
+        drawn[edge[1]] = drawn[edge[2]] = true
+    end
     Makie.map!(graph, [:vector_data], :directions) do A
         size(A, 2) == dim || error("arrowplot needs a $dim-component vector array, :$(fname[]) has $(size(A, 2))")
-        _row_vectors(A, Val(dim))
+        dirs = _row_vectors(A, Val(dim))
+        for v in eachindex(dirs)
+            drawn[v] || (dirs[v] = NaN32 * dirs[v])
+        end
+        dirs
     end
     Makie.map!(d -> LinearAlgebra.norm.(d), graph, :directions, :magnitude)
     ComputePipeline.add_input!(_untyped_input, graph, :named_color_data, _named_color_data(AR, ds, AR.color))

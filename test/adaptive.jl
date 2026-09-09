@@ -871,9 +871,9 @@ end
     states = [Float64[10i + j for j in 1:8] for i in 1:Ferrite.getncells(grid)]
     qds = FEData(dh, zeros(ndofs(dh))) |> AddQuadraturePointData(qr, states) |>
           CrinkleClip(FerriteViz.ClipPlane(Ferrite.Vec(1.0, 1.0, 1.0), 0.0))
-    # the clip dropped the static array, but the partition record survives —
-    # the adaptive path is the only way to draw internal variables on the cut
-    @test !haskey(qds.point_data, :qpdata)
+    # the registered static array survives the clip (the vertex layout is
+    # unchanged), and so does the partition record the adaptive path draws from
+    @test haskey(qds.point_data, :qpdata)
     @test qds.qp_partition !== nothing
     qds.adaptivity.geometry_tol[] = 1e-3
     qds.adaptivity.max_depth[] = 4

@@ -973,6 +973,9 @@ end
 # a dataset constructed with adaptivity=false.
 function _adaptive_capable(ds::FEData)
     ds.adaptivity === nothing && return false
+    # This surface-fan substrate needs whole cells. Clip has a separate
+    # continuous-domain renderer; other cut datasets use their snapshot.
+    ds.cells_intact || return false
     cells = Ferrite.getcells(Ferrite.get_grid(ds.dh))
     isempty(cells) && return false
     refdim = Ferrite.getrefdim(Ferrite.geometric_interpolation(typeof(first(cells))))

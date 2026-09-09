@@ -24,6 +24,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    keyword to a recipe is now an error instead of being silently ignored.
 
 ### Added
+ - `Clip` filter: exact planar clipping in 3D. Unlike `CrinkleClip` it cuts the
+   finite elements themselves — surface triangles and wireframe edges are
+   clipped at the plane and the cross-section is capped with triangles showing
+   the interior field values (cap triangles stay associated with the cell they
+   cut through). Built on a per-cell simplex volume decomposition every
+   `FEData` now carries, so clips compose: a second `Clip` cuts the
+   already-clipped volume, and clipping `AddQuadraturePointData` output cuts
+   the Voronoi regions exactly along their walls (piecewise-constant rendering
+   stays exactly flat). Whole 3D FE domains clipped after their warps render
+   through a compute-graph path that re-cuts on solution/warp updates and
+   follows `Adaptivity`, including interior deformation modes. Polynomial
+   bounds select candidates before recursive tetrahedron traversal; only the
+   resulting surface is retained. Affine physical fields remain affine on
+   nonlinear cuts. Coarse `FEData` arrays and QP/raw-array cuts remain snapshots.
+ - Coarse volume fans and whole retained cells now use lazy connectivity;
+   explicit tetrahedra are stored only for partially clipped cells. Multi-level
+   isosurfaces reuse one scalar workspace. Clipping uses point-local rounding
+   tolerances so large distant cells cannot erase small features.
+ - `ExtractIsosurfaces` filter: level-set extraction of any scalar point-data
+   array by marching the volume simplices — isosurfaces (triangles) in 3D,
+   isolines (line segments, drawn by `solutionplot`) in 2D. Supports several
+   levels at once (vertices tagged in an `:isovalue` array), runs through
+   hidden interior cells, and composes with `Clip` in both orders.
+ - `transfer_solution` now evaluates hidden interior cells too (it gates on the
+   `solid` mask instead of `visible`), so volume-based filters and warps see
+   real values everywhere. Previously those vertices were `NaN`; interior cells
+   of large 3D grids are now evaluated on every static-path update.
+   `AddQuadraturePointData` skips removed cells; it and `Refine` reject
+   datasets whose cells were cut (they rebuild whole cells from the grid).
+   `CrinkleClip` now keeps registered point-data arrays (dof-backed caches
+   still re-resolve). Extracted isosurfaces and cuts without a continuous FE
+   domain retain snapshot rendering. Grids with embedded cells (shells/lines
+   in 3D) construct without a
+   topology (everything visible); their cells carry no volume, so `Clip` cuts
+   their surface without fabricating caps.
  - Experimental error-adaptive tessellation for `solutionplot` (#161):
    `solutionplot(ds; adaptive=true)` re-tessellates the visible cells by
    longest-edge bisection driven by two interpolation-error estimators —

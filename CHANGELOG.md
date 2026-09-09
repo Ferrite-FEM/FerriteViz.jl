@@ -116,7 +116,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    evaluations per triangle against the ~1 that filling a fixed one needs, so
    the adaptive path is not yet faster in wall clock even where it draws far
    fewer triangles.
- - `mantle_mwe/`: a self-contained example of the adaptive pipeline with no
+ - [mantle_mwe](https://github.com/koehlerson/mantle_mwe): a self-contained
+   example of the adaptive pipeline with no
    FerriteViz, Ferrite or Makie dependency — two hard-coded curved cells, the
    key-update and decode passes as KernelAbstractions kernels, per-cell
    coefficient buffers, per-fragment field evaluation, and a software

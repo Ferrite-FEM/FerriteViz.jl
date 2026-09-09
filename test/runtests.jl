@@ -1487,6 +1487,7 @@ end
 end
 
 include("adaptive.jl")
+include("clipping_tolerance.jl")
 
 @testset "source hygiene" begin
     src = joinpath(@__DIR__, "..", "src")

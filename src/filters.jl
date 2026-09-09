@@ -243,24 +243,14 @@ function apply(c::Clip, ds::FEData{3})
 
     pc = ds.coords[]
     g = Vector{Float64}(undef, length(pc))
-    lo1 = lo2 = lo3 = Inf
-    hi1 = hi2 = hi3 = -Inf
-    maxabs = 0.0
     for (i, p) in enumerate(pc)
         x = Tensors.Vec{3,Float64}(NTuple{3,Float64}(p))
-        g[i] = x ⋅ n - d
-        if isfinite(g[i])
-            lo1 = min(lo1, x[1]); lo2 = min(lo2, x[2]); lo3 = min(lo3, x[3])
-            hi1 = max(hi1, x[1]); hi2 = max(hi2, x[2]); hi3 = max(hi3, x[3])
-            maxabs = max(maxabs, abs(x[1]), abs(x[2]), abs(x[3]))
-        end
+        value = x ⋅ n - d
+        # A point-local rounding bound gives coincident copies the same side
+        # without letting a distant large cell erase a small cell near zero.
+        tol = 4sum(abs(n[j]) * Float64(eps(abs(p[j]))) for j in 1:3) + 8eps(abs(d))
+        g[i] = abs(value) <= tol ? 0.0 : value
     end
-    diag = lo1 <= hi1 ? sqrt((hi1 - lo1)^2 + (hi2 - lo2)^2 + (hi3 - lo3)^2) : 0.0
-    # one dataset-global classification tolerance (cell-local tolerances could
-    # classify the duplicated copies of a shared vertex differently and crack
-    # the surface); the eps term floors it at Float32 roundoff of the data
-    tol = 1e-6 * diag + 4 * Float64(eps(Float32(maxabs)))
-    snap!(g, tol)
 
     grid = Ferrite.get_grid(ds.dh)
     ncells = Ferrite.getncells(grid)

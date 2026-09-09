@@ -15,6 +15,7 @@ abstract type AbstractFilter end
 
 include("tessellation.jl")
 include("qptessellation.jl")
+include("cutting.jl")
 include("isubd.jl")
 include("polyeval.jl")
 include("dataset.jl")

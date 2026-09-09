@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Adaptive Grids (AMR) · FerriteViz</title><meta name="title" content="Adaptive Grids (AMR) · FerriteViz"/><meta property="og:title" content="Adaptive Grids (AMR) · FerriteViz"/><meta property="twitter:title" content="Adaptive Grids (AMR) · FerriteViz"/><meta name="description" content="Documentation for FerriteViz."/><meta property="og:description" content="Documentation for FerriteViz."/><meta property="twitter:description" content="Documentation for FerriteViz."/><script data-outdated-warner src="assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.050/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL="."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="assets/documenter.js"></script><script src="search_index.js"></script><script src="siteinfo.js"></script><script src="../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/catppuccin-mocha.css" data-theme-name="catppuccin-mocha"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/catppuccin-macchiato.css" data-theme-name="catppuccin-macchiato"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/catppuccin-frappe.css" data-theme-name="catppuccin-frappe"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/catppuccin-latte.css" data-theme-name="catppuccin-latte"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="assets/themeswap.js"></script><link href="assets/custom.css" rel="stylesheet" type="text/css"/><link href="assets/favicon.ico" rel="icon" type="image/x-icon"/></head><body><div id="documenter"><nav class="docs-sidebar"><a class="docs-logo" href="index.html"><img src="assets/logo.svg" alt="FerriteViz logo"/></a><div class="docs-package-name"><span class="docs-autofit"><a href="index.html">FerriteViz</a></span></div><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li><a class="tocitem" href="index.html">Home</a></li><li><a class="tocitem" href="tutorial.html">Tutorial</a></li><li class="is-active"><a class="tocitem" href="amr.html">Adaptive Grids (AMR)</a><ul class="internal"><li><a class="tocitem" href="#The-3D-example,-as-a-film"><span>The 3D example, as a film</span></a></li><li><a class="tocitem" href="#The-loop,-live-in-2D"><span>The loop, live in 2D</span></a></li><li><a class="tocitem" href="#What-survives-a-regrid!,-and-what-does-not"><span>What survives a <code>regrid!</code>, and what does not</span></a></li></ul></li><li><a class="tocitem" href="atopics.html">Recommended Practices</a></li><li><a class="tocitem" href="cohesive.html">Custom Cells</a></li><li><a class="tocitem" href="api.html">API Reference</a></li><li><a class="tocitem" href="devdocs.html">Devdocs</a></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li class="is-active"><a href="amr.html">Adaptive Grids (AMR)</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href="amr.html">Adaptive Grids (AMR)</a></li></ul></nav><div class="docs-right"><a class="docs-navbar-link" href="https://github.com/Ferrite-FEM/FerriteViz.jl" title="View the repository on GitHub"><span class="docs-icon fa-brands"></span><span class="docs-label is-hidden-touch">GitHub</span></a><a class="docs-navbar-link" href="https://github.com/Ferrite-FEM/FerriteViz.jl/blob/master/docs/src/amr.md" title="Edit source on GitHub"><span class="docs-icon fa-solid"></span></a><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><h1 id="Adaptive-grids-(AMR)"><a class="docs-heading-anchor" href="#Adaptive-grids-(AMR)">Adaptive grids (AMR)</a><a id="Adaptive-grids-(AMR)-1"></a><a class="docs-heading-anchor-permalink" href="#Adaptive-grids-(AMR)" title="Permalink"></a></h1><p>FerriteViz renders adaptively refined grids — Ferrite&#39;s <code>ForestBWG</code> forest-of-octrees and the <code>NonConformingGrid</code>s it materializes — and follows them <strong>live</strong> through refinement: one dataset, one set of plots, updated across the whole AMR loop.</p><p>Two pieces make that work:</p><ul><li><strong>Hanging nodes draw watertight.</strong> The adaptive tessellation splits every cell rim at the grid&#39;s hanging nodes, so both sides of a 2:1 interface tile identically — no cracks, no z-fighting, and inter-element jumps of the (DG-rendered) field stay exactly on the element boundaries.</li><li><strong><a href="api.html#FerriteViz.regrid!"><code>FerriteViz.regrid!</code></a></strong> swaps a dataset&#39;s grid world — the new dof handler and solution after a <code>refine!</code>/<code>balanceforest!</code>/<code>creategrid</code> step — while the dataset and its plots keep their identity. Adaptive plots rebuild their tessellation against the new grid on their next update; between adaptations, <code>FerriteViz.update!</code> costs exactly what it costs on a fixed grid.</li></ul><p>This page runs the heat problem from Ferrite&#39;s <a href="https://ferrite-fem.github.io/Ferrite.jl/stable/tutorials/heat_adaptivity/">adaptive heat tutorial</a> — a manufactured Gaussian-ring solution driving refinement — with the ring centered on a corner of the domain so the feature is visible from outside.</p><h2 id="The-3D-example,-as-a-film"><a class="docs-heading-anchor" href="#The-3D-example,-as-a-film">The 3D example, as a film</a><a id="The-3D-example,-as-a-film-1"></a><a class="docs-heading-anchor-permalink" href="#The-3D-example,-as-a-film" title="Permalink"></a></h2><p>Each frame is one AMR sweep: solve, estimate, mark, <code>refine!</code>, <code>balanceforest!</code>, <code>creategrid</code>, rebuild the dof handler, <code>regrid!</code> — and the same <code>solutionplot</code> and adaptive <code>meshplot</code> follow from 64 to ~17k elements with ~10k hanging nodes, watertight throughout.</p><video autoplay loop muted playsinline controls src="../assets/amr_heat.mp4" style="max-width: 100%; border-radius: 4px;"></video><p>The generating script is <a href="https://github.com/Ferrite-FEM/FerriteViz.jl/blob/master/docs/src/ferrite-examples/heat-amr-video.jl"><code>docs/src/ferrite-examples/heat-amr-video.jl</code></a> — run it locally with GLMakie to reproduce the video.</p><h2 id="The-loop,-live-in-2D"><a class="docs-heading-anchor" href="#The-loop,-live-in-2D">The loop, live in 2D</a><a id="The-loop,-live-in-2D-1"></a><a class="docs-heading-anchor-permalink" href="#The-loop,-live-in-2D" title="Permalink"></a></h2><p>The same structure, small enough to run during the documentation build: the 2D Gaussian ring on a quadtree forest. First the solver ingredients — note the <a href="https://ferrite-fem.github.io/Ferrite.jl/stable/topics/amr/"><code>Ferrite.ConformityConstraint</code></a>, which constrains the hanging dofs; the rendered field is whatever <code>u</code> says, so continuity across 2:1 interfaces is the constraint handler&#39;s job, exactly as in the solve itself.</p><pre><code class="language-julia hljs">using Ferrite, FerriteViz, LinearAlgebra, SparseArrays
+
+const C0 = Ferrite.Vec(1.0, 1.0)
+u_exact(x) = exp(-((norm(x - C0) - 0.7) / 0.12)^2)
+f_rhs(x) = -laplace(u_exact, x)     # Tensors.laplace, reexported by Ferrite
+
+function solve_on(grid)
+    dh = DofHandler(grid)
+    add!(dh, :u, Lagrange{RefQuadrilateral, 1}())
+    close!(dh)
+    ch = ConstraintHandler(dh)
+    add!(ch, Ferrite.ConformityConstraint(:u))
+    add!(ch, Dirichlet(:u, union((getfacetset(grid, f) for f in
+        (&quot;left&quot;, &quot;right&quot;, &quot;top&quot;, &quot;bottom&quot;))...), u_exact))
+    close!(ch)
+    qr = QuadratureRule{RefQuadrilateral}(2)
+    cv = CellValues(qr, Lagrange{RefQuadrilateral, 1}())
+    K = allocate_matrix(dh, ch)
+    fvec = zeros(ndofs(dh))
+    assembler = start_assemble(K, fvec)
+    ke = zeros(4, 4); fe = zeros(4)
+    for cell in CellIterator(dh)
+        reinit!(cv, cell)
+        fill!(ke, 0.0); fill!(fe, 0.0)
+        for qp in 1:getnquadpoints(cv)
+            x = spatial_coordinate(cv, qp, getcoordinates(cell))
+            dΩ = getdetJdV(cv, qp)
+            for i in 1:4
+                fe[i] += f_rhs(x) * shape_value(cv, qp, i) * dΩ
+                for j in 1:4
+                    ke[i, j] += shape_gradient(cv, qp, j) ⋅ shape_gradient(cv, qp, i) * dΩ
+                end
+            end
+        end
+        assemble!(assembler, celldofs(cell), ke, fe)
+    end
+    apply!(K, fvec, ch)
+    u = K \ fvec
+    apply!(u, ch)
+    return dh, u, cv
+end
+
+# a simple gradient indicator with top-fraction marking; see Ferrite&#39;s
+# adaptive heat tutorial for a proper ZZ estimator with Dörfler marking
+function mark_cells(dh, u, cv; frac = 0.25)
+    η = zeros(Ferrite.getncells(Ferrite.get_grid(dh)))
+    for cell in CellIterator(dh)
+        reinit!(cv, cell)
+        ue = u[celldofs(cell)]
+        h = norm(getcoordinates(cell)[3] - getcoordinates(cell)[1])
+        s = 0.0
+        for qp in 1:getnquadpoints(cv)
+            s += norm(function_gradient(cv, qp, ue))^2 * getdetJdV(cv, qp)
+        end
+        η[cellid(cell)] = h * sqrt(s)
+    end
+    n = max(1, round(Int, frac * length(η)))
+    return partialsortperm(η, 1:n; rev = true)
+end</code></pre><p>Now the AMR loop. The dataset and the plots are created <strong>once</strong>, before the loop; every sweep ends in a <code>regrid!</code>, and the figure at the end shows the final state of the same plot objects that started on the 16-cell base mesh.</p><pre><code class="language-julia hljs">forest = Ferrite.ForestBWG(generate_grid(Quadrilateral, (4, 4)), 6)
+grid = Ferrite.creategrid(forest)
+dh, u, cv = solve_on(grid)
+ds = FEData(dh, u)
+
+fig = WGLMakie.Figure(size = (800, 420))
+ax = WGLMakie.Axis(fig[1, 1]; aspect = WGLMakie.DataAspect(), title = &quot;solution&quot;)
+solutionplot!(ax, ds; color = :u, adaptive = true, solution_tol = 2.0e-3,
+              max_depth = 6, colormap = :inferno, colorrange = (0.0, 1.0))
+ax2 = WGLMakie.Axis(fig[1, 2]; aspect = WGLMakie.DataAspect(), title = &quot;adapted mesh&quot;)
+solutionplot!(ax2, ds; color = :u, adaptive = true, solution_tol = 2.0e-3,
+              max_depth = 6, colormap = :inferno, colorrange = (0.0, 1.0))
+meshplot!(ax2, ds; adaptive = true, geometry_tol = 1.0e-3, color = (:white, 0.6),
+          plotnodes = false)
+
+for sweep in 1:5
+    marked = mark_cells(dh, u, cv)
+    Ferrite.refine!(forest, marked)
+    Ferrite.balanceforest!(forest)
+    global grid = Ferrite.creategrid(forest)
+    global dh, u, cv = solve_on(grid)
+    FerriteViz.regrid!(ds, dh, u)          # the live plots follow
+end
+WGLMakie.Label(fig[0, :], &quot;after 5 AMR sweeps: $(Ferrite.getncells(grid)) elements, &quot; *
+               &quot;$(length(grid.conformity_info)) hanging nodes&quot;)
+fig</code></pre><div><div class="bonito-fragment" id="ab8af655-333a-434a-890c-c9b8dae7084f" data-jscall-id="root"><div><script src="../../../../.julia/packages/Bonito/OJTyF/js_dependencies/Bonito.bundled.js" type="module"></script><style></style></div><div><script type="module">Bonito.init_session("ab8af655-333a-434a-890c-c9b8dae7084f", Bonito.fetch_binary('bonito/bin/f557276fb5118781351c4db91ddb58e2e635e815-9345380441374279898.bin'), "root", false);
+</script><div></div></div></div><div class="bonito-fragment" id="0142245d-45d8-412c-abbc-cae713acd178" data-jscall-id="subsession-application-dom"><div><style></style><style>.wglmakie-spinner {
+  left: 50%;
+  z-index: 1000;
+  height: 40px;
+  position: absolute;
+  border-radius: 50%;
+  border: 4px solid rgba(0, 0, 0, 0.1);
+  animation: wglmakie-spin 1.0s linear infinite;
+  top: 50%;
+  border-top: 4px solid currentColor;
+  width: 40px;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+@keyframes wglmakie-spin {
+  0% {
+    transform: translate(-50%, -50%) rotate(0deg);
+  }
+  100% {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}
+</style></div><div><script type="module">Bonito.init_session("0142245d-45d8-412c-abbc-cae713acd178", Bonito.fetch_binary('bonito/bin/185d197146a49da419d9249ce80695a9dcb6b64e-3161296497959955226.bin'), "sub", false);
+</script><div style="width: 100%; height: 100%; position: relative;" data-jscall-id="1"><canvas height="420px" data-jp-suppress-context-menu style="display: block" data-jscall-id="2" data-lm-suppress-shortcuts="true" width="800px" tabindex="0"></canvas><div class="wglmakie-spinner" data-jscall-id="3"></div></div></div></div></div><h2 id="What-survives-a-regrid!,-and-what-does-not"><a class="docs-heading-anchor" href="#What-survives-a-regrid!,-and-what-does-not">What survives a <code>regrid!</code>, and what does not</a><a id="What-survives-a-regrid!,-and-what-does-not-1"></a><a class="docs-heading-anchor-permalink" href="#What-survives-a-regrid!,-and-what-does-not" title="Permalink"></a></h2><ul><li>Adaptive <code>solutionplot</code>s and <code>meshplot</code>s of the <strong>root</strong> dataset follow, as above.</li><li><strong>Static</strong> plots made before the regrid keep showing the old grid (they hold the old coordinate observables — stale, but alive); delete and recreate them.</li><li><strong>Derived</strong> datasets (warps, gradients, quadrature-point data) capture the dof handler they were built on: regrid the root and re-apply the filter chain.</li></ul><p>Between adaptations the dataset behaves like any other: <code>FerriteViz.update!</code> with a matching dof vector, at the cost of a fixed-grid update. One full adaptation step (forest mutation + <code>creategrid</code> + dof handler rebuild + <code>regrid!</code> + first re-draw) costs a handful of plain updates and is paid once per <code>refine!</code>, not per frame.</p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="tutorial.html">« Tutorial</a><a class="docs-footer-nextpage" href="atopics.html">Recommended Practices »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.17.0 on <span class="colophon-date" title="Saturday 15 August 2026 22:04">Saturday 15 August 2026</span>. Using Julia version 1.10.11.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>

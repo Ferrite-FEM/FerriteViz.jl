@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Recommended Practices · FerriteViz</title><meta name="title" content="Recommended Practices · FerriteViz"/><meta property="og:title" content="Recommended Practices · FerriteViz"/><meta property="twitter:title" content="Recommended Practices · FerriteViz"/><meta name="description" content="Documentation for FerriteViz."/><meta property="og:description" content="Documentation for FerriteViz."/><meta property="twitter:description" content="Documentation for FerriteViz."/><script data-outdated-warner src="assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.050/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL="."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="assets/documenter.js"></script><script src="search_index.js"></script><script src="siteinfo.js"></script><script src="../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/catppuccin-mocha.css" data-theme-name="catppuccin-mocha"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/catppuccin-macchiato.css" data-theme-name="catppuccin-macchiato"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/catppuccin-frappe.css" data-theme-name="catppuccin-frappe"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/catppuccin-latte.css" data-theme-name="catppuccin-latte"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="assets/themeswap.js"></script><link href="assets/custom.css" rel="stylesheet" type="text/css"/><link href="assets/favicon.ico" rel="icon" type="image/x-icon"/></head><body><div id="documenter"><nav class="docs-sidebar"><a class="docs-logo" href="index.html"><img src="assets/logo.svg" alt="FerriteViz logo"/></a><div class="docs-package-name"><span class="docs-autofit"><a href="index.html">FerriteViz</a></span></div><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li><a class="tocitem" href="index.html">Home</a></li><li><a class="tocitem" href="tutorial.html">Tutorial</a></li><li class="is-active"><a class="tocitem" href="atopics.html">Recommended Practices</a><ul class="internal"><li><a class="tocitem" href="#Why-the-gradient-field-is-discontinuous"><span>Why the gradient field is discontinuous</span></a></li><li><a class="tocitem" href="#What-the-quadrature-point-partition-buys-you"><span>What the quadrature point partition buys you</span></a></li><li><a class="tocitem" href="#High-order-fields"><span>High-order fields</span></a></li><li><a class="tocitem" href="#Pipeline-semantics"><span>Pipeline semantics</span></a></li><li><a class="tocitem" href="#Composable-viewer"><span>Composable viewer</span></a></li><li><a class="tocitem" href="#Live-plotting"><span>Live plotting</span></a></li></ul></li><li><a class="tocitem" href="cohesive.html">Custom Cells</a></li><li><a class="tocitem" href="api.html">API Reference</a></li><li><a class="tocitem" href="devdocs.html">Devdocs</a></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li class="is-active"><a href="atopics.html">Recommended Practices</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href="atopics.html">Recommended Practices</a></li></ul></nav><div class="docs-right"><a class="docs-navbar-link" href="https://github.com/Ferrite-FEM/FerriteViz.jl" title="View the repository on GitHub"><span class="docs-icon fa-brands"></span><span class="docs-label is-hidden-touch">GitHub</span></a><a class="docs-navbar-link" href="https://github.com/Ferrite-FEM/FerriteViz.jl/blob/master/docs/src/atopics.md" title="Edit source on GitHub"><span class="docs-icon fa-solid"></span></a><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><h1 id="Recommended-Practices"><a class="docs-heading-anchor" href="#Recommended-Practices">Recommended Practices</a><a id="Recommended-Practices-1"></a><a class="docs-heading-anchor-permalink" href="#Recommended-Practices" title="Permalink"></a></h1><h2 id="Why-the-gradient-field-is-discontinuous"><a class="docs-heading-anchor" href="#Why-the-gradient-field-is-discontinuous">Why the gradient field is discontinuous</a><a id="Why-the-gradient-field-is-discontinuous-1"></a><a class="docs-heading-anchor-permalink" href="#Why-the-gradient-field-is-discontinuous" title="Permalink"></a></h2><p>The <a href="tutorial.html">tutorial</a> shows how <code>Gradient |&gt; Derive</code> turns a displacement field into stresses. What it does not explain is <em>why</em> <a href="api.html#FerriteViz.Gradient"><code>Gradient</code></a> interpolates into a piecewise <strong>discontinuous</strong> field instead of doing what most codes do, an L2 projection onto an H1 field.</p><p>The projection smooths the inter-element jumps away — and those jumps are one of the best indicators of an under-resolved discretization. Keeping them makes the difference between a linear and a quadratic discretization of the same problem immediately visible: the linear one shows pronounced facets between elements, the quadratic one is nearly smooth.</p><pre><code class="language-julia hljs">using Ferrite
+import FerriteViz
+using FerriteViz: FEData, WarpByVector, Gradient, Derive, Refine, FirstOrderRefinement, CrinkleClip, ClipPlane
+ε(∇u) = (∇u+transpose(∇u))/2
+import WGLMakie #activating the backend, switch to GLMakie or CairoMakie (for 2D) locally
+
+include(&quot;ferrite-examples/incompressible-elasticity.jl&quot;) #defines dh_linear, dh_quadratic, u_linear, u_quadratic and mp
+
+σ(∇u) = 2*mp.G*dev(ε(∇u)) + mp.K*tr(ε(∇u))*one(ε(∇u)) #helper function to map gradient to stress
+cmap = :jet
+
+# pipelines: gradient field + named derived arrays
+pipeline_linear    = FEData(dh_linear, u_linear)       |&gt; Gradient(:u) |&gt; Derive(∇u-&gt;norm(ε(∇u)), output=:εnorm) |&gt; Derive(∇u-&gt;norm(σ(∇u)), output=:σnorm)
+pipeline_quadratic = FEData(dh_quadratic, u_quadratic) |&gt; Gradient(:u) |&gt; Derive(∇u-&gt;norm(ε(∇u)), output=:εnorm) |&gt; Derive(∇u-&gt;norm(σ(∇u)), output=:σnorm)
+deformed_linear    = FEData(dh_linear, u_linear)       |&gt; WarpByVector(:u)
+deformed_quadratic = FEData(dh_quadratic, u_quadratic) |&gt; WarpByVector(:u)
+
+f = WGLMakie.Figure()
+axs = [WGLMakie.Axis(f[1, 1], title=&quot;Strain norm (linear)&quot;),WGLMakie.Axis(f[1, 2], title=&quot;Stress norm (linear)&quot;),WGLMakie.Axis(f[1, 3], title=&quot;Pressure (deformed, linear)&quot;),
+       WGLMakie.Axis(f[3, 1], title=&quot;Strain norm (quadratic)&quot;),WGLMakie.Axis(f[3, 2], title=&quot;Stress norm (quadratic)&quot;),WGLMakie.Axis(f[3, 3], title=&quot;Pressure (deformed, quadratic)&quot;)]
+p1 = FerriteViz.solutionplot!(axs[1], pipeline_linear, color=:εnorm, colormap=cmap)
+p2 = FerriteViz.solutionplot!(axs[2], pipeline_linear, color=:σnorm, colormap=cmap)
+p3 = FerriteViz.solutionplot!(axs[3], deformed_linear, color=:p, colormap=cmap)
+f[2,1] = WGLMakie.Colorbar(f[1,1], p1, vertical=false)
+f[2,2] = WGLMakie.Colorbar(f[1,2], p2, vertical=false)
+f[2,3] = WGLMakie.Colorbar(f[1,3], p3, vertical=false)
+
+p4 = FerriteViz.solutionplot!(axs[4], pipeline_quadratic, color=:εnorm, colormap=cmap)
+p5 = FerriteViz.solutionplot!(axs[5], pipeline_quadratic, color=:σnorm, colormap=cmap)
+p6 = FerriteViz.solutionplot!(axs[6], deformed_quadratic, color=:p, colormap=cmap)
+f[4,1] = WGLMakie.Colorbar(f[3,1], p1, vertical=false)
+f[4,2] = WGLMakie.Colorbar(f[3,2], p2, vertical=false)
+f[4,3] = WGLMakie.Colorbar(f[3,3], p3, vertical=false)
+
+f</code></pre><div><div class="bonito-fragment" id="c6a2c32d-a28d-4416-b01e-20806d8eb6c1" data-jscall-id="root"><div><script src="bonito/js/Bonito.bundled7919512299027874894.js" type="module"></script><style></style></div><div><script type="module">Bonito.init_session("c6a2c32d-a28d-4416-b01e-20806d8eb6c1", Bonito.fetch_binary('bonito/bin/8e9e11f5d87f3095c44dd79d060f5423e3e04a78-15669319693329888242.bin'), "root", false);
+</script><div></div></div></div><div class="bonito-fragment" id="2f4ecc0d-e8a6-45db-8060-cc3543d4e4a6" data-jscall-id="subsession-application-dom"><div><style></style><style>.wglmakie-spinner {
+  left: 50%;
+  z-index: 1000;
+  height: 40px;
+  position: absolute;
+  border-radius: 50%;
+  border: 4px solid rgba(0, 0, 0, 0.1);
+  animation: wglmakie-spin 1.0s linear infinite;
+  top: 50%;
+  border-top: 4px solid currentColor;
+  width: 40px;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+@keyframes wglmakie-spin {
+  0% {
+    transform: translate(-50%, -50%) rotate(0deg);
+  }
+  100% {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}
+</style></div><div><script type="module">Bonito.init_session("2f4ecc0d-e8a6-45db-8060-cc3543d4e4a6", Bonito.fetch_binary('bonito/bin/ed604515cb0f94f91cb0b4129642e1c9a462ac19-85717757466413600.bin'), "sub", false);
+</script><div style="width: 100%; height: 100%; position: relative;" data-jscall-id="1"><canvas height="450px" data-jp-suppress-context-menu style="display: block" data-jscall-id="2" data-lm-suppress-shortcuts="true" width="600px" tabindex="0"></canvas><div class="wglmakie-spinner" data-jscall-id="3"></div></div></div></div></div><p>For genuinely stress-valued arrays (e.g. registered per-cell data from quadrature-point states, see <a href="api.html#FerriteViz.set_cell_data!"><code>FerriteViz.set_cell_data!</code></a>), the <a href="api.html#FerriteViz.VonMises"><code>VonMises</code></a> and <a href="api.html#FerriteViz.Deviator"><code>Deviator</code></a> filters apply those reductions directly.</p><p>An alternative to this approach is to compute gradient quantities at sample points and plot these via <code>arrowplot</code>.</p><h2 id="What-the-quadrature-point-partition-buys-you"><a class="docs-heading-anchor" href="#What-the-quadrature-point-partition-buys-you">What the quadrature point partition buys you</a><a id="What-the-quadrature-point-partition-buys-you-1"></a><a class="docs-heading-anchor-permalink" href="#What-the-quadrature-point-partition-buys-you" title="Permalink"></a></h2><p>The <a href="tutorial.html">tutorial</a> uses <a href="api.html#FerriteViz.AddQuadraturePointData"><code>AddQuadraturePointData</code></a> to plot internal variables. The reason it exists is that the two usual alternatives both destroy information: averaging per cell throws away the sub-element variation, and projecting onto a nodal field invents smoothness that smears exactly the localization one wants to see.</p><p>The filter instead partitions every cell into the <strong>Voronoi regions of its quadrature points</strong> and fills each region with that point&#39;s value. A localisation band makes the difference obvious — the cell average clips the peak, the partition resolves it:</p><pre><code class="language-julia hljs">using FerriteViz: AddQuadraturePointData
+import WGLMakie
+
+band(x) = exp(-((x[1] - x[2]) / 0.18)^2)   # a localisation band
+
+grid_iv = generate_grid(Quadrilateral, (12, 12))
+dh_iv = DofHandler(grid_iv); add!(dh_iv, :s, Lagrange{RefQuadrilateral,1}()); close!(dh_iv)
+qr_iv = QuadratureRule{RefQuadrilateral}(2)
+cv_iv = CellValues(qr_iv, Lagrange{RefQuadrilateral,1}(), Lagrange{RefQuadrilateral,1}())
+
+# one value per (cell, quadrature point) — the layout of Ferrite&#39;s material states
+qpvals = [zeros(getnquadpoints(qr_iv)) for _ in 1:getncells(grid_iv)]
+for cell in CellIterator(dh_iv)
+    reinit!(cv_iv, cell)
+    coords = getcoordinates(cell)
+    for q in 1:getnquadpoints(qr_iv)
+        qpvals[cellid(cell)][q] = band(spatial_coordinate(cv_iv, q, coords))
+    end
+end
+
+ds_iv = FEData(dh_iv, zeros(ndofs(dh_iv)))
+resolved = ds_iv |&gt; AddQuadraturePointData(qr_iv, qpvals; output = :iv)
+
+averaged = FEData(dh_iv, zeros(ndofs(dh_iv)))
+FerriteViz.set_cell_data!(averaged, :avg, [sum(v) / length(v) for v in qpvals])
+
+f = WGLMakie.Figure(size = (900, 400))
+ax1 = WGLMakie.Axis(f[1, 1], aspect = WGLMakie.DataAspect(), title = &quot;cell averaged&quot;)
+ax2 = WGLMakie.Axis(f[1, 2], aspect = WGLMakie.DataAspect(), title = &quot;quadrature point Voronoi&quot;)
+FerriteViz.cellplot!(ax1, averaged; color = :avg, colormap = :inferno, colorrange = (0, 1))
+p = FerriteViz.solutionplot!(ax2, resolved; color = :iv, colormap = :inferno, colorrange = (0, 1))
+WGLMakie.Colorbar(f[1, 3], p)
+f</code></pre><div class="bonito-fragment" id="c0b00367-8540-4fd2-9719-91e31c12edd9" data-jscall-id="subsession-application-dom"><div><style></style><style>.wglmakie-spinner {
+  left: 50%;
+  z-index: 1000;
+  height: 40px;
+  position: absolute;
+  border-radius: 50%;
+  border: 4px solid rgba(0, 0, 0, 0.1);
+  animation: wglmakie-spin 1.0s linear infinite;
+  top: 50%;
+  border-top: 4px solid currentColor;
+  width: 40px;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+@keyframes wglmakie-spin {
+  0% {
+    transform: translate(-50%, -50%) rotate(0deg);
+  }
+  100% {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}
+</style></div><div><script type="module">Bonito.init_session("c0b00367-8540-4fd2-9719-91e31c12edd9", Bonito.fetch_binary('bonito/bin/b34f8595116a04e6de9e7f05364390e076ee8fef-9743274666409649846.bin'), "sub", false);
+</script><div style="width: 100%; height: 100%; position: relative;" data-jscall-id="4"><canvas height="400px" data-jp-suppress-context-menu style="display: block" data-jscall-id="5" data-lm-suppress-shortcuts="true" width="900px" tabindex="0"></canvas><div class="wglmakie-spinner" data-jscall-id="6"></div></div></div></div><p>Beyond the <code>Vector</code> of per-cell vectors used above, values may be given as a <code>Matrix</code> (<code>values[cell, qp]</code>) or as an <code>Observable</code> of either for live updating. Grids with mixed cell types take one rule per reference shape, e.g. <code>AddQuadraturePointData(Dict(RefTriangle =&gt; qr_tri, RefQuadrilateral =&gt; qr_quad), values)</code>. Since the filter rebuilds the geometry, apply <a href="api.html#FerriteViz.WarpByVector"><code>WarpByVector</code></a> <em>after</em> it.</p><div class="admonition is-info" id="Note-8130699b408cb6e4"><header class="admonition-header">Note<a class="admonition-anchor" href="#Note-8130699b408cb6e4" title="Permalink"></a></header><div class="admonition-body"><p>The region boundaries are a visualization choice, not physical discontinuities — they only mark where the closest quadrature point changes. Values are likewise extended from the (interior) quadrature points out to the element boundary, and in 3D you see the partition intersected with the surface of the domain.</p></div></div><h2 id="High-order-fields"><a class="docs-heading-anchor" href="#High-order-fields">High-order fields</a><a id="High-order-fields-1"></a><a class="docs-heading-anchor-permalink" href="#High-order-fields" title="Permalink"></a></h2><p>The investigation of high-order fields is currently only supported via a first-order refinement of the problem. Here, the high-order approximation is replaced by a first order approximation of the field, which is spanned by the nodes of the high-order approximation — the <a href="api.html#FerriteViz.FirstOrderRefinement"><code>FirstOrderRefinement</code></a> filter. For example, the first order refinement of a heat problem on a square domain for Lagrange polynomials of order 4 looks like this:</p><pre><code class="language-julia hljs">include(&quot;ferrite-examples/heat-equation.jl&quot;); #defines manufactured_heat_problem
+
+f = WGLMakie.Figure()
+axs = [WGLMakie.Axis3(f[1, 1], title=&quot;Coarse&quot;), WGLMakie.Axis3(f[1, 2], title=&quot;Fine&quot;)]
+
+dh,u = manufactured_heat_problem(Triangle, Lagrange{RefTriangle,4}(), 1)
+FerriteViz.surfaceplot!(axs[1], FEData(dh, u) |&gt; FirstOrderRefinement())
+
+dh,u = manufactured_heat_problem(Triangle, Lagrange{RefTriangle,4}(), 3)
+FerriteViz.surfaceplot!(axs[2], FEData(dh, u) |&gt; FirstOrderRefinement())
+
+f</code></pre><div class="bonito-fragment" id="1a6c3e29-9cb4-40b1-898b-21f095264935" data-jscall-id="subsession-application-dom"><div><style></style><style>.wglmakie-spinner {
+  left: 50%;
+  z-index: 1000;
+  height: 40px;
+  position: absolute;
+  border-radius: 50%;
+  border: 4px solid rgba(0, 0, 0, 0.1);
+  animation: wglmakie-spin 1.0s linear infinite;
+  top: 50%;
+  border-top: 4px solid currentColor;
+  width: 40px;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+@keyframes wglmakie-spin {
+  0% {
+    transform: translate(-50%, -50%) rotate(0deg);
+  }
+  100% {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}
+</style></div><div><script type="module">Bonito.init_session("1a6c3e29-9cb4-40b1-898b-21f095264935", Bonito.fetch_binary('bonito/bin/049f9b26bb3765ffba40fcc9e65b5313dfca79b8-895512203228890952.bin'), "sub", false);
+</script><div style="width: 100%; height: 100%; position: relative;" data-jscall-id="7"><canvas height="450px" data-jp-suppress-context-menu style="display: block" data-jscall-id="8" data-lm-suppress-shortcuts="true" width="600px" tabindex="0"></canvas><div class="wglmakie-spinner" data-jscall-id="9"></div></div></div></div><p>Note that this method produces small artifacts due to the flattening of the nonlinearities of the high order ansatz. However, it is still sufficient to investigate important features of the solution. If users want to have higher resolution than the crude estimate given by the first order refinement (as well as enough RAM), then we also provide a uniform tessellation algorithm, the <a href="api.html#FerriteViz.Refine"><code>Refine</code></a> filter:</p><pre><code class="language-julia hljs">f = WGLMakie.Figure()
+axs = [WGLMakie.LScene(f[1, 1]), WGLMakie.LScene(f[1, 2])]
+
+dh, u = manufactured_heat_problem(Hexahedron, Lagrange{RefHexahedron,2}(), 2);
+clipped = FEData(dh,u) |&gt; CrinkleClip(ClipPlane(Ferrite.Vec((0.0,0.5,0.5)), 0.1));
+
+FerriteViz.solutionplot!(axs[1], clipped)
+FerriteViz.solutionplot!(axs[2], clipped |&gt; Refine(4))
+
+f</code></pre><div class="bonito-fragment" id="e48a3d01-a9f2-46a1-a446-0536df6ca3fd" data-jscall-id="subsession-application-dom"><div><style></style><style>.wglmakie-spinner {
+  left: 50%;
+  z-index: 1000;
+  height: 40px;
+  position: absolute;
+  border-radius: 50%;
+  border: 4px solid rgba(0, 0, 0, 0.1);
+  animation: wglmakie-spin 1.0s linear infinite;
+  top: 50%;
+  border-top: 4px solid currentColor;
+  width: 40px;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+@keyframes wglmakie-spin {
+  0% {
+    transform: translate(-50%, -50%) rotate(0deg);
+  }
+  100% {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}
+</style></div><div><script type="module">Bonito.init_session("e48a3d01-a9f2-46a1-a446-0536df6ca3fd", Bonito.fetch_binary('bonito/bin/39e1baf9cc822dec8c009452980fd17c9ee7f01e-11907937353132632498.bin'), "sub", false);
+</script><div style="width: 100%; height: 100%; position: relative;" data-jscall-id="10"><canvas height="450px" data-jp-suppress-context-menu style="display: block" data-jscall-id="11" data-lm-suppress-shortcuts="true" width="600px" tabindex="0"></canvas><div class="wglmakie-spinner" data-jscall-id="12"></div></div></div></div><p>In future we will also provide an adaptive tessellation algorithm to resolve the high-order fields with full detail.</p><h2 id="Pipeline-semantics"><a class="docs-heading-anchor" href="#Pipeline-semantics">Pipeline semantics</a><a id="Pipeline-semantics-1"></a><a class="docs-heading-anchor-permalink" href="#Pipeline-semantics" title="Permalink"></a></h2><p>Chaining itself is covered in the <a href="tutorial.html">tutorial</a>; two rules matter once pipelines get longer.</p><p><strong>Ordering.</strong> Geometry-rebuilding filters (<a href="api.html#FerriteViz.Refine"><code>Refine</code></a>, <a href="api.html#FerriteViz.FirstOrderRefinement"><code>FirstOrderRefinement</code></a>, <a href="api.html#FerriteViz.AddQuadraturePointData"><code>AddQuadraturePointData</code></a>) rebuild from the base geometry, so apply <a href="api.html#FerriteViz.WarpByVector"><code>WarpByVector</code></a> <em>after</em> them. They also drop the point data registered upstream, since it refers to vertices that no longer exist — the one exception is a rebuild that reproduces the very same vertex layout, as when two <a href="api.html#FerriteViz.AddQuadraturePointData"><code>AddQuadraturePointData</code></a> share a quadrature rule, which is what lets their arrays be combined in a later <a href="api.html#FerriteViz.Derive"><code>Derive</code></a>. <a href="api.html#FerriteViz.CrinkleClip"><code>CrinkleClip</code></a> and <a href="api.html#FerriteViz.Gradient"><code>Gradient</code></a> share the — possibly warped — geometry of their input, so a warp survives those.</p><p><strong>Reactivity.</strong> A <a href="api.html#FerriteViz.update!"><code>FerriteViz.update!</code></a> on <em>any</em> dataset of a pipeline updates the root solution and propagates through every filter into all open plots, which is what makes live plotting work. Filters can also be applied explicitly with <a href="api.html#FerriteViz.apply"><code>FerriteViz.apply</code></a> instead of <code>|&gt;</code>.</p><h2 id="Composable-viewer"><a class="docs-heading-anchor" href="#Composable-viewer">Composable viewer</a><a id="Composable-viewer-1"></a><a class="docs-heading-anchor-permalink" href="#Composable-viewer" title="Permalink"></a></h2><p><code>ferriteviewer(ds)</code> gives a single panel with the usual menus and toggles, and <code>ferriteviewer(ds, u_history)</code> adds a slider stepping through a solution history. Neither is hard-wired though — the whole viewer is described declaratively with <code>Makie.SpecApi</code>, so you can replace the layout and the controls.</p><h3 id="How-SpecApi-fits-in"><a class="docs-heading-anchor" href="#How-SpecApi-fits-in">How SpecApi fits in</a><a id="How-SpecApi-fits-in-1"></a><a class="docs-heading-anchor-permalink" href="#How-SpecApi-fits-in" title="Permalink"></a></h3><p><code>Makie.SpecApi</code> describes a figure as <strong>data</strong> rather than by mutating a scene: a <code>PlotSpec</code> is &quot;this plot type, with these arguments and attributes&quot;, a <code>BlockSpec</code> an axis or colorbar, and a <code>GridLayoutSpec</code> says how they are arranged. Building a spec draws nothing. When Makie is handed a <em>new</em> spec it diffs it against the previous one and updates only what actually changed, instead of rebuilding the scene. See <a href="https://docs.makie.org">Makie&#39;s documentation</a> for the full <code>SpecApi</code> reference.</p><p>FerriteViz plugs into that with three pieces:</p><ul><li><code>layout(ds, state) -&gt; GridLayoutSpec</code> — called again whenever the view state changes,</li><li><a href="api.html#FerriteViz.Control"><code>FerriteViz.Control</code></a>s — the widgets that feed <code>state</code>,</li><li>spec helpers — <a href="api.html#FerriteViz.solutionplotspec"><code>solutionplotspec</code></a> and friends wrap a representation into a <code>PlotSpec</code>, <a href="api.html#FerriteViz.panelspec"><code>panelspec</code></a> puts plots into an axis (or <code>LScene</code> for 3D) with an optional linked colorbar.</li></ul><h3 id="A-two-panel-viewer"><a class="docs-heading-anchor" href="#A-two-panel-viewer">A two-panel viewer</a><a id="A-two-panel-viewer-1"></a><a class="docs-heading-anchor-permalink" href="#A-two-panel-viewer" title="Permalink"></a></h3><p>The mixed formulation solves for a displacement <em>and</em> a pressure, so a natural viewer shows both at once. <code>state.colormap</code> comes from the colormap menu and drives both panels; the deformation toggle feeds the pipeline, so it warps both as well:</p><pre><code class="language-julia hljs">using FerriteViz: FEData, ferriteviewer, panelspec, solutionplotspec, S,
+                  ColormapMenu, DeformationToggle
+import WGLMakie
+
+function twopanels(ds, state)
+    disp = solutionplotspec(ds; color = :default, colormap = state.colormap)
+    pres = solutionplotspec(ds; color = :p,       colormap = state.colormap)
+    return S.GridLayout([
+        panelspec(disp; colorbar = disp, dim = 2, axis = (; title = &quot;displacement magnitude&quot;))
+        panelspec(pres; colorbar = pres, dim = 2, axis = (; title = &quot;pressure&quot;))
+    ])
+end
+
+ferriteviewer(FEData(dh_quadratic, u_quadratic);
+              layout = twopanels, controls = [ColormapMenu(), DeformationToggle()])</code></pre><div class="bonito-fragment" id="b748e83e-7de9-47b8-8dc6-733317279a20" data-jscall-id="subsession-application-dom"><div><style></style><style>.wglmakie-spinner {
+  left: 50%;
+  z-index: 1000;
+  height: 40px;
+  position: absolute;
+  border-radius: 50%;
+  border: 4px solid rgba(0, 0, 0, 0.1);
+  animation: wglmakie-spin 1.0s linear infinite;
+  top: 50%;
+  border-top: 4px solid currentColor;
+  width: 40px;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+@keyframes wglmakie-spin {
+  0% {
+    transform: translate(-50%, -50%) rotate(0deg);
+  }
+  100% {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}
+</style></div><div><script type="module">Bonito.init_session("b748e83e-7de9-47b8-8dc6-733317279a20", Bonito.fetch_binary('bonito/bin/52ad5927c48efb490a3124740ead5b155e2875e8-1674377864088623807.bin'), "sub", false);
+</script><div style="width: 100%; height: 100%; position: relative;" data-jscall-id="13"><canvas height="450px" data-jp-suppress-context-menu style="display: block" data-jscall-id="14" data-lm-suppress-shortcuts="true" width="600px" tabindex="0"></canvas><div class="wglmakie-spinner" data-jscall-id="15"></div></div></div></div><p>Only the controls a layout actually consumes need to be listed — the default set is just one such list. Writing your own control means returning the widgets together with the state they contribute:</p><pre><code class="language-julia hljs">using FerriteViz: Control, ControlResult
+scale = Control() do fig, ds
+    slider = WGLMakie.Slider(fig, range = 0:0.5:5)
+    ControlResult(Any[slider]; structural = [:scale =&gt; slider.value])
+end</code></pre><p>Structural state (colormap, which panels, anything the layout reads) re-diffs the spec, so Makie updates only the changed attributes of the plots it reuses. Data streaming — <a href="api.html#FerriteViz.update!"><code>FerriteViz.update!</code></a> and the deformation scale — bypasses the spec entirely and mutates the shared GPU buffers instead, which is why live plotting stays cheap.</p><h2 id="Live-plotting"><a class="docs-heading-anchor" href="#Live-plotting">Live plotting</a><a id="Live-plotting-1"></a><a class="docs-heading-anchor-permalink" href="#Live-plotting" title="Permalink"></a></h2><p>Plotting while a computationally heavy simulation is performed can be easily achieved with FerriteViz.jl. Every <a href="api.html#FerriteViz.FEData"><code>FEData</code></a> holds the solution vector as an <code>Observable</code>. If an <code>Observable</code> changes, all its dependencies are triggered to change as well — through the whole filter pipeline into the open plots. For this purpose the function <a href="api.html#FerriteViz.update!"><code>FerriteViz.update!</code></a> is provided. It takes a <code>ds::FEData</code> and a new solution vector <code>u_new</code> and updates the solution observable, thereby all open plots called with datasets of the pipeline are updated.</p><p>A summary of the needed steps for live plotting:</p><ol><li>Create a <code>FEData</code> before your time stepping begins</li><li>Call a plot or the <code>ferriteviewer</code> and save the return in a variable, e.g. <code>fig</code></li><li><code>display(fig)</code> in order to force the plot/viewer to pop up, even if its called inside a function body</li><li><code>FerriteViz.update!(ds,u_new)</code> where <code>u_new</code> corresponds to your new solution of the time step</li></ol><p>As an illustrative example, let&#39;s consider a slightly modified <a href="https://github.com/Ferrite-FEM/FerriteViz.jl/blob/master/docs/src/ferrite-examples/plasticity-live.jl">plasticity example of Ferrite.jl</a>. For the full source code, please refer to the link. In the following code we only highlight the necessary changes.</p><pre><code class="language-julia hljs">function solve(liveplotting=false)
+    # set up your problem
+    # lots of code
+    dh = create_dofhandler(grid, interpolation) #helper function from script file
+    n_dofs = ndofs(dh)  # total number of dofs
+    u  = zeros(n_dofs)
+
+    if liveplotting
+        ####### Here we take care of the conceptual steps 1, 2 and 3 #######
+        ds = FEData(dh,u)
+        fig = ferriteviewer(ds)
+        display(fig)
+        ####################################################################
+    end
+
+    Δu = zeros(n_dofs)  # displacement correction
+    r = zeros(n_dofs)   # residual
+    K = allocate_matrix(dh); # tangent stiffness matrix
+
+    nqp = getnquadpoints(cellvalues)
+    states = [[MaterialState() for _ in 1:nqp] for _ in 1:getncells(grid)]
+
+    # Newton-Raphson loop
+    NEWTON_TOL = 1 # 1 N
+
+    for timestep in 1:n_timesteps
+        while true; newton_itr += 1
+
+            if newton_itr &gt; 8
+                error(&quot;Reached maximum Newton iterations, aborting&quot;)
+                break
+            end
+            K, r = doassemble(cellvalues, facevalues, K, grid, dh, material, u,
+                             states, traction);
+            norm_r = norm(r[Ferrite.free_dofs(dbcs)])
+
+            if norm_r &lt; NEWTON_TOL
+                break
+            end
+
+            apply_zero!(K, r, dbcs)
+            Δu = Symmetric(K) \ r
+            u -= Δu
+        end
+
+        if liveplotting
+            ####### Step 4 updating the current solution vector in ds #######
+            FerriteViz.update!(ds,u)
+            #################################################################
+            sleep(0.1)
+        end
+
+        # Update all the material states after we have reached equilibrium
+        for cell_states in states
+            foreach(update_state!, cell_states)
+        end
+        u_max[timestep] = max(abs.(u)...) # maximum displacement in current timestep
+    end
+
+    # postprocessing
+    # lots of code
+    return u, dh, traction_magnitude
+end
+
+u, dh, traction_magnitude = solve();</code></pre><p>Note that we create the <code>ds::FEData</code> object before the time stepping begins, as well as calling <code>ferriteviewer</code> on it. The next function call is crucial to get the live plotting working. <code>display(fig)</code> forces the viewer to pop up, even if it&#39;s inside a function body. Now, the only missing piece is the <code>FerriteViz.update!</code> of the dataset, which happens directly after the Newton iteration. The result for this code looks like this:</p><p><img src="https://github.com/Ferrite-FEM/FerriteViz.jl/blob/master/docs/src/assets/liveplotting.gif?raw=true" alt="liveplot"/></p><p>Since the computational load of one time step is in this example too low, the plotter would just update all the time and likely never display something, so we artificially increase the load of one time step by <code>sleep</code>ing for 0.1s.</p><p>If you don&#39;t need the full viewer as a live plot, you can of course call instead <code>solutionplot</code> (or any other plot/plot combination) with appropriate keyword arguments to only have a specific live plot. This can be beneficial performancewise.</p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="tutorial.html">« Tutorial</a><a class="docs-footer-nextpage" href="cohesive.html">Custom Cells »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.17.0 on <span class="colophon-date" title="Tuesday 28 July 2026 10:37">Tuesday 28 July 2026</span>. Using Julia version 1.10.11.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>

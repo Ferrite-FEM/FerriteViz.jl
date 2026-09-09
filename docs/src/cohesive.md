@@ -161,7 +161,7 @@ FerriteViz.meshplot!(ax1, cohesive_demo(0.0))
 # opened configuration: the cohesive cell is now a real quad, coloured by its opening
 opened = cohesive_demo(0.5)
 p = FerriteViz.cellplot!(ax2, opened; color = :opening, colormap = :inferno)
-FerriteViz.meshplot!(ax2, opened; plotnodes = false)
+FerriteViz.meshplot!(ax2, opened; color = :gray70)   # the blocks are black in this colormap
 WGLMakie.Colorbar(f[1, 3], p, label = "interface opening")
 
 f

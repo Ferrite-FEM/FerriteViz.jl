@@ -18,20 +18,26 @@
     QPTessellation{refdim}
 
 Voronoi partition of a reference shape induced by a quadrature rule. `coords` are
-vertices in reference space, `triangles` index into them, and `vertex_qp[v]` is
-the quadrature point whose region vertex `v` belongs to.
+vertices in reference space, `triangles` (the rendered boundary surface) and
+`simplices` (the refdim-dimensional volume decomposition of the regions) index
+into them, and `vertex_qp[v]` is the quadrature point whose region vertex `v`
+belongs to.
 
 Vertices are *not* shared between regions: every region carries its own copy, so
-assigning each vertex its quadrature point's value renders the region flat.
+assigning each vertex its quadrature point's value renders the region flat — and
+no simplex ever spans two regions, which is what keeps an exact [`Clip`](@ref)
+of quadrature-point data region-faithful.
 """
-struct QPTessellation{refdim}
+struct QPTessellation{refdim,S}
     coords::Vector{Ferrite.Vec{refdim,Float64}}
     triangles::Vector{NTuple{3,Int}}
+    simplices::Vector{S}
     vertex_qp::Vector{Int}
 end
 
 nvertices(tess::QPTessellation) = length(tess.coords)
 ntriangles(tess::QPTessellation) = length(tess.triangles)
+nsimplices(tess::QPTessellation) = length(tess.simplices)
 
 # Sutherland–Hodgman clip of a convex polygon against the half-space `n ⋅ x ≤ c`.
 # The polygon is planar but may be embedded in 2D or 3D — the bisector of two
@@ -113,6 +119,7 @@ boundary faces, which is what the surface renderer draws.
 function qp_voronoi_tessellation(::Type{RS}, qr::Ferrite.QuadratureRule) where {RS<:Ferrite.AbstractRefShape}
     corners = Ferrite.reference_coordinates(Ferrite.Lagrange{RS,1}())
     V = eltype(corners)
+    refdim = length(first(corners))
     coords = V[]
     triangles = NTuple{3,Int}[]
     vertex_qp = Int[]
@@ -124,5 +131,108 @@ function qp_voronoi_tessellation(::Type{RS}, qr::Ferrite.QuadratureRule) where {
             push!(triangles, (offset + 1, offset + t, offset + t + 1))
         end
     end
-    return QPTessellation{length(first(corners))}(coords, triangles, vertex_qp)
+    simplices = NTuple{refdim + 1,Int}[]
+    # in 2D the face fans already tile the region areas — they are the volume
+    # decomposition; in 3D the regions are tetrahedralized separately below
+    refdim == 2 && append!(simplices, triangles)
+    refdim == 3 && _qp_voronoi_volume!(coords, simplices, vertex_qp, RS, corners,
+                                       Ferrite.getpoints(qr), 1e-12)
+    return QPTessellation{refdim,NTuple{refdim + 1,Int}}(coords, triangles, simplices, vertex_qp)
+end
+
+# Simple normal of a planar convex polygon (the reference faces are planar).
+function _poly_normal(poly::Vector{V}) where {V<:Ferrite.Vec{3}}
+    return Tensors.cross(poly[2] - poly[1], poly[3] - poly[1])
+end
+
+# A rectangle lying on the plane n ⋅ x = c, large enough to cover the cell;
+# clipping it by the cell faces and the other bisectors yields the Voronoi wall.
+function _plane_rectangle(n::V, c::Float64, corners::Vector{V}) where {V<:Ferrite.Vec{3}}
+    n̂ = n / LinearAlgebra.norm(n)
+    centroid = sum(corners) / length(corners)
+    p0 = centroid + (c - n ⋅ centroid) / (n ⋅ n) * n
+    e = abs(n̂[1]) < 0.9 ? Ferrite.Vec(1.0, 0.0, 0.0) : Ferrite.Vec(0.0, 1.0, 0.0)
+    u = Tensors.cross(n̂, e)
+    u /= LinearAlgebra.norm(u)
+    v = Tensors.cross(n̂, u)
+    R = 4.0 * maximum(LinearAlgebra.norm(x - centroid) for x in corners)
+    return V[p0 + R * u + R * v, p0 - R * u + R * v, p0 - R * u - R * v, p0 + R * u - R * v]
+end
+
+# Volumetric 3D Voronoi partition: every region is decomposed into tets by
+# fanning its boundary polygons — the cell-face portions (which are also the
+# rendered triangles) and the bisector wall polygons — from its quadrature
+# point, which lies in (the closure of) its own convex region, so the cone fan
+# tiles it. Every region carries its own vertex copies, so no tet ever spans a
+# region wall.
+function _qp_voronoi_volume!(coords::Vector{V}, simplices, vertex_qp, ::Type{RS}, corners::Vector{V}, ξs, tol) where {V,RS}
+    nqp = length(ξs)
+    for i in 1:nqp, j in (i+1):nqp
+        LinearAlgebra.norm(ξs[i] - ξs[j]) > 1e-9 &&
+            continue
+        error("quadrature points $i and $j coincide; the Voronoi partition needs pairwise distinct points")
+    end
+    base_faces = [V[corners[k] for k in face] for face in Ferrite.reference_faces(RS)]
+    centroid = sum(corners) / length(corners)
+    face_hs = map(base_faces) do poly
+        n = _poly_normal(poly)
+        n /= LinearAlgebra.norm(n)
+        c = n ⋅ poly[1]
+        n ⋅ centroid > c ? (-n, -c) : (n, c)   # oriented outward: inside is n ⋅ x ≤ c
+    end
+    # The point must lie in (the closure of) the cell so its convex Voronoi
+    # region can be fanned from it. Boundary points are fine — standard rules
+    # have them (e.g. the order-2 prism rule) — the cone over a face incident
+    # to the point is just degenerate and pruned below.
+    for (q, ξ) in enumerate(ξs), (n, c) in face_hs
+        ξ ⋅ n <= c + 1e-9 && continue
+        error("quadrature point $q at $ξ lies outside the reference cell; " *
+              "the volumetric Voronoi partition fans each region from its point, which must be inside")
+    end
+    # keep the side closer to ξᵢ: (ξⱼ-ξᵢ)⋅x ≤ (|ξⱼ|²-|ξᵢ|²)/2
+    bisector(i, j) = (ξs[j] - ξs[i], (sum(abs2, ξs[j]) - sum(abs2, ξs[i])) / 2)
+    for i in 1:nqp
+        polys = Vector{V}[]
+        for base in base_faces
+            poly = base
+            for j in 1:nqp
+                j == i && continue
+                poly = _clip_halfspace(poly, bisector(i, j)..., tol)
+                length(poly) < 3 && break
+            end
+            poly = _dedup_polygon(poly, tol)
+            length(poly) >= 3 && push!(polys, poly)
+        end
+        for j in 1:nqp
+            j == i && continue
+            wall = _plane_rectangle(bisector(i, j)..., corners)
+            for (nf, cf) in face_hs
+                wall = _clip_halfspace(wall, nf, cf, tol)
+                length(wall) < 3 && break
+            end
+            for k in 1:nqp
+                (k == i || k == j || length(wall) < 3) && continue
+                wall = _clip_halfspace(wall, bisector(i, k)..., tol)
+            end
+            wall = _dedup_polygon(wall, tol)
+            length(wall) >= 3 && push!(polys, wall)
+        end
+        center = length(coords) + 1
+        push!(coords, ξs[i])
+        push!(vertex_qp, i)
+        for poly in polys
+            offset = length(coords)
+            append!(coords, poly)
+            append!(vertex_qp, fill(i, length(poly)))
+            for t in 2:(length(poly)-1)
+                # cones over faces incident to a boundary quadrature point are
+                # flat — skip them; the rest are stored positively oriented
+                vol = ((poly[t] - poly[1]) × (poly[t+1] - poly[1])) ⋅ (ξs[i] - poly[1]) / 6
+                abs(vol) <= 1e-12 && continue
+                push!(simplices, vol > 0 ? (offset + 1, offset + t, offset + t + 1, center) :
+                                           (offset + t, offset + 1, offset + t + 1, center))
+            end
+        end
+    end
+    return nothing
 end

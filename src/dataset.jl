@@ -165,7 +165,7 @@ For a uniformly subdivided static tessellation instead, compose explicitly:
 `FEData(dh, u; adaptivity=false) |> Refine(2)` (or [`Refine`](@ref)`()` for
 its automatic per-cell-type choice).
 """
-struct FEData{dim,DH<:Ferrite.AbstractDofHandler,T1,TOP<:Union{Nothing,Ferrite.AbstractTopology},SU<:Makie.Observable,M,TRI} <: AbstractPlotter
+struct FEData{dim,DH<:Ferrite.AbstractDofHandler,T1,TOP<:Union{Nothing,Ferrite.AbstractTopology},SU<:Makie.Observable,M,TRI,S} <: AbstractPlotter
     dh::DH
     u::Makie.Observable{Vector{T1}}   # this dataset's dof vector (possibly lifted from source_u)
     source_u::SU                      # the root solution observable; update! target
@@ -182,6 +182,16 @@ struct FEData{dim,DH<:Ferrite.AbstractDofHandler,T1,TOP<:Union{Nothing,Ferrite.A
     triangle_cell_map::Vector{Int}    # triangle -> owning cell
     cell_triangle_offsets::Vector{Int}  # cell -> range in all_triangles (see triangles_on_cell)
     cell_vertex_offsets::Vector{Int}    # cell -> range in coords (see vertices_on_cell)
+    # Decomposition of each cell's volume into simplices (tets in 3D, triangles
+    # in 2D; S is NTuple{dim+1,Int}), indexing into the same vertex array as the
+    # triangles, so point data covers the simplex vertices too. Only cells whose
+    # reference dimension equals the spatial dimension carry simplices (embedded
+    # shells/lines have no volume). This is what Clip cuts and
+    # ExtractIsosurfaces marches; datasets without volume (e.g. an extracted
+    # isosurface) have it empty.
+    simplices::Vector{S}
+    simplex_cell_map::Vector{Int}       # simplex -> owning cell
+    cell_simplex_offsets::Vector{Int}   # cell -> range in simplices (see simplices_on_cell)
     # Wireframe segments along the FE cell edges, as pairs of indices into
     # coords. Their endpoints are ordinary tessellation vertices, which is what
     # makes the meshplot wireframe follow warps, solutions and clips for free.
@@ -214,8 +224,17 @@ struct FEData{dim,DH<:Ferrite.AbstractDofHandler,T1,TOP<:Union{Nothing,Ferrite.A
     # path, through `_is_surface_facet`, which both base builds
     # (`_isubd_base_cells`, `_isubd_base_qp`) gate their 3D facet loops on;
     # the static path deliberately ignores it and draws every facet of every
-    # visible cell.
+    # visible cell. Clip filters remove cells by clearing it, and
+    # `transfer_solution` gates on it, so hidden (but solid) interior cells
+    # carry real values — which is what lets the volume-based filters (Clip,
+    # ExtractIsosurfaces) and warps see the field everywhere.
     solid::Vector{Bool}
+    # True while every solid cell's geometry is the full tessellation of the
+    # cell. Exact cuts (Clip, ExtractIsosurfaces) clear it, which blocks filters
+    # that rebuild whole cells from the grid (Refine, AddQuadraturePointData)
+    # from resurrecting cut-away geometry, and makes plots of the dataset fall
+    # back to the static path (the adaptive base is fanned from whole cells).
+    cells_intact::Bool
     # How this dataset's plots refine (`Adaptivity`), or `nothing` for the
     # static tessellation. A dataset property — the substrate below is shared
     # by every adaptive plot, so there are no per-plot overrides — carried
@@ -233,9 +252,25 @@ struct FEData{dim,DH<:Ferrite.AbstractDofHandler,T1,TOP<:Union{Nothing,Ferrite.A
     subd_cache::Base.RefValue{Any}
 end
 
+# Only volumetric 3D grids get a default topology (used to hide interior
+# cells): ExclusiveTopology does not support embedded cells, and in 2D
+# everything is visible anyway.
 function _default_topology(grid)
-    return Ferrite.getspatialdim(grid) > 2 ? Ferrite.ExclusiveTopology(grid) : nothing
+    Ferrite.getspatialdim(grid) > 2 || return nothing
+    all(c -> Ferrite.getrefdim(Ferrite.getrefshape(c)) == 3, Ferrite.getcells(grid)) || return nothing
+    return Ferrite.ExclusiveTopology(grid)
 end
+
+# Whether a centroid fan over `tri` needs its triangle order flipped to give a
+# positively oriented tet (points are 3D physical coordinates).
+function _fan_flips(points, tri, center_pos::Tensors.Vec{3,Float64})
+    a = Tensors.Vec{3,Float64}(NTuple{3,Float64}(points[tri[1]]))
+    b = Tensors.Vec{3,Float64}(NTuple{3,Float64}(points[tri[2]]))
+    c = Tensors.Vec{3,Float64}(NTuple{3,Float64}(points[tri[3]]))
+    return _signed_tet_volume(a, b, c, center_pos) < 0
+end
+_fan_flips(points, tri, center::Int) =
+    _fan_flips(points, tri, Tensors.Vec{3,Float64}(NTuple{3,Float64}(points[center])))
 
 # `:default` is the sentinel every filter and representation resolves to the
 # *first* field of the dof handler (see `_resolve_name`). A dof field actually
@@ -265,10 +300,11 @@ function FEData(dh::Ferrite.AbstractDofHandler, u::Makie.Observable;
     ncells = Ferrite.getncells(grid)
 
     visible = zeros(Bool, ncells)
-    if sdim > 2
+    if sdim > 2 && topology !== nothing
         boundaryfaces = findall(isempty, topology.face_face_neighbor)
         visible[Ferrite.getindex.(boundaryfaces, 1)] .= true
     else
+        # without a topology (2D, or embedded cells) everything is drawn
         visible .= true
     end
 
@@ -282,11 +318,19 @@ function FEData(dh::Ferrite.AbstractDofHandler, u::Makie.Observable;
                           adaptivity=_adaptivity_config(adaptivity))
 end
 
+# Volume simplices exist only for cells whose reference dimension matches the
+# spatial one (embedded shells/lines have no volume to decompose). In 2D the
+# tessellation triangles already tile the cell; in 3D the surface triangles are
+# fanned into tets from one extra centroid vertex per cell (valid because the
+# reference shapes are convex, hence star-shaped).
+_cell_has_volume(cell, sdim::Int) = sdim >= 2 && Ferrite.getrefdim(Ferrite.getrefshape(cell)) == sdim
+
 # Shared tessellation-instantiation core of the FEData constructor and the
 # Refine filter: lay out `tess_for(cell)` per cell with duplicated vertices.
 function _build_dataset(dh::Ferrite.AbstractDofHandler, u::Makie.Observable, source_u::Makie.Observable,
                         topology, visible::Vector{Bool}, tess_for;
-                        adaptivity::Union{Nothing,Adaptivity}=Adaptivity())
+                        adaptivity::Union{Nothing,Adaptivity}=Adaptivity(),
+                        solid::Vector{Bool}=fill(true, Ferrite.getncells(Ferrite.get_grid(dh))))
     grid = Ferrite.get_grid(dh)
     cells = Ferrite.getcells(grid)
     sdim = Ferrite.getspatialdim(grid)
@@ -295,14 +339,19 @@ function _build_dataset(dh::Ferrite.AbstractDofHandler, u::Makie.Observable, sou
     cell_triangle_offsets = Vector{Int}(undef, ncells + 1)
     cell_vertex_offsets = Vector{Int}(undef, ncells + 1)
     cell_edge_offsets = Vector{Int}(undef, ncells + 1)
+    cell_simplex_offsets = Vector{Int}(undef, ncells + 1)
     cell_triangle_offsets[1] = 0
     cell_vertex_offsets[1] = 0
     cell_edge_offsets[1] = 0
+    cell_simplex_offsets[1] = 0
     for (i, cell) in enumerate(cells)
         tess = tess_for(cell)
+        hasvol = _cell_has_volume(cell, sdim)
         cell_triangle_offsets[i+1] = cell_triangle_offsets[i] + ntriangles(tess)
-        cell_vertex_offsets[i+1] = cell_vertex_offsets[i] + nvertices(tess)
+        # 3D volume cells carry one extra vertex, the fan centroid
+        cell_vertex_offsets[i+1] = cell_vertex_offsets[i] + nvertices(tess) + (hasvol && sdim == 3 ? 1 : 0)
         cell_edge_offsets[i+1] = cell_edge_offsets[i] + nedges(tess)
+        cell_simplex_offsets[i+1] = cell_simplex_offsets[i] + (hasvol ? ntriangles(tess) : 0)
     end
     num_triangles = cell_triangle_offsets[end]
     num_verts = cell_vertex_offsets[end]
@@ -314,6 +363,9 @@ function _build_dataset(dh::Ferrite.AbstractDofHandler, u::Makie.Observable, sou
     edge_cell_map = Vector{Int}(undef, num_edges)
     physical_coords = Vector{GeometryBasics.Point{sdim,Float32}}(undef, num_verts)
     reference_coords = zeros(Float64, num_verts, sdim)
+    S = NTuple{sdim + 1,Int}
+    simplices = Vector{S}(undef, cell_simplex_offsets[end])
+    simplex_cell_map = Vector{Int}(undef, cell_simplex_offsets[end])
 
     for (cell_id, cell) in enumerate(cells)
         # Function barrier: `tess_for` and `geometric_interpolation` are only
@@ -321,11 +373,12 @@ function _build_dataset(dh::Ferrite.AbstractDofHandler, u::Makie.Observable, sou
         # so instantiate through a call specialized on the concrete types —
         # one dynamic dispatch per cell instead of per tessellation vertex.
         _instantiate_cell!(physical_coords, reference_coords, triangles, triangle_cell_map,
-                           all_edges, edge_cell_map, tess_for(cell),
+                           all_edges, edge_cell_map, simplices, simplex_cell_map,
+                           _cell_has_volume(cell, sdim), tess_for(cell),
                            Ferrite.geometric_interpolation(typeof(cell)),
                            Ferrite.getcoordinates(grid, cell_id),
                            cell_vertex_offsets[cell_id], cell_triangle_offsets[cell_id],
-                           cell_edge_offsets[cell_id], cell_id)
+                           cell_edge_offsets[cell_id], cell_simplex_offsets[cell_id], cell_id)
     end
 
     # convert: to_triangles yields an untyped empty vector for 0 triangles
@@ -336,21 +389,23 @@ function _build_dataset(dh::Ferrite.AbstractDofHandler, u::Makie.Observable, sou
     mesh = GeometryBasics.Mesh(coords_buffer, vis_triangles)
     gridnodes = Makie.Observable([GeometryBasics.Point{sdim,Float32}(Ferrite.get_node_coordinate(n)...) for n in Ferrite.getnodes(grid)])
 
-    return FEData{sdim,typeof(dh),eltype(u[]),typeof(topology),typeof(source_u),typeof(mesh),eltype(all_triangles)}(
+    return FEData{sdim,typeof(dh),eltype(u[]),typeof(topology),typeof(source_u),typeof(mesh),eltype(all_triangles),S}(
         dh, u, source_u, topology, visible, gridnodes, coords, coords_buffer,
         all_triangles, vis_triangles, triangle_cell_map, cell_triangle_offsets,
-        cell_vertex_offsets, all_edges, edge_cell_map, cell_edge_offsets,
+        cell_vertex_offsets, simplices, simplex_cell_map, cell_simplex_offsets,
+        all_edges, edge_cell_map, cell_edge_offsets,
         reference_coords, mesh,
         Dict{Symbol,Makie.Observable}(), Dict{Symbol,Makie.Observable}(),
         Dict{Symbol,DerivedPointData}(), nothing,
-        Deformation[], fill(true, ncells), adaptivity, Ref{Any}(nothing))
+        Deformation[], solid, true, adaptivity, Ref{Any}(nothing))
 end
 
 function _instantiate_cell!(physical_coords::Vector{GeometryBasics.Point{sdim,Float32}}, reference_coords,
                             triangles, triangle_cell_map, all_edges, edge_cell_map,
+                            simplices, simplex_cell_map, hasvol::Bool,
                             tess::ReferenceTessellation, ip_geo::Ferrite.ScalarInterpolation,
                             node_coords::AbstractVector, coff::Int, toff::Int, eoff::Int,
-                            cell_id::Int) where {sdim}
+                            soff::Int, cell_id::Int) where {sdim}
     for (k, ξ) in enumerate(tess.coords)
         x = geometric_map(ip_geo, node_coords, ξ)
         physical_coords[coff+k] = GeometryBasics.Point{sdim,Float32}(x...)
@@ -368,6 +423,30 @@ function _instantiate_cell!(physical_coords::Vector{GeometryBasics.Point{sdim,Fl
         all_edges[eoff+e] = (edge[1] + coff, edge[2] + coff)
         edge_cell_map[eoff+e] = cell_id
     end
+    if hasvol
+        if sdim == 2
+            for (t, tri) in enumerate(tess.triangles)
+                simplices[soff+t] = (tri[1] + coff, tri[2] + coff, tri[3] + coff)
+                simplex_cell_map[soff+t] = cell_id
+            end
+        elseif sdim == 3
+            center = coff + nvertices(tess) + 1
+            ξc = sum(tess.coords) / nvertices(tess)
+            x = geometric_map(ip_geo, node_coords, ξc)
+            physical_coords[center] = GeometryBasics.Point{sdim,Float32}(x...)
+            for d in 1:length(ξc)
+                reference_coords[center, d] = ξc[d]
+            end
+            # tets are stored positively oriented; the surface triangles are
+            # consistently oriented per cell, so one sign check suffices
+            flip = _fan_flips(physical_coords, tess.triangles[1] .+ coff, center)
+            for (t, tri) in enumerate(tess.triangles)
+                simplices[soff+t] = flip ? (tri[2] + coff, tri[1] + coff, tri[3] + coff, center) :
+                                           (tri[1] + coff, tri[2] + coff, tri[3] + coff, center)
+                simplex_cell_map[soff+t] = cell_id
+            end
+        end
+    end
     return nothing
 end
 
@@ -381,6 +460,66 @@ function _visibility_triangles(all_triangles, visible, triangle_cell_map)
     return vis_triangles
 end
 
+# Derive a new FEData from `ds`, sharing every field that is not overridden.
+# This helper owns the dependent-field invariants so no filter can leave the
+# GPU-facing objects pointing at stale geometry: passing `coords` rebuilds the
+# coordinate buffer, passing any of `all_triangles`/`visible`/
+# `triangle_cell_map` rebuilds the visibility-filtered triangle buffer, and a
+# rebuild of either rebuilds the mesh. The substrate cache is always fresh
+# (filters return new FEData instances; the cache is a pure function of them).
+function _derive(ds::FEData{dim};
+                 dh=ds.dh,
+                 u::Makie.Observable=ds.u,
+                 visible::Union{Nothing,Vector{Bool}}=nothing,
+                 gridnodes::Makie.Observable=ds.gridnodes,
+                 coords::Union{Nothing,Makie.Observable}=nothing,
+                 all_triangles::Union{Nothing,Vector}=nothing,
+                 triangle_cell_map::Vector{Int}=ds.triangle_cell_map,
+                 cell_triangle_offsets::Vector{Int}=ds.cell_triangle_offsets,
+                 cell_vertex_offsets::Vector{Int}=ds.cell_vertex_offsets,
+                 simplices::Vector=ds.simplices,
+                 simplex_cell_map::Vector{Int}=ds.simplex_cell_map,
+                 cell_simplex_offsets::Vector{Int}=ds.cell_simplex_offsets,
+                 all_edges::Vector{NTuple{2,Int}}=ds.all_edges,
+                 edge_cell_map::Vector{Int}=ds.edge_cell_map,
+                 cell_edge_offsets::Vector{Int}=ds.cell_edge_offsets,
+                 reference_coords::Matrix{Float64}=ds.reference_coords,
+                 point_data::Dict{Symbol,Makie.Observable}=copy(ds.point_data),
+                 cell_data::Dict{Symbol,Makie.Observable}=copy(ds.cell_data),
+                 point_derivations::Dict{Symbol,DerivedPointData}=copy(ds.point_derivations),
+                 qp_partition::Union{Nothing,QPPartition}=ds.qp_partition,
+                 deformation::Vector{Deformation}=ds.deformation,
+                 solid::Vector{Bool}=ds.solid,
+                 cells_intact::Bool=ds.cells_intact,
+                 adaptivity::Union{Nothing,Adaptivity}=ds.adaptivity) where {dim}
+    new_coords = coords !== nothing
+    new_coords || (coords = ds.coords)
+    coords_buffer = new_coords ? ShaderAbstractions.Buffer(coords) : ds.coords_buffer
+    new_triangles = all_triangles !== nothing || visible !== nothing
+    all_triangles === nothing && (all_triangles = ds.all_triangles)
+    visible === nothing && (visible = ds.visible)
+    vis_triangles = new_triangles ?
+        ShaderAbstractions.Buffer(Makie.Observable(_visibility_triangles(all_triangles, visible, triangle_cell_map))) :
+        ds.vis_triangles
+    mesh = (new_coords || new_triangles) ? GeometryBasics.Mesh(coords_buffer, vis_triangles) : ds.mesh
+    return FEData{dim,typeof(dh),eltype(u[]),typeof(ds.topology),typeof(ds.source_u),typeof(mesh),eltype(all_triangles),eltype(simplices)}(
+        dh, u, ds.source_u, ds.topology, visible, gridnodes, coords, coords_buffer,
+        all_triangles, vis_triangles, triangle_cell_map, cell_triangle_offsets, cell_vertex_offsets,
+        simplices, simplex_cell_map, cell_simplex_offsets, all_edges, edge_cell_map, cell_edge_offsets,
+        reference_coords, mesh, point_data, cell_data, point_derivations, qp_partition,
+        deformation, solid, cells_intact, adaptivity, Ref{Any}(nothing))
+end
+
+# The point-data arrays that survive a geometry rebuild or visibility change:
+# registered arrays are plain per-vertex values, but keys naming dof fields are
+# cached lazy transfers whose values depend on the dataset they were computed
+# on — carrying them over would make results depend on whether somebody
+# accessed the field upstream. They are dropped and re-resolve lazily.
+function _registered_point_data(ds::FEData)
+    fieldnames = Ferrite.getfieldnames(ds.dh)
+    return Dict{Symbol,Makie.Observable}(k => v for (k, v) in ds.point_data if !(k in fieldnames))
+end
+
 """
 Total number of tessellation vertices, i.e. vertices of the rendered
 triangulation. These are not the vertices of the finite element cells: cells do
@@ -392,6 +531,7 @@ num_vertices(ds::FEData) = length(ds.coords[])
 vertices_on_cell(ds::FEData, cell_idx::Int) = (ds.cell_vertex_offsets[cell_idx]+1):ds.cell_vertex_offsets[cell_idx+1]
 triangles_on_cell(ds::FEData, cell_idx::Int) = (ds.cell_triangle_offsets[cell_idx]+1):ds.cell_triangle_offsets[cell_idx+1]
 edges_on_cell(ds::FEData, cell_idx::Int) = (ds.cell_edge_offsets[cell_idx]+1):ds.cell_edge_offsets[cell_idx+1]
+simplices_on_cell(ds::FEData, cell_idx::Int) = (ds.cell_simplex_offsets[cell_idx]+1):ds.cell_simplex_offsets[cell_idx+1]
 
 # Flat vertex-index list (2 entries per segment) of the wireframe of the
 # visible cells. Static per dataset (visibility is immutable after
@@ -594,9 +734,11 @@ end
 """
     transfer_solution(ds::FEData, u::Vector; field_name=:u) -> Matrix{Float64}
 
-Evaluate the field at every tessellation vertex of every visible cell from the
+Evaluate the field at every tessellation vertex of every solid cell from the
 owning element's dofs (preserving inter-element discontinuities). Vertices of
-invisible cells or cells outside the field's subdomain stay `NaN`.
+removed cells or cells outside the field's subdomain stay `NaN` — hidden (but
+solid) interior cells are evaluated, so volume-based filters (`Clip`,
+`ExtractIsosurfaces`) and warps see real values everywhere.
 """
 function transfer_solution(ds::FEData, u::Vector; field_name::Symbol=:u)
     dh = ds.dh
@@ -628,7 +770,7 @@ function _transfer_solution!(data, pv, sdh, field_name::Symbol, ds::FEData, u::V
     local_coords = Ferrite.getcoordinates(grid, first(cellset))
     local_celldofs = Ferrite.celldofs(dh, first(cellset))
     for cell_idx in cellset
-        ds.visible[cell_idx] || continue
+        ds.solid[cell_idx] || continue
         Ferrite.getcoordinates!(local_coords, grid, cell_idx)
         Ferrite.celldofs!(local_celldofs, dh, cell_idx)
         celldofs_field = @view(local_celldofs[local_dof_range])

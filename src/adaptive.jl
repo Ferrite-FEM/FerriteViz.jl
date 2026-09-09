@@ -973,6 +973,10 @@ end
 # a dataset constructed with adaptivity=false.
 function _adaptive_capable(ds::FEData)
     ds.adaptivity === nothing && return false
+    # a cut dataset (Clip/ExtractIsosurfaces) no longer consists of whole
+    # cells; the adaptive base is fanned from whole cells, so it keeps the
+    # static path
+    ds.cells_intact || return false
     cells = Ferrite.getcells(Ferrite.get_grid(ds.dh))
     isempty(cells) && return false
     refdim = Ferrite.getrefdim(Ferrite.geometric_interpolation(typeof(first(cells))))

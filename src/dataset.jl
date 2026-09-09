@@ -130,6 +130,13 @@ _adaptivity_config(a::Adaptivity) = a
 _adaptivity_config(a::Bool) = a ? Adaptivity() : nothing
 _adaptivity_config(::Nothing) = nothing
 
+# Cut rendering retains the input domain so changes can be re-cut in the plot's
+# compute graph. The arrays on FEData remain the coarse, inspectable snapshot.
+struct CutDomain{D,F}
+    source::D
+    filter::F
+end
+
 """
     FEData(dh::Ferrite.AbstractDofHandler, u::Vector; topology, adaptivity=true)
 
@@ -233,7 +240,7 @@ struct FEData{dim,DH<:Ferrite.AbstractDofHandler,T1,TOP<:Union{Nothing,Ferrite.A
     # cell. Exact cuts (Clip, ExtractIsosurfaces) clear it, which blocks filters
     # that rebuild whole cells from the grid (Refine, AddQuadraturePointData)
     # from resurrecting cut-away geometry, and makes plots of the dataset fall
-    # back to the static path (the adaptive base is fanned from whole cells).
+    # out of the whole-cell surface-fan path (Clip has its own renderer).
     cells_intact::Bool
     # How this dataset's plots refine (`Adaptivity`), or `nothing` for the
     # static tessellation. A dataset property — the substrate below is shared
@@ -250,6 +257,7 @@ struct FEData{dim,DH<:Ferrite.AbstractDofHandler,T1,TOP<:Union{Nothing,Ferrite.A
     # fresh (empty) cache. Untyped on purpose: plots retrieve it through the
     # `_substrate` function barrier, keeping this struct's parameters stable.
     subd_cache::Base.RefValue{Any}
+    cut_domain::Union{Nothing,CutDomain}
 end
 
 # Only volumetric 3D grids get a default topology (used to hide interior
@@ -393,7 +401,7 @@ function _build_dataset(dh::Ferrite.AbstractDofHandler, u::Makie.Observable, sou
         reference_coords, mesh,
         Dict{Symbol,Makie.Observable}(), Dict{Symbol,Makie.Observable}(),
         Dict{Symbol,DerivedPointData}(), nothing,
-        Deformation[], solid, true, adaptivity, Ref{Any}(nothing))
+        Deformation[], solid, true, adaptivity, Ref{Any}(nothing), nothing)
 end
 
 function _instantiate_cell!(physical_coords::Vector{GeometryBasics.Point{sdim,Float32}}, reference_coords,
@@ -513,7 +521,8 @@ function _derive(ds::FEData{dim};
                  deformation::Vector{Deformation}=ds.deformation,
                  solid::Vector{Bool}=ds.solid,
                  cells_intact::Bool=ds.cells_intact,
-                 adaptivity::Union{Nothing,Adaptivity}=ds.adaptivity) where {dim}
+                 adaptivity::Union{Nothing,Adaptivity}=ds.adaptivity,
+                 cut_domain::Union{Nothing,CutDomain}=ds.cut_domain) where {dim}
     new_coords = coords !== nothing
     new_coords || (coords = ds.coords)
     coords_buffer = new_coords ? ShaderAbstractions.Buffer(coords) : ds.coords_buffer
@@ -529,7 +538,7 @@ function _derive(ds::FEData{dim};
         all_triangles, vis_triangles, triangle_cell_map, cell_triangle_offsets, cell_vertex_offsets,
         simplices, simplex_cell_map, cell_simplex_offsets, all_edges, edge_cell_map, cell_edge_offsets,
         reference_coords, mesh, point_data, cell_data, point_derivations, qp_partition,
-        deformation, solid, cells_intact, adaptivity, Ref{Any}(nothing))
+        deformation, solid, cells_intact, adaptivity, Ref{Any}(nothing), cut_domain)
 end
 
 # The point-data arrays that survive a geometry rebuild or visibility change:

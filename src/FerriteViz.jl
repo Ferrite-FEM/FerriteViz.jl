@@ -23,6 +23,7 @@ include("gradient.jl")
 include("filters.jl")
 include("representations.jl")
 include("adaptive.jl")
+include("adaptive_cut.jl")
 include("viewer.jl")
 
 export FEData, Adaptivity, apply

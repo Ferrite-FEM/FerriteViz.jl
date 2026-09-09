@@ -146,7 +146,9 @@ end
 # falls back to the static tessellation.
 function Makie.plot!(SP::SolutionPlot{<:Tuple{<:FEData}})
     ds = SP.dataset[]
-    if !ds.cells_intact && isempty(ds.all_triangles) && !isempty(ds.all_edges)
+    if _cut_render_capable(ds) && _adaptive_colorable(ds, SP.color[])
+        _wire_cut_plot!(SP, ds)
+    elseif !ds.cells_intact && isempty(ds.all_triangles) && !isempty(ds.all_edges)
         _isoline_plot!(SP, ds)
     elseif _adaptive_capable(ds) && _adaptive_colorable(ds, SP.color[])
         _adaptive_solutionplot!(SP, ds)
@@ -277,7 +279,9 @@ function Makie.plot!(WF::MeshPlot{<:Tuple{<:FEData{dim}}}) where {dim}
     # ds.coords by the upstream pipeline, and clipping into ds.visible.
     # adaptivity is a dataset property (see `Adaptivity`): the wireframe
     # follows the curved geometry whenever the dataset draws adaptively
-    if _adaptive_capable(ds)
+    if _cut_render_capable(ds)
+        _wire_cut_plot!(WF, ds; wireframe=true)
+    elseif _adaptive_capable(ds)
         _adaptive_wireframe!(WF, ds)
     else
         edge_indices = _visible_edge_indices(ds)

@@ -188,7 +188,7 @@ function apply(c::CrinkleClip, ds::FEData{3})
     end
     # registered point data survives (the vertex layout is unchanged); cached
     # dof-field transfers are dropped and re-resolve against the new masks
-    return _derive(ds; solid, visible, point_data=_registered_point_data(ds))
+    return _derive(ds; solid, visible, point_data=_registered_point_data(ds), cut_domain=nothing)
 end
 
 ########
@@ -209,17 +209,31 @@ included), and the remaining per-cell volume is carried along — so a second
 cut exactly along their walls, and [`ExtractIsosurfaces`](@ref) of a clipped
 dataset stays inside the kept volume.
 
-The cut *topology* (which edges cross the plane, and the interpolation
-weights) is fixed when the filter is applied: positions and data stay reactive
-under [`FerriteViz.update!`](@ref) — cut vertices follow their parent edges —
-but a deformation that moves vertices across the plane needs the filter to be
-re-applied to re-cut. Dof-backed fields evaluate exactly at the cut positions;
-registered point data is interpolated linearly along the cut edges.
+For whole 3D finite-element domains, `solutionplot` and the `meshplot`
+wireframe re-cut the continuous geometry in their compute graph. They follow
+solution updates and warp scales, including cells that enter the clip later.
+The dataset's `Adaptivity` settings control interior as well as boundary
+refinement; `adaptivity=false` disables adaptive refinement but still re-cuts
+on updates. An explicit upstream `Refine` supplies the starting tessellation.
+Dof fields, their recorded scalar derivations, and plain colors use this path.
+Apply warps before the sequence of clips.
 
-Nonlinear geometry is treated as linear (the plane cuts the tessellation's
-straight edges); apply [`Refine`](@ref) *before* clipping to resolve
-curvature. Plots of a cut dataset always draw the static tessellation (the
-error-adaptive path refines whole cells and cannot represent cut ones).
+Refinement streams tetrahedra only for exterior cells and possible plane
+intersections. Polynomial bounds include nonnodal extrema; an unsupported
+polynomial representation conservatively disables culling. Geometry and colors
+are interpolated with the same cut weights, so an affine function of physical
+coordinates stays affine on a nonlinearly displaced cut. A common subdivision
+level keeps shared tetrahedron faces conforming. Each eight-child subdivision
+uses three units of `max_depth`.
+
+The arrays stored on the returned `FEData` are the coarse apply-time snapshot,
+like the static arrays underlying ordinary adaptive plots. Their cut weights
+remain fixed; downstream static filters and data inspection use this snapshot.
+Quadrature-point partitions, raw registered point arrays, embedded cells, and
+warps applied after clipping currently use the snapshot rendering path too.
+For those cases, apply `Refine` upstream to resolve curvature and reapply `Clip`
+to change the intersection topology. Registered arrays interpolate linearly;
+dof fields on the snapshot evaluate at the interpolated reference coordinates.
 Cells with non-finite coordinates (e.g. cells a subdomain-restricted
 [`WarpByVector`](@ref) could not displace) cannot be classified against the
 plane and are carried through unchanged. [`meshplot`](@ref)'s node markers
@@ -355,6 +369,7 @@ function apply(c::Clip, ds::FEData{3})
     point_data = Dict{Symbol,Makie.Observable}(
         k => Makie.lift(A -> combine_rows(combos, A), v) for (k, v) in _registered_point_data(ds))
     return _derive(ds; solid, visible, cells_intact=ds.cells_intact && !any_cut,
+                   cut_domain=CutDomain(ds, c),
                    coords, all_triangles, triangle_cell_map=out_tri_cells,
                    cell_triangle_offsets, cell_vertex_offsets,
                    simplices, simplex_cell_map, cell_simplex_offsets,
@@ -485,7 +500,7 @@ function apply(f::ExtractIsosurfaces, ds::FEData{dim}) where {dim}
         k => Makie.lift(B -> combine_rows(combos, B), v) for (k, v) in _registered_point_data(ds))
     pd[:isovalue] = Makie.Observable(reshape(isovalue, :, 1))
     S = NTuple{dim + 1,Int}
-    return _derive(ds; visible, cells_intact=false,
+    return _derive(ds; visible, cells_intact=false, cut_domain=nothing,
                    coords, all_triangles, triangle_cell_map=out_tri_cells,
                    cell_triangle_offsets, cell_vertex_offsets,
                    simplices=S[], simplex_cell_map=Int[], cell_simplex_offsets=zeros(Int, ncells + 1),

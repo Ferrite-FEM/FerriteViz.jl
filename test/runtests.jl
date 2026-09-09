@@ -1324,8 +1324,8 @@ end
     FerriteViz.update!(dsr2, 2 .* ur)
     @test all(isapprox(iso.coords[][i], scalex(ib[i]); atol=1e-5) for i in eachindex(ib))
 
-    # smoke; cut datasets fall back to the static tessellation (the adaptive
-    # base refines whole cells)
+    # smoke; cuts use their own graph path, separate from the whole-cell
+    # adaptive surface substrate
     dss, _, _ = _hexds(2; f=x -> x[1]^2 + x[2])
     cs = dss |> Clip(ClipPlane(Vec(0.0, 1.0, 1.0) / sqrt(2.0), 0.1))
     @test FerriteViz._adaptive_capable(dss)
@@ -1489,6 +1489,7 @@ end
 include("adaptive.jl")
 include("clipping_tolerance.jl")
 include("volume_storage.jl")
+include("cut_rendering.jl")
 
 @testset "source hygiene" begin
     src = joinpath(@__DIR__, "..", "src")

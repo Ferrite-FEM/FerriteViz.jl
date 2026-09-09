@@ -145,17 +145,43 @@ machinery: new vertices are *sparse affine combinations of parent vertices*
 ([`FerriteViz.AffineCombinations`](@ref)), so coordinates stay `lift`ed from
 the parent (reactive under `update!` with frozen cut topology), registered
 point data interpolates with the identical weights, and reference coordinates
-combine statically so dof fields re-evaluate exactly at the cut positions.
+combine statically so dof fields evaluate at the interpolated reference coordinates.
 Conformity contract: outputs are *geometrically* conforming but topologically
 duplicated — coincident cut vertices on the shared edge of two faces or cells
 are distinct indices (the same deliberate duplication the tessellation itself
-uses), classified identically by a single dataset-global tolerance per apply.
+uses), classified identically by a point-local coordinate-rounding bound. This avoids
+erasing small cells because of a large, distant part of a graded mesh.
 Two per-cell states distinguish removal from hiding: `solid` (cell is part of
 the body; clips clear it) versus `visible` (surface currently drawn; 3D
 interior cells are solid but hidden), and `cells_intact` guards filters that
 rebuild whole cells from the grid (`Refine`, `AddQuadraturePointData`)
-against resurrecting cut-away geometry — it also sends plots of cut datasets
-down the static path, since the adaptive base is fanned from whole cells.
+against resurrecting cut-away geometry.
+
+The coarse 3D fan is a lazy `FanSimplices` array: connectivity is recovered
+from surface triangles and one orientation flag per cell. `ClippedSimplices`
+retains that indexing rule for whole kept cells and stores explicit tetrahedra
+only for partially cut cells. Isosurface extraction reuses one scalar workspace
+across levels instead of retaining a full vertex array for each level.
+
+`src/adaptive_cut.jl` supplies the live plotting path for whole 3D FE domains
+clipped after their warps. `CutDomain` records the source and planes separately
+from the coarse snapshot. The plot's compute graph samples continuous geometry
+and emits positions, faces, colors, and wireframe together on solution, warp,
+or tolerance changes. Geometry bounds come from the existing `PolyField`
+coefficients evaluated over reference AABBs: geometric nodes alone are not a
+safe bound for high-order cells. Unknown polynomial representations disable
+culling. Hidden interior cells that cannot meet a plane never get decomposed;
+invisible tetrahedron subtrees are discarded during recursive traversal.
+
+Red subdivision uses a common level for conformity, with edge and interior
+geometry/solution probes driving the level. It consumes three bisection-depth
+units per round and stops at `max_depth`. This common-level closure can refine
+more exterior geometry than independent local refinement would. Cut positions
+and scalar colors use identical interpolation weights; this preserves an affine
+physical field on a nonlinearly mapped cell. The stored `FEData` arrays remain
+the coarse snapshot, as with other adaptive plots. QP partitions, raw arrays,
+embedded cells, post-cut warps, and extracted isosurfaces retain the snapshot
+path; see `Clip`'s docstring for the composition limits.
 
 ## Data layout
 

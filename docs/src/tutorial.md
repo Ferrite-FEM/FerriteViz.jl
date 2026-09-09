@@ -169,6 +169,12 @@ WGLMakie.current_figure()
 
 Clips compose: a second `Clip` cuts the remaining volume (caps included), and it also
 cuts quadrature-point data (below) exactly along the Voronoi region boundaries.
+For nonlinear deformation, apply `WarpByVector` before the clips. Surface plots
+and wireframes then re-cut the continuous FE geometry when the solution or warp
+scale changes, following the dataset's `Adaptivity` settings. Disabling adaptivity
+keeps coarse geometry but still updates the intersection. The arrays stored on
+`FEData`, quadrature-point cuts, and extracted isosurfaces remain apply-time
+snapshots; reapply their filters to change that topology.
 
 ### Isosurfaces and isolines
 

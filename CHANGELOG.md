@@ -32,11 +32,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    `FEData` now carries, so clips compose: a second `Clip` cuts the
    already-clipped volume, and clipping `AddQuadraturePointData` output cuts
    the Voronoi regions exactly along their walls (piecewise-constant rendering
-   stays exactly flat). Positions and data stay reactive under
-   `FerriteViz.update!` (cut vertices follow their parent edges); the cut
-   topology is fixed at apply time — re-apply to re-cut after large deformation
-   changes. Nonlinear geometry is treated as linear; apply `Refine` before
-   clipping to resolve curvature.
+   stays exactly flat). Whole 3D FE domains clipped after their warps render
+   through a compute-graph path that re-cuts on solution/warp updates and
+   follows `Adaptivity`, including interior deformation modes. Polynomial
+   bounds select candidates before recursive tetrahedron traversal; only the
+   resulting surface is retained. Affine physical fields remain affine on
+   nonlinear cuts. Coarse `FEData` arrays and QP/raw-array cuts remain snapshots.
+ - Coarse volume fans and whole retained cells now use lazy connectivity;
+   explicit tetrahedra are stored only for partially clipped cells. Multi-level
+   isosurfaces reuse one scalar workspace. Clipping uses point-local rounding
+   tolerances so large distant cells cannot erase small features.
  - `ExtractIsosurfaces` filter: level-set extraction of any scalar point-data
    array by marching the volume simplices — isosurfaces (triangles) in 3D,
    isolines (line segments, drawn by `solutionplot`) in 2D. Supports several
@@ -49,9 +54,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    `AddQuadraturePointData` skips removed cells; it and `Refine` reject
    datasets whose cells were cut (they rebuild whole cells from the grid).
    `CrinkleClip` now keeps registered point-data arrays (dof-backed caches
-   still re-resolve). Plots of cut datasets always draw the static tessellation
-   — the error-adaptive path refines whole cells and cannot represent cut
-   ones. Grids with embedded cells (shells/lines in 3D) construct without a
+   still re-resolve). Extracted isosurfaces and cuts without a continuous FE
+   domain retain snapshot rendering. Grids with embedded cells (shells/lines
+   in 3D) construct without a
    topology (everything visible); their cells carry no volume, so `Clip` cuts
    their surface without fabricating caps.
  - Experimental error-adaptive tessellation for `solutionplot` (#161):

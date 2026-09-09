@@ -237,33 +237,35 @@ function apply(c::Clip, ds::FEData{3})
 
     pc = ds.coords[]
     g = Vector{Float64}(undef, length(pc))
-    lo = Tensors.Vec(Inf, Inf, Inf)
-    hi = -lo
+    lo1 = lo2 = lo3 = Inf
+    hi1 = hi2 = hi3 = -Inf
     maxabs = 0.0
     for (i, p) in enumerate(pc)
         x = Tensors.Vec{3,Float64}(NTuple{3,Float64}(p))
         g[i] = x ⋅ n - d
         if isfinite(g[i])
-            lo = min.(lo, x)
-            hi = max.(hi, x)
-            maxabs = max(maxabs, maximum(abs, x))
+            lo1 = min(lo1, x[1]); lo2 = min(lo2, x[2]); lo3 = min(lo3, x[3])
+            hi1 = max(hi1, x[1]); hi2 = max(hi2, x[2]); hi3 = max(hi3, x[3])
+            maxabs = max(maxabs, abs(x[1]), abs(x[2]), abs(x[3]))
         end
     end
+    diag = lo1 <= hi1 ? sqrt((hi1 - lo1)^2 + (hi2 - lo2)^2 + (hi3 - lo3)^2) : 0.0
     # one dataset-global classification tolerance (cell-local tolerances could
     # classify the duplicated copies of a shared vertex differently and crack
     # the surface); the eps term floors it at Float32 roundoff of the data
-    tol = 1e-6 * LinearAlgebra.norm(hi - lo) + 4 * Float64(eps(Float32(maxabs)))
+    tol = 1e-6 * diag + 4 * Float64(eps(Float32(maxabs)))
     snap!(g, tol)
 
     grid = Ferrite.get_grid(ds.dh)
     ncells = Ferrite.getncells(grid)
     pool = CutVertexPool(pc)
-    out_tris = NTuple{3,Int}[]
-    out_tri_cells = Int[]
-    out_tets = NTuple{4,Int}[]
-    out_tet_cells = Int[]
-    out_edges = NTuple{2,Int}[]
-    out_edge_cells = Int[]
+    sizehint!(pool, length(pc))
+    out_tris = sizehint!(NTuple{3,Int}[], length(ds.all_triangles))
+    out_tri_cells = sizehint!(Int[], length(ds.all_triangles))
+    out_tets = sizehint!(NTuple{4,Int}[], length(ds.simplices))
+    out_tet_cells = sizehint!(Int[], length(ds.simplices))
+    out_edges = sizehint!(NTuple{2,Int}[], length(ds.all_edges))
+    out_edge_cells = sizehint!(Int[], length(ds.all_edges))
     solid = copy(ds.solid)
     visible = copy(ds.visible)
     cell_triangle_offsets = zeros(Int, ncells + 1)
@@ -341,11 +343,10 @@ function apply(c::Clip, ds::FEData{3})
     end
 
     combos = pool.combos
-    tri_matrix = Matrix{Int}(undef, length(out_tris), 3)
-    for (t, tri) in enumerate(out_tris), j in 1:3
-        tri_matrix[t, j] = tri[j]
+    all_triangles = Vector{GeometryBasics.GLTriangleFace}(undef, length(out_tris))
+    for (t, tri) in enumerate(out_tris)
+        all_triangles[t] = GeometryBasics.GLTriangleFace(tri[1], tri[2], tri[3])
     end
-    all_triangles = convert(Vector{GeometryBasics.GLTriangleFace}, Makie.to_triangles(tri_matrix))
     coords = Makie.lift(p -> combine_points(combos, p), ds.coords)
     reference_coords = combine_rows(combos, ds.reference_coords)
     point_data = Dict{Symbol,Makie.Observable}(
@@ -472,11 +473,10 @@ function apply(f::ExtractIsosurfaces, ds::FEData{dim}) where {dim}
     end
 
     combos = pool.combos
-    tri_matrix = Matrix{Int}(undef, length(out_tris), 3)
-    for (t, tri) in enumerate(out_tris), j in 1:3
-        tri_matrix[t, j] = tri[j]
+    all_triangles = Vector{GeometryBasics.GLTriangleFace}(undef, length(out_tris))
+    for (t, tri) in enumerate(out_tris)
+        all_triangles[t] = GeometryBasics.GLTriangleFace(tri[1], tri[2], tri[3])
     end
-    all_triangles = convert(Vector{GeometryBasics.GLTriangleFace}, Makie.to_triangles(tri_matrix))
     coords = Makie.lift(p -> combine_points(combos, p), ds.coords)
     reference_coords = combine_rows(combos, ds.reference_coords)
     pd = Dict{Symbol,Makie.Observable}(

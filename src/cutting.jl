@@ -100,28 +100,50 @@ end
 # primitive of a cell sharing an edge shares the cut vertex — the tag separates
 # cuts of the same edge at different isosurface levels). Because edges never
 # span cells, processing cell by cell keeps the output vertices of a cell
-# contiguous. Positions are tracked in Float64 for the degeneracy checks.
-struct CutVertexPool{dim}
-    parent_coords::Vector{Tensors.Vec{dim,Float64}}
+# contiguous. Positions are tracked in Float64 for the degeneracy checks;
+# parent coordinates are converted on access rather than materialized (a large
+# dataset's coordinate array is sizable, and a cut touches only part of it).
+struct CutVertexPool{dim,PC<:AbstractVector}
+    parent_points::PC
     combos::AffineCombinations
     pos::Vector{Tensors.Vec{dim,Float64}}
-    remap::Dict{Int,Int}
+    remap::Vector{Int}               # parent vertex -> output vertex; 0 = not emitted
     cuts::Dict{NTuple{3,Int},Int}
+    # scratch buffers of the per-primitive kernels below (the pool is used
+    # strictly sequentially), so the hot loops allocate nothing
+    poly_buf::Vector{Int}
+    ins_buf::Vector{Int}
+    outs_buf::Vector{Int}
 end
 
-function CutVertexPool(parent_coords::AbstractVector{GeometryBasics.Point{dim,T}}) where {dim,T}
-    coords = [Tensors.Vec{dim,Float64}(NTuple{dim,Float64}(p)) for p in parent_coords]
-    return CutVertexPool{dim}(coords, AffineCombinations(), Tensors.Vec{dim,Float64}[],
-                              Dict{Int,Int}(), Dict{NTuple{3,Int},Int}())
+function CutVertexPool(parent_coords::PC) where {dim,T,PC<:AbstractVector{GeometryBasics.Point{dim,T}}}
+    return CutVertexPool{dim,PC}(parent_coords, AffineCombinations(), Tensors.Vec{dim,Float64}[],
+                                 zeros(Int, length(parent_coords)), Dict{NTuple{3,Int},Int}(),
+                                 Int[], Int[], Int[])
 end
 
 nvertices(pool::CutVertexPool) = ncombos(pool.combos)
 
+@inline _parent_pos(pool::CutVertexPool{dim}, i::Int) where {dim} =
+    Tensors.Vec{dim,Float64}(NTuple{dim,Float64}(pool.parent_points[i]))
+
+# Reserve capacity for `n` output vertices (a clip's output is close to its
+# input size; growing the columnar arrays incrementally dominates otherwise).
+function Base.sizehint!(pool::CutVertexPool, n::Integer)
+    sizehint!(pool.pos, n)
+    sizehint!(pool.combos.offsets, n + 1)
+    sizehint!(pool.combos.parents, n)
+    sizehint!(pool.combos.weights, n)
+    return pool
+end
+
 function out_vertex!(pool::CutVertexPool, i::Int)
-    return get!(pool.remap, i) do
-        push!(pool.pos, pool.parent_coords[i])
-        combo_identity!(pool.combos, i)
-    end
+    r = pool.remap[i]
+    r != 0 && return r
+    push!(pool.pos, _parent_pos(pool, i))
+    r = combo_identity!(pool.combos, i)
+    pool.remap[i] = r
+    return r
 end
 
 function cut_vertex!(pool::CutVertexPool, i::Int, j::Int, gi::Float64, gj::Float64, tag::Int)
@@ -129,7 +151,7 @@ function cut_vertex!(pool::CutVertexPool, i::Int, j::Int, gi::Float64, gj::Float
     return get!(pool.cuts, (a, b, tag)) do
         ga, gb = a == i ? (gi, gj) : (gj, gi)
         t = ga / (ga - gb)   # deterministic: always parametrized from the lower index
-        push!(pool.pos, (1.0 - t) * pool.parent_coords[a] + t * pool.parent_coords[b])
+        push!(pool.pos, (1.0 - t) * _parent_pos(pool, a) + t * _parent_pos(pool, b))
         combo_pair!(pool.combos, a, b, t)
     end
 end
@@ -165,7 +187,7 @@ _inside(g) = g <= 0
 # (0–2 triangles, fan-triangulated) with degenerate slivers dropped.
 function clip_triangle!(pool::CutVertexPool, out_tris::Vector{NTuple{3,Int}}, out_cells::Vector{Int},
                         tri::NTuple{3,Int}, cell::Int, g::Vector{Float64}, area_tol::Float64)
-    poly = Int[]
+    poly = empty!(pool.poly_buf)
     for k in 1:3
         i, j = tri[k], tri[mod1(k + 1, 3)]
         gi, gj = g[i], g[j]
@@ -249,8 +271,8 @@ function clip_tet!(pool::CutVertexPool, out_tets::Vector{NTuple{4,Int}}, out_tet
         push!(out_tet_cells, cell)
         return nothing
     end
-    ins = Int[]
-    outs = Int[]
+    ins = empty!(pool.ins_buf)
+    outs = empty!(pool.outs_buf)
     for v in tet
         _inside(g[v]) ? push!(ins, v) : push!(outs, v)
     end
@@ -308,8 +330,8 @@ function march_tet!(pool::CutVertexPool, out_tris::Vector{NTuple{3,Int}}, out_ce
                     tet::NTuple{4,Int}, cell::Int, g::Vector{Float64}, area_tol::Float64, tag::Int)
     nin = count(v -> _inside(g[v]), tet)
     (nin == 0 || nin == 4) && return nothing
-    ins = Int[]
-    outs = Int[]
+    ins = empty!(pool.ins_buf)
+    outs = empty!(pool.outs_buf)
     for v in tet
         _inside(g[v]) ? push!(ins, v) : push!(outs, v)
     end
@@ -335,8 +357,8 @@ function march_triangle!(pool::CutVertexPool, out_segs::Vector{NTuple{2,Int}}, o
                          tri::NTuple{3,Int}, cell::Int, g::Vector{Float64}, len_tol::Float64, tag::Int)
     nin = count(v -> _inside(g[v]), tri)
     (nin == 0 || nin == 3) && return nothing
-    ins = Int[]
-    outs = Int[]
+    ins = empty!(pool.ins_buf)
+    outs = empty!(pool.outs_buf)
     for v in tri
         _inside(g[v]) ? push!(ins, v) : push!(outs, v)
     end

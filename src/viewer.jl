@@ -51,15 +51,12 @@ function panelspec(plots...; colorbar=nothing, dim::Int=2, axis=(;), colorbar_at
     return S.GridLayout([axblock S.Colorbar(colorbar; _colorbar_kw(colorbar, colorbar_attributes)...)])
 end
 
-# A `Colorbar` linked to a `PlotSpec` derives its colormap from the plot: when
-# the plot spec doesn't carry an explicit `colormap`, Makie reads the recipe's
-# default via `lookup_default`, which our `Attributes`-based recipes (whose
-# defaults are Observables) don't support. Forward the plot's colormap — or fall
-# back to the representation default — so the colorbar is always self-sufficient.
+# A `Colorbar` linked to a `PlotSpec` derives its colormap from the plot spec
+# or, since the recipes declare their attributes, from the recipe default via
+# Makie's `lookup_default`. Only the colorrange needs help (see below).
 function _colorbar_kw(colorbar, user_attributes)
     kw = Dict{Symbol,Any}(pairs(user_attributes))
     if colorbar isa Makie.PlotSpec
-        get!(kw, :colormap, get(colorbar.kwargs, :colormap, :cividis))
         if haskey(colorbar.kwargs, :colorrange)
             get!(kw, :colorrange, colorbar.kwargs[:colorrange])
         else

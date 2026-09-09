@@ -69,6 +69,40 @@ function _dedup_polygon(poly::Vector{V}, tol::Float64) where {V<:Ferrite.Vec}
     return out
 end
 
+# The Voronoi regions of a rule on the faces of a reference shape, as
+# `(face_index, qp_index, polygon)` triples — the polygon's vertices are in
+# ring order. The shared core of `qp_voronoi_tessellation` (which fills the
+# regions with flat triangles for the static renderer) and the adaptive base
+# construction (which fans each region so its boundaries become split edges).
+function _qp_face_regions(::Type{RS}, qr::Ferrite.QuadratureRule) where {RS<:Ferrite.AbstractRefShape}
+    corners = Ferrite.reference_coordinates(Ferrite.Lagrange{RS,1}())
+    V = eltype(corners)
+    refdim = length(first(corners))
+    ξs = Ferrite.getpoints(qr)
+    length(first(ξs)) == refdim ||
+        error("quadrature rule has reference dimension $(length(first(ξs))), expected $refdim for $RS")
+    regions = Tuple{Int,Int,Vector{V}}[]
+    refdim < 2 && return regions
+    tol = 1e-12
+    for (fi, face) in enumerate(Ferrite.reference_faces(RS))
+        base = V[corners[k] for k in face]
+        for i in 1:length(ξs)
+            poly = base
+            for j in 1:length(ξs)
+                j == i && continue
+                # keep the side closer to ξᵢ: (ξⱼ-ξᵢ)⋅x ≤ (|ξⱼ|²-|ξᵢ|²)/2
+                poly = _clip_halfspace(poly, ξs[j] - ξs[i],
+                                       (sum(abs2, ξs[j]) - sum(abs2, ξs[i])) / 2, tol)
+                length(poly) < 3 && break
+            end
+            poly = _dedup_polygon(poly, tol)
+            length(poly) < 3 && continue   # this region does not meet this face
+            push!(regions, (fi, i, poly))
+        end
+    end
+    return regions
+end
+
 """
     qp_voronoi_tessellation(::Type{<:Ferrite.AbstractRefShape}, qr::Ferrite.QuadratureRule) -> QPTessellation
 
@@ -79,39 +113,16 @@ boundary faces, which is what the surface renderer draws.
 function qp_voronoi_tessellation(::Type{RS}, qr::Ferrite.QuadratureRule) where {RS<:Ferrite.AbstractRefShape}
     corners = Ferrite.reference_coordinates(Ferrite.Lagrange{RS,1}())
     V = eltype(corners)
-    refdim = length(first(corners))
-    ξs = Ferrite.getpoints(qr)
-    length(first(ξs)) == refdim ||
-        error("quadrature rule has reference dimension $(length(first(ξs))), expected $refdim for $RS")
-
     coords = V[]
     triangles = NTuple{3,Int}[]
     vertex_qp = Int[]
-    # a line has no surface to triangulate (mirrors reference_tessellation(RefLine))
-    refdim < 2 && return QPTessellation{refdim}(coords, triangles, vertex_qp)
-
-    nqp = length(ξs)
-    tol = 1e-12
-    for face in Ferrite.reference_faces(RS)
-        base = V[corners[k] for k in face]
-        for i in 1:nqp
-            poly = base
-            for j in 1:nqp
-                j == i && continue
-                # keep the side closer to ξᵢ: (ξⱼ-ξᵢ)⋅x ≤ (|ξⱼ|²-|ξᵢ|²)/2
-                poly = _clip_halfspace(poly, ξs[j] - ξs[i],
-                                       (sum(abs2, ξs[j]) - sum(abs2, ξs[i])) / 2, tol)
-                length(poly) < 3 && break
-            end
-            poly = _dedup_polygon(poly, tol)
-            length(poly) < 3 && continue   # this region does not meet this face
-            offset = length(coords)
-            append!(coords, poly)
-            append!(vertex_qp, fill(i, length(poly)))
-            for t in 2:(length(poly)-1)    # fan-triangulate the convex region
-                push!(triangles, (offset + 1, offset + t, offset + t + 1))
-            end
+    for (_, i, poly) in _qp_face_regions(RS, qr)
+        offset = length(coords)
+        append!(coords, poly)
+        append!(vertex_qp, fill(i, length(poly)))
+        for t in 2:(length(poly)-1)    # fan-triangulate the convex region
+            push!(triangles, (offset + 1, offset + t, offset + t + 1))
         end
     end
-    return QPTessellation{refdim}(coords, triangles, vertex_qp)
+    return QPTessellation{length(first(corners))}(coords, triangles, vertex_qp)
 end

@@ -27,7 +27,7 @@ include("viewer.jl")
 
 export FEData, Adaptivity, apply
 export set_point_data!, set_cell_data!
-export WarpByVector, Gradient, CrinkleClip, Refine, AddQuadraturePointData
+export WarpByVector, Gradient, CrinkleClip, Clip, Refine, AddQuadraturePointData
 export ExtractComponent, Magnitude, Norm1, VonMises, Deviator, Threshold, Derive
 export ClipPlane
 export solutionplot, solutionplot!, cellplot, cellplot!, meshplot, meshplot!,

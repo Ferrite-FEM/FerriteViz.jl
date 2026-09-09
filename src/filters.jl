@@ -191,6 +191,187 @@ function apply(c::CrinkleClip, ds::FEData{3})
     return _derive(ds; solid, visible, point_data=_registered_point_data(ds))
 end
 
+########
+# Clip #
+########
+
+"""
+    Clip(plane::ClipPlane)
+
+Filter cutting a 3D dataset exactly at `plane`, keeping the side
+`normal ⋅ x ≤ distance`. Unlike [`CrinkleClip`](@ref) (which hides whole
+cells), the finite elements themselves are cut: surface triangles and
+wireframe edges are clipped at the plane and the cross-section is capped with
+triangles showing the interior field values. Cap triangles belong to the cell
+they cut through, cut cells become visible (previously hidden interior cells
+included), and the remaining per-cell volume is carried along — so a second
+`Clip` cuts the already-clipped volume, quadrature-point Voronoi regions are
+cut exactly along their walls, and [`ExtractIsosurfaces`](@ref) of a clipped
+dataset stays inside the kept volume.
+
+The cut *topology* (which edges cross the plane, and the interpolation
+weights) is fixed when the filter is applied: positions and data stay reactive
+under [`FerriteViz.update!`](@ref) — cut vertices follow their parent edges —
+but a deformation that moves vertices across the plane needs the filter to be
+re-applied to re-cut. Dof-backed fields evaluate exactly at the cut positions;
+registered point data is interpolated linearly along the cut edges.
+
+Nonlinear geometry is treated as linear (the plane cuts the tessellation's
+straight edges); apply [`Refine`](@ref) *before* clipping to resolve
+curvature. Plots of a cut dataset always draw the static tessellation (the
+error-adaptive path refines whole cells and cannot represent cut ones).
+"""
+struct Clip{T} <: AbstractFilter
+    plane::ClipPlane{T}
+end
+
+apply(::Clip, ::FEData{dim}) where {dim} =
+    error("Clip supports only 3D datasets (got spatial dimension $dim); in 2D consider Threshold or ExtractIsosurfaces")
+
+function apply(c::Clip, ds::FEData{3})
+    nn = LinearAlgebra.norm(c.plane.normal)
+    (isfinite(nn) && nn > 0 && isfinite(c.plane.distance)) ||
+        error("Clip plane must have a finite nonzero normal and a finite distance")
+    n = c.plane.normal / nn
+    d = c.plane.distance / nn
+
+    pc = ds.coords[]
+    g = Vector{Float64}(undef, length(pc))
+    lo = Tensors.Vec(Inf, Inf, Inf)
+    hi = -lo
+    maxabs = 0.0
+    for (i, p) in enumerate(pc)
+        x = Tensors.Vec{3,Float64}(NTuple{3,Float64}(p))
+        g[i] = x ⋅ n - d
+        if isfinite(g[i])
+            lo = min.(lo, x)
+            hi = max.(hi, x)
+            maxabs = max(maxabs, maximum(abs, x))
+        end
+    end
+    # one dataset-global classification tolerance (cell-local tolerances could
+    # classify the duplicated copies of a shared vertex differently and crack
+    # the surface); the eps term floors it at Float32 roundoff of the data
+    tol = 1e-6 * LinearAlgebra.norm(hi - lo) + 4 * Float64(eps(Float32(maxabs)))
+    snap!(g, tol)
+
+    grid = Ferrite.get_grid(ds.dh)
+    ncells = Ferrite.getncells(grid)
+    pool = CutVertexPool(pc)
+    out_tris = NTuple{3,Int}[]
+    out_tri_cells = Int[]
+    out_tets = NTuple{4,Int}[]
+    out_tet_cells = Int[]
+    out_edges = NTuple{2,Int}[]
+    out_edge_cells = Int[]
+    solid = copy(ds.solid)
+    visible = copy(ds.visible)
+    cell_triangle_offsets = zeros(Int, ncells + 1)
+    cell_vertex_offsets = zeros(Int, ncells + 1)
+    cell_simplex_offsets = zeros(Int, ncells + 1)
+    cell_edge_offsets = zeros(Int, ncells + 1)
+    any_cut = false
+
+    for cell in 1:ncells
+        if ds.solid[cell]
+            verts = vertices_on_cell(ds, cell)
+            has_volume = ds.cell_simplex_offsets[cell+1] > ds.cell_simplex_offsets[cell]
+            # degeneracy pruning is cell-local (a global threshold could
+            # discard valid geometry in the small cells of a graded mesh);
+            # only the classification tolerance above is global
+            tol_len = 1e-9 * _cell_diag(pc, verts)
+            area_tol = tol_len^2
+            vol_tol = tol_len^3
+            nneg = count(v -> g[v] < 0, verts)
+            nzero = count(v -> g[v] == 0, verts)
+            nin = nneg + nzero
+            # a volume cell whose kept part has no interior (nothing strictly
+            # inside) is removed — keeping it would only duplicate on-plane
+            # faces the inside neighbor already draws; measure-zero shells on
+            # the plane are kept
+            kept = has_volume ? nneg > 0 : nin > 0
+            if !kept
+                solid[cell] = false
+                visible[cell] = false
+            elseif nin == length(verts)
+                # fully on the kept side: carry the cell over unchanged
+                for v in verts
+                    out_vertex!(pool, v)
+                end
+                for t in triangles_on_cell(ds, cell)
+                    tri = ds.all_triangles[t]
+                    push!(out_tris, (pool.remap[convert(Int, tri[1])], pool.remap[convert(Int, tri[2])], pool.remap[convert(Int, tri[3])]))
+                    push!(out_tri_cells, cell)
+                end
+                for s in simplices_on_cell(ds, cell)
+                    tet = ds.simplices[s]
+                    push!(out_tets, (pool.remap[tet[1]], pool.remap[tet[2]], pool.remap[tet[3]], pool.remap[tet[4]]))
+                    push!(out_tet_cells, cell)
+                end
+                for e in edges_on_cell(ds, cell)
+                    edge = ds.all_edges[e]
+                    push!(out_edges, (pool.remap[edge[1]], pool.remap[edge[2]]))
+                    push!(out_edge_cells, cell)
+                end
+                nzero > 0 && (visible[cell] = true)   # touches the plane: reveal
+            else
+                any_cut = true
+                visible[cell] = true
+                for t in triangles_on_cell(ds, cell)
+                    tri = ds.all_triangles[t]
+                    clip_triangle!(pool, out_tris, out_tri_cells,
+                                   (convert(Int, tri[1]), convert(Int, tri[2]), convert(Int, tri[3])),
+                                   cell, g, area_tol)
+                end
+                # caps go into the same triangle list, keeping the cell's
+                # triangles contiguous
+                for s in simplices_on_cell(ds, cell)
+                    clip_tet!(pool, out_tets, out_tet_cells, out_tris, out_tri_cells,
+                              ds.simplices[s], cell, g, vol_tol, area_tol)
+                end
+                for e in edges_on_cell(ds, cell)
+                    clip_edge!(pool, out_edges, out_edge_cells, ds.all_edges[e], cell, g)
+                end
+            end
+        end
+        cell_vertex_offsets[cell+1] = nvertices(pool)
+        cell_triangle_offsets[cell+1] = length(out_tris)
+        cell_simplex_offsets[cell+1] = length(out_tets)
+        cell_edge_offsets[cell+1] = length(out_edges)
+    end
+
+    combos = pool.combos
+    tri_matrix = Matrix{Int}(undef, length(out_tris), 3)
+    for (t, tri) in enumerate(out_tris), j in 1:3
+        tri_matrix[t, j] = tri[j]
+    end
+    all_triangles = convert(Vector{GeometryBasics.GLTriangleFace}, Makie.to_triangles(tri_matrix))
+    coords = Makie.lift(p -> combine_points(combos, p), ds.coords)
+    reference_coords = combine_rows(combos, ds.reference_coords)
+    point_data = Dict{Symbol,Makie.Observable}(
+        k => Makie.lift(A -> combine_rows(combos, A), v) for (k, v) in _registered_point_data(ds))
+    return _derive(ds; solid, visible, cells_intact=ds.cells_intact && !any_cut,
+                   coords, all_triangles, triangle_cell_map=out_tri_cells,
+                   cell_triangle_offsets, cell_vertex_offsets,
+                   simplices=out_tets, simplex_cell_map=out_tet_cells, cell_simplex_offsets,
+                   all_edges=out_edges, edge_cell_map=out_edge_cells, cell_edge_offsets,
+                   reference_coords, point_data)
+end
+
+function _bbox_diag(coords)
+    isempty(coords) && return 0.0
+    lo = hi = Float64.(coords[1])
+    for p in coords
+        x = Float64.(p)
+        any(!isfinite, x) && continue
+        lo = min.(lo, x)
+        hi = max.(hi, x)
+    end
+    return LinearAlgebra.norm(hi .- lo)
+end
+
+_cell_diag(coords, verts) = isempty(verts) ? 0.0 : _bbox_diag(view(coords, verts))
+
 ##########
 # Refine #
 ##########

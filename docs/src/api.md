@@ -26,7 +26,9 @@ FerriteViz.apply
 FerriteViz.WarpByVector
 FerriteViz.Gradient
 FerriteViz.CrinkleClip
+FerriteViz.Clip
 FerriteViz.ClipPlane
+FerriteViz.ExtractIsosurfaces
 FerriteViz.Refine
 FerriteViz.AddQuadraturePointData
 FerriteViz.ExtractComponent

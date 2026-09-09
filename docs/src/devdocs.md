@@ -132,6 +132,31 @@ position — the adaptive path evaluates the geometric map *between* the
 corners, where a folded parametrization shows (see the
 [cohesive-cell example](cohesive.md)).
 
+## Exact cutting (Clip / ExtractIsosurfaces)
+
+Besides the rendered surface and wireframe, every `FEData` carries a **simplex
+volume decomposition** of each cell (tets in 3D — a centroid fan over the
+surface triangles, requiring convex cells — triangles in 2D, indexing into the
+same vertex array so point data covers the simplex vertices). This is what the
+exact-cutting filters operate on: [`Clip`](@ref) clips the simplices (kept
+tets become the output's volume, cut faces the caps) and
+[`ExtractIsosurfaces`](@ref) marches them. `src/cutting.jl` holds the shared
+machinery: new vertices are *sparse affine combinations of parent vertices*
+([`FerriteViz.AffineCombinations`](@ref)), so coordinates stay `lift`ed from
+the parent (reactive under `update!` with frozen cut topology), registered
+point data interpolates with the identical weights, and reference coordinates
+combine statically so dof fields re-evaluate exactly at the cut positions.
+Conformity contract: outputs are *geometrically* conforming but topologically
+duplicated — coincident cut vertices on the shared edge of two faces or cells
+are distinct indices (the same deliberate duplication the tessellation itself
+uses), classified identically by a single dataset-global tolerance per apply.
+Two per-cell states distinguish removal from hiding: `solid` (cell is part of
+the body; clips clear it) versus `visible` (surface currently drawn; 3D
+interior cells are solid but hidden), and `cells_intact` guards filters that
+rebuild whole cells from the grid (`Refine`, `AddQuadraturePointData`)
+against resurrecting cut-away geometry — it also sends plots of cut datasets
+down the static path, since the adaptive base is fanned from whole cells.
+
 ## Data layout
 
 Point-data arrays are `Matrix{Float64}` (nvertices × ncomponents) with tensor
@@ -167,6 +192,12 @@ FerriteViz.facet_based_tessellation
 FerriteViz.subdivide
 FerriteViz.QPTessellation
 FerriteViz.qp_voronoi_tessellation
+FerriteViz.AffineCombinations
+FerriteViz.combine_points
+FerriteViz.combine_rows
+FerriteViz.clip_tet!
+FerriteViz.march_tet!
+FerriteViz.march_triangle!
 FerriteViz.ntriangles
 FerriteViz.num_vertices
 FerriteViz.transfer_solution

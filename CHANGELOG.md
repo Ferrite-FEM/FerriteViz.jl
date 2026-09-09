@@ -24,6 +24,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    keyword to a recipe is now an error instead of being silently ignored.
 
 ### Added
+ - `Clip` filter: exact planar clipping in 3D. Unlike `CrinkleClip` it cuts the
+   finite elements themselves — surface triangles and wireframe edges are
+   clipped at the plane and the cross-section is capped with triangles showing
+   the interior field values (cap triangles stay associated with the cell they
+   cut through). Built on a per-cell simplex volume decomposition every
+   `FEData` now carries, so clips compose: a second `Clip` cuts the
+   already-clipped volume, and clipping `AddQuadraturePointData` output cuts
+   the Voronoi regions exactly along their walls (piecewise-constant rendering
+   stays exactly flat). Positions and data stay reactive under
+   `FerriteViz.update!` (cut vertices follow their parent edges); the cut
+   topology is fixed at apply time — re-apply to re-cut after large deformation
+   changes. Nonlinear geometry is treated as linear; apply `Refine` before
+   clipping to resolve curvature.
+ - `ExtractIsosurfaces` filter: level-set extraction of any scalar point-data
+   array by marching the volume simplices — isosurfaces (triangles) in 3D,
+   isolines (line segments, drawn by `solutionplot`) in 2D. Supports several
+   levels at once (vertices tagged in an `:isovalue` array), runs through
+   hidden interior cells, and composes with `Clip` in both orders.
+ - `transfer_solution` now evaluates hidden interior cells too (it gates on the
+   `solid` mask instead of `visible`), so volume-based filters and warps see
+   real values everywhere. Previously those vertices were `NaN`; interior cells
+   of large 3D grids are now evaluated on every static-path update.
+   `AddQuadraturePointData` skips removed cells; it and `Refine` reject
+   datasets whose cells were cut (they rebuild whole cells from the grid).
+   `CrinkleClip` now keeps registered point-data arrays (dof-backed caches
+   still re-resolve). Plots of cut datasets always draw the static tessellation
+   — the error-adaptive path refines whole cells and cannot represent cut
+   ones. Grids with embedded cells (shells/lines in 3D) construct without a
+   topology (everything visible); their cells carry no volume, so `Clip` cuts
+   their surface without fabricating caps.
  - Experimental error-adaptive tessellation for `solutionplot` (#161):
    `solutionplot(ds; adaptive=true)` re-tessellates the visible cells by
    longest-edge bisection driven by two interpolation-error estimators —

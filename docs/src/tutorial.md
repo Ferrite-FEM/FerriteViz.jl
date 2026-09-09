@@ -38,8 +38,9 @@ alone is already plottable:
 ```@example 1
 import FerriteViz
 using FerriteViz: FEData, WarpByVector, Gradient, Derive, AddQuadraturePointData,
-                  CrinkleClip, ClipPlane, vonmises
+                  CrinkleClip, Clip, ClipPlane, ExtractIsosurfaces, Magnitude, vonmises
 using Ferrite
+using LinearAlgebra: norm
 import WGLMakie #activating the backend, switch to GLMakie or CairoMakie (for 2D) locally
 WGLMakie.set_theme!(size=(800, 400)) # hide
 
@@ -155,6 +156,33 @@ WGLMakie.current_figure()
 
 The plane can be replaced by any function of the grid and a cell index returning whether
 the cell stays visible.
+
+Where `CrinkleClip` keeps cells whole (a "crinkled" cut surface), [`Clip`](@ref) cuts
+the elements exactly at the plane and caps the cross-section with the interior field
+values — this is the tool for looking *into* elements, e.g. at high-order solutions:
+
+```@example 1
+cut = ds_p |> Clip(ClipPlane(Vec((0.0,0.5,0.5))/norm(Vec((0.0,0.5,0.5))), 0.7))
+FerriteViz.solutionplot(cut,colormap=:thermal)
+WGLMakie.current_figure()
+```
+
+Clips compose: a second `Clip` cuts the remaining volume (caps included), and it also
+cuts quadrature-point data (below) exactly along the Voronoi region boundaries.
+
+### Isosurfaces and isolines
+
+[`ExtractIsosurfaces`](@ref) extracts the level sets of any scalar point-data array —
+surfaces in 3D, lines in 2D — and works on clipped datasets (staying inside the kept
+volume):
+
+```@example 1
+mag = ds_p |> Magnitude()
+umax = maximum(filter(isfinite, vec(FerriteViz.point_data(mag, :magnitude)[])))
+iso = mag |> ExtractIsosurfaces([0.25, 0.5, 0.75] .* umax; input=:magnitude)
+FerriteViz.solutionplot(iso; color=:isovalue, colormap=:thermal)
+WGLMakie.current_figure()
+```
 
 ### Derived fields: `Gradient` into `Derive`
 

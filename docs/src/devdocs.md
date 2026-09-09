@@ -193,6 +193,8 @@ FerriteViz.subdivide
 FerriteViz.QPTessellation
 FerriteViz.qp_voronoi_tessellation
 FerriteViz.AffineCombinations
+FerriteViz.combo_identity!
+FerriteViz.combo_pair!
 FerriteViz.combine_points
 FerriteViz.combine_rows
 FerriteViz.clip_tet!

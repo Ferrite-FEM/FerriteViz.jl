@@ -222,7 +222,10 @@ curvature. Plots of a cut dataset always draw the static tessellation (the
 error-adaptive path refines whole cells and cannot represent cut ones).
 Cells with non-finite coordinates (e.g. cells a subdomain-restricted
 [`WarpByVector`](@ref) could not displace) cannot be classified against the
-plane and are carried through unchanged.
+plane and are carried through unchanged. [`meshplot`](@ref)'s node markers
+and labels follow its documented rule — the grid nodes of the visible cells —
+so a cut cell's nodes on the removed side still get markers, beyond the cut
+surface.
 """
 struct Clip{T} <: AbstractFilter
     plane::ClipPlane{T}
@@ -281,12 +284,6 @@ function apply(c::Clip, ds::FEData{3})
         if ds.solid[cell]
             verts = vertices_on_cell(ds, cell)
             has_volume = ds.cell_simplex_offsets[cell+1] > ds.cell_simplex_offsets[cell]
-            # degeneracy pruning is cell-local (a global threshold could
-            # discard valid geometry in the small cells of a graded mesh);
-            # only the classification tolerance above is global
-            tol_len = 1e-9 * _cell_diag(pc, verts)
-            area_tol = tol_len^2
-            vol_tol = tol_len^3
             nneg = count(v -> g[v] < 0, verts)
             nzero = count(v -> g[v] == 0, verts)
             nin = nneg + nzero
@@ -327,6 +324,12 @@ function apply(c::Clip, ds::FEData{3})
             else
                 any_cut = true
                 visible[cell] = true
+                # degeneracy pruning is cell-local (a global threshold could
+                # discard valid geometry in the small cells of a graded mesh);
+                # only the classification tolerance above is global
+                tol_len = 1e-9 * _cell_diag(pc, verts)
+                area_tol = tol_len^2
+                vol_tol = tol_len^3
                 for t in triangles_on_cell(ds, cell)
                     tri = ds.all_triangles[t]
                     clip_triangle!(pool, out_tris, out_tri_cells,
@@ -420,7 +423,7 @@ function apply(f::ExtractIsosurfaces, ds::FEData{dim}) where {dim}
     size(A, 2) == 1 ||
         error("ExtractIsosurfaces needs a scalar array, :$name has $(size(A, 2)) components; " *
               "reduce it first, e.g. with Magnitude(input=:$name) or ExtractComponent(i; input=:$name)")
-    values = vec(A)
+    values = convert(Vector{Float64}, vec(A))
     isempty(ds.simplices) &&
         error("ExtractIsosurfaces marches the dataset's volume simplices, but this dataset has none " *
               "(an already-extracted surface, or a grid of only embedded shell/line cells, has no volume)")

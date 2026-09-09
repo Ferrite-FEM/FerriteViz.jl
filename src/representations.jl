@@ -146,12 +146,43 @@ end
 # falls back to the static tessellation.
 function Makie.plot!(SP::SolutionPlot{<:Tuple{<:FEData}})
     ds = SP.dataset[]
-    if _adaptive_capable(ds) && _adaptive_colorable(ds, SP.color[])
+    if !ds.cells_intact && isempty(ds.all_triangles) && !isempty(ds.all_edges)
+        _isoline_plot!(SP, ds)
+    elseif _adaptive_capable(ds) && _adaptive_colorable(ds, SP.color[])
         _adaptive_solutionplot!(SP, ds)
     else
         _mesh!(SP, ds, color=_graph_color!(SP, ds))
     end
     return SP
+end
+
+# A pure line dataset (2D isolines from ExtractIsosurfaces): draw segments,
+# gathering positions and colors per edge since vertices are shared.
+function _isoline_plot!(SP, ds::FEData)
+    color_data = _graph_color!(SP, ds)
+    graph = SP.attributes
+    ComputePipeline.add_input!(graph, :ds_coords, ds.coords)
+    edges = ds.all_edges
+    Makie.map!(graph, :ds_coords, :segment_positions) do coords
+        pts = Vector{eltype(coords)}(undef, 2 * length(edges))
+        for (k, e) in enumerate(edges)
+            pts[2k-1] = coords[e[1]]
+            pts[2k] = coords[e[2]]
+        end
+        pts
+    end
+    Makie.map!(graph, :color_data, :segment_color) do c
+        c isa AbstractVector || return c
+        out = Vector{eltype(c)}(undef, 2 * length(edges))
+        for (k, e) in enumerate(edges)
+            out[2k-1] = c[e[1]]
+            out[2k] = c[e[2]]
+        end
+        out
+    end
+    return Makie.linesegments!(SP, SP.segment_positions, color=SP.segment_color,
+                               colormap=SP.colormap, colorrange=SP.colorrange,
+                               nan_color=SP.nan_color, visible=SP.visible)
 end
 
 """

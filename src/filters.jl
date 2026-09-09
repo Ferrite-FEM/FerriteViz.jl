@@ -358,6 +358,139 @@ function apply(c::Clip, ds::FEData{3})
                    reference_coords, point_data)
 end
 
+######################
+# ExtractIsosurfaces #
+######################
+
+"""
+    ExtractIsosurfaces(levels; input=:default)
+
+Filter extracting the level sets of a scalar point-data array — isosurfaces
+(triangles) in 3D, isolines (segments, drawn by [`solutionplot`](@ref)) in 2D —
+by marching the dataset's volume simplices. `levels` is a single value or a
+vector of values; the output carries an `:isovalue` point-data array naming
+each vertex's level, and all other point data is carried to the extracted
+vertices (registered arrays interpolated linearly, dof fields evaluated
+exactly at the extracted positions).
+
+`input` must resolve to scalar point data — reduce vector/tensor data first,
+e.g. with [`Magnitude`](@ref) or [`ExtractComponent`](@ref). The field is
+linearized per simplex (the standard marching approach): for high-order fields
+apply [`Refine`](@ref) upstream to resolve curvature. Extraction runs through
+hidden interior cells, and on a clipped dataset it stays inside the kept
+volume. The output has no volume itself, so a later [`Clip`](@ref) cuts the
+extracted surface without capping it; plots of it always draw the static
+tessellation (the error-adaptive path refines whole cells).
+
+Like [`Clip`](@ref), the extraction topology is fixed at apply time: positions
+and data stay reactive under [`FerriteViz.update!`](@ref), but a field change
+that moves the level set across simplex edges needs the filter re-applied.
+"""
+struct ExtractIsosurfaces <: AbstractFilter
+    levels::Vector{Float64}
+    input::Symbol
+end
+function ExtractIsosurfaces(levels; input::Symbol=:default)
+    lv = levels isa Real ? [Float64(levels)] : collect(Float64, levels)
+    isempty(lv) && error("ExtractIsosurfaces needs at least one level")
+    all(isfinite, lv) || error("isosurface levels must be finite, got $lv")
+    return ExtractIsosurfaces(lv, input)
+end
+
+apply(::ExtractIsosurfaces, ::FEData{1}) =
+    error("ExtractIsosurfaces supports 2D and 3D datasets, not 1D")
+
+function apply(f::ExtractIsosurfaces, ds::FEData{dim}) where {dim}
+    name = _resolve_name(ds, f.input)
+    assoc = _data_association(ds, name)
+    assoc === :none && error("no data named :$name; available: $(_available_data(ds))")
+    assoc === :cell &&
+        error("ExtractIsosurfaces needs point data, but :$name is cell data (piecewise constant " *
+              "data has no level sets); for cell data use Threshold or CrinkleClip instead")
+    A = point_data(ds, name)[]
+    size(A, 2) == 1 ||
+        error("ExtractIsosurfaces needs a scalar array, :$name has $(size(A, 2)) components; " *
+              "reduce it first, e.g. with Magnitude(input=:$name) or ExtractComponent(i; input=:$name)")
+    values = vec(A)
+
+    # field-space tolerance: relative to the spread of the finite values (never
+    # to the level, so variation around a large offset survives)
+    lo, hi = Inf, -Inf
+    maxabs = 0.0
+    for v in values
+        isfinite(v) || continue
+        lo = min(lo, v)
+        hi = max(hi, v)
+        maxabs = max(maxabs, abs(v))
+    end
+    tol = lo <= hi ? 1e-8 * (hi - lo) + 4 * eps(maxabs) : 0.0
+
+    grid = Ferrite.get_grid(ds.dh)
+    ncells = Ferrite.getncells(grid)
+    pcoords = ds.coords[]
+    pool = CutVertexPool(pcoords)
+
+    out_tris = NTuple{3,Int}[]
+    out_tri_cells = Int[]
+    out_edges = NTuple{2,Int}[]
+    out_edge_cells = Int[]
+    isovalue = Float64[]
+    visible = fill(false, ncells)
+    cell_triangle_offsets = zeros(Int, ncells + 1)
+    cell_vertex_offsets = zeros(Int, ncells + 1)
+    cell_edge_offsets = zeros(Int, ncells + 1)
+    gs = [snap!([v - level for v in values], tol) for level in f.levels]
+
+    # cells outermost so the output vertices and triangles stay grouped per
+    # cell (vertices_on_cell/transfer_solution rely on contiguous ranges); the
+    # pool tag keeps cuts of the same edge at different levels distinct
+    for cell in 1:ncells
+        if ds.solid[cell]
+            # cell-local degeneracy pruning (see Clip)
+            len_tol = 1e-9 * _cell_diag(pcoords, vertices_on_cell(ds, cell))
+            area_tol = len_tol^2
+            for (tag, level) in enumerate(f.levels)
+                g = gs[tag]
+                nv0 = nvertices(pool)
+                n0 = dim == 3 ? length(out_tris) : length(out_edges)
+                for s in simplices_on_cell(ds, cell)
+                    simplex = ds.simplices[s]
+                    any(v -> !isfinite(g[v]), simplex) && continue   # subdomain NaNs
+                    if dim == 3
+                        march_tet!(pool, out_tris, out_tri_cells, simplex, cell, g, area_tol, tag)
+                    else
+                        march_triangle!(pool, out_edges, out_edge_cells, simplex, cell, g, len_tol, tag)
+                    end
+                end
+                append!(isovalue, fill(level, nvertices(pool) - nv0))
+                (dim == 3 ? length(out_tris) : length(out_edges)) > n0 && (visible[cell] = true)
+            end
+        end
+        cell_vertex_offsets[cell+1] = nvertices(pool)
+        cell_triangle_offsets[cell+1] = length(out_tris)
+        cell_edge_offsets[cell+1] = length(out_edges)
+    end
+
+    combos = pool.combos
+    tri_matrix = Matrix{Int}(undef, length(out_tris), 3)
+    for (t, tri) in enumerate(out_tris), j in 1:3
+        tri_matrix[t, j] = tri[j]
+    end
+    all_triangles = convert(Vector{GeometryBasics.GLTriangleFace}, Makie.to_triangles(tri_matrix))
+    coords = Makie.lift(p -> combine_points(combos, p), ds.coords)
+    reference_coords = combine_rows(combos, ds.reference_coords)
+    pd = Dict{Symbol,Makie.Observable}(
+        k => Makie.lift(B -> combine_rows(combos, B), v) for (k, v) in _registered_point_data(ds))
+    pd[:isovalue] = Makie.Observable(reshape(isovalue, :, 1))
+    S = NTuple{dim + 1,Int}
+    return _derive(ds; visible, cells_intact=false,
+                   coords, all_triangles, triangle_cell_map=out_tri_cells,
+                   cell_triangle_offsets, cell_vertex_offsets,
+                   simplices=S[], simplex_cell_map=Int[], cell_simplex_offsets=zeros(Int, ncells + 1),
+                   all_edges=out_edges, edge_cell_map=out_edge_cells, cell_edge_offsets,
+                   reference_coords, point_data=pd)
+end
+
 function _bbox_diag(coords)
     isempty(coords) && return 0.0
     lo = hi = Float64.(coords[1])

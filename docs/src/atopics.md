@@ -125,20 +125,13 @@ Since the filter rebuilds the geometry, apply [`WarpByVector`](@ref) *after* it.
 
 ## High-order fields
 
-High-order data gets a head start out of the box: whenever the geometry or a field of the
-dof handler is nonlinear, [`FEData`](@ref) applies the [`Refine`](@ref) filter's
-automatic mode, subdividing each cell's reference tessellation once for the surfaces and
-three times for the [`FerriteViz.meshplot`](@ref) wireframe edges and mapping the new
-vertices through the geometric interpolation — curved cells and high-order deformations
-render curved. This costs high-order cell types about 4× the triangles of the flat
-tessellation; `FEData(dh, u; adaptive=false)` opts out, and applying [`Refine`](@ref)
-explicitly (e.g. `ds |> Refine(2)`) picks custom levels for a single branch of a
-pipeline.
-
-That default is deliberately coarse for the *solution values* though. To resolve the fine
-structure of a high-order field (given enough RAM), the [`Refine`](@ref) filter takes
-explicit subdivision counts — each surface round quadruples the rendered triangles (and
-each edge round doubles the wireframe segments):
+High-order data renders curved out of the box: by default every plot refines
+error-adaptively (see [`Adaptivity`](@ref)) until the drawn triangles resolve both
+the exact geometry — including high-order deformations — and the color field to the
+configured tolerances. For a *fixed* subdivision instead, opt out of adaptivity and
+apply the [`Refine`](@ref) filter with explicit counts — each surface round quadruples
+the rendered triangles (and each edge round doubles the wireframe segments), and the
+new vertices are mapped through the geometric interpolation:
 ```@example 1
 include("ferrite-examples/heat-equation.jl"); #defines manufactured_heat_problem
 
@@ -146,7 +139,7 @@ f = WGLMakie.Figure()
 axs = [WGLMakie.LScene(f[1, 1]), WGLMakie.LScene(f[1, 2])]
 
 dh, u = manufactured_heat_problem(Hexahedron, Lagrange{RefHexahedron,2}(), 2);
-clipped = FEData(dh,u) |> CrinkleClip(ClipPlane(Ferrite.Vec((0.0,0.5,0.5)), 0.1));
+clipped = FEData(dh,u; adaptivity=false) |> CrinkleClip(ClipPlane(Ferrite.Vec((0.0,0.5,0.5)), 0.1));
 
 FerriteViz.solutionplot!(axs[1], clipped)
 FerriteViz.solutionplot!(axs[2], clipped |> Refine(4))
@@ -154,9 +147,8 @@ FerriteViz.solutionplot!(axs[2], clipped |> Refine(4))
 f
 ```
 
-In future the tessellation `adaptive=true` picks may resolve the high-order fields with
-full detail; such a change is breaking. `adaptive=false` and explicit [`Refine`](@ref)
-counts are stable.
+The adaptive default's tolerances may change in a future release; such a change is
+breaking. `adaptivity=false` and explicit [`Refine`](@ref) counts are stable.
 
 ## Pipeline semantics
 

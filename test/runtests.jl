@@ -173,6 +173,8 @@ end
     end
 end
 
+include("isubd.jl")
+
 @testset "tessellation defaults" begin
     @test FerriteViz.ntriangles(Triangle((1,2,3))) == 1
     @test FerriteViz.ntriangles(Quadrilateral((1,2,3,4))) == 4
@@ -240,8 +242,10 @@ end
     dh = DofHandler(grid); add!(dh, :u, Lagrange{RefQuadrilateral,2}()^2); close!(dh)
     g_ana(x) = Vec{2}((0.0, x[1]^2))
     u = zeros(ndofs(dh)); Ferrite.apply_analytical!(u, dh, :u, g_ana)
-    ds = FEData(dh, u)
-    @test length(ds.all_edges) == 4 * 2^3    # default edge rounds = 3 for order 2
+    # the constructor builds the flat base; Refine()'s automatic mode picks
+    # the subdivision per cell type (3 edge rounds for order 2)
+    ds = FEData(dh, u; adaptivity=false) |> Refine()
+    @test length(ds.all_edges) == 4 * 2^3
     warped = ds |> WarpByVector(:u)
     pts = warped.coords[][FerriteViz._visible_edge_indices(warped)]
     # every warped edge vertex satisfies y = y₀ + x² exactly (up to Float32);
@@ -251,15 +255,15 @@ end
     end
     @test meshplot(warped) isa Makie.FigureAxisPlot
 
-    # adaptive=false opts out of the automatic subdivision entirely
-    ds0 = FEData(dh, u; adaptive=false)
+    # the constructor's static tessellation is the flat base
+    ds0 = FEData(dh, u)
     @test length(ds0.all_triangles) == 4 && length(ds0.all_edges) == 4
-    # ... and the Refine filter reintroduces it with explicit control
+    # ... and the Refine filter subdivides it with explicit control
     @test length((ds0 |> Refine(1)).all_triangles) == 16
-    dsl = FEData(DofHandler(grid), Float64[]; adaptive=false) |> Refine(1) # linear grid, forced
+    dsl = FEData(DofHandler(grid), Float64[]) |> Refine(1) # linear grid, forced
     @test length(dsl.all_triangles) == 16
     @test length((ds0 |> Refine(surface=0, edges=2)).all_edges) == 4 * 4
-    # the automatic filter mode reproduces the constructor default exactly
+    # the automatic filter mode matches the explicit pipe above
     dsauto = ds0 |> Refine()
     @test length(dsauto.all_triangles) == length(ds.all_triangles)
     @test dsauto.reference_coords == ds.reference_coords
@@ -383,7 +387,8 @@ end
     g_ana(x) = Vec{2}((-x[1]^2 + 0.3x[2]^2 + 5x[1]*x[2], x[1]^2 + 2.3x[2]^2 - 0.1x[1]*x[2]))
     u = Vector{Float64}(undef, ndofs(dh))
     Ferrite.apply_analytical!(u, dh, :u, g_ana)
-    src = FEData(dh, u)
+    # this testset checks the *static* resolution end to end
+    src = FEData(dh, u; adaptivity=false)
     pipe = src |> WarpByVector(:u, 2.0) |> Gradient(:u) |> VonMises()
 
     # the named array matches hand-computed values
@@ -909,6 +914,8 @@ end
     @test FerriteViz._buffer_data(ds.coords_buffer) isa Vector
     @test FerriteViz._buffer_data([1, 2]) == [1, 2]
 end
+
+include("adaptive.jl")
 
 @testset "source hygiene" begin
     src = joinpath(@__DIR__, "..", "src")

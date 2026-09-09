@@ -28,11 +28,10 @@ nothing # hide
 
 ## Defining the cell
 
-A four-node cohesive quad has its facets on nodes `(1,2)` and `(3,4)`. Drawing
-it as a filled quad therefore means walking the node loop `1 → 2 → 4 → 3`
-(not the standard quadrilateral loop `1 → 2 → 3 → 4`, which would produce a
-bow-tie). We give it a dedicated reference shape so its tessellation is
-independent of the ordinary quadrilateral:
+A four-node cohesive quad has its facets on nodes `(1,2)` and `(3,4)`, so its
+node loop is `1 → 2 → 4 → 3` rather than the quadrilateral's `1 → 2 → 3 → 4`.
+We give it a dedicated reference shape, and a geometric interpolation that
+places each node at the reference corner it belongs to:
 
 ```@example cohesive
 using Ferrite
@@ -48,41 +47,73 @@ struct CohesiveQuadrilateral <: Ferrite.AbstractCell{RefCohesiveQuad}
     nodes::NTuple{4,Int}
 end
 
-# 3. the geometric interpolation: node i sits at reference corner PERM[i], so
-# the facets (1,2) and (3,4) are the bottom and top edges of the reference
-# quadrilateral and the bilinear map never folds
+# 3. the geometric interpolation: facet (1,2) is the bottom edge η = -1 of the
+# reference square and facet (3,4) the top edge η = +1, so nodes 3 and 4 sit
+# at the corners (-1, 1) and (1, 1) — the bilinear map then never folds
 struct CohesiveLagrange <: Ferrite.ScalarInterpolation{RefCohesiveQuad,1} end
-const PERM = (1, 2, 4, 3)
 Ferrite.getnbasefunctions(::CohesiveLagrange) = 4
-Ferrite.reference_shape_value(::CohesiveLagrange, ξ, i::Int) =
-    Ferrite.reference_shape_value(Lagrange{RefQuadrilateral,1}(), ξ, PERM[i])
+function Ferrite.reference_shape_value(::CohesiveLagrange, ξ::Vec{2}, i::Int)
+    x, y = ξ
+    i == 1 && return (1 - x) * (1 - y) / 4     # node 1 at (-1, -1)
+    i == 2 && return (1 + x) * (1 - y) / 4     # node 2 at ( 1, -1)
+    i == 3 && return (1 - x) * (1 + y) / 4     # node 3 at (-1,  1)
+    i == 4 && return (1 + x) * (1 + y) / 4     # node 4 at ( 1,  1)
+    throw(ArgumentError("no shape function $i"))
+end
 Ferrite.reference_coordinates(::CohesiveLagrange) =
-    Ferrite.reference_coordinates(Lagrange{RefQuadrilateral,1}())[collect(PERM)]
+    [Vec((-1.0, -1.0)), Vec((1.0, -1.0)), Vec((-1.0, 1.0)), Vec((1.0, 1.0))]
 
 Ferrite.geometric_interpolation(::Type{CohesiveQuadrilateral}) = CohesiveLagrange()
 nothing # hide
 ```
 
 The interpolation is the important design decision. Plugging the cohesive node
-order into a plain `Lagrange{RefQuadrilateral,1}` would trace the loop
-`1 → 2 → 3 → 4` and fold the bilinear map into a bow-tie: the corners land in
-the right places, but the interior of the map self-intersects. The static
-tessellation would never notice (it only ever samples the corners), but
-everything that evaluates the geometry *between* the corners — the
-error-adaptive refinement in particular — would faithfully render the fold.
-Permuting the nodes onto the reference corners keeps the map clean everywhere.
+order into a plain `Lagrange{RefQuadrilateral,1}` would put node 3 at the
+corner `(1, 1)` and node 4 at `(-1, 1)`, and the bilinear map would fold into
+a bow-tie: the corners land in the right places, but the interior of the map
+degenerates. The static tessellation would never notice (it only ever samples
+the corners and the centre), but everything that evaluates the geometry
+*between* the corners — the error-adaptive refinement in particular — would
+faithfully render the fold. Placing the nodes onto their proper reference
+corners keeps the map clean everywhere.
 
 ## The one method FerriteViz needs
 
-With a clean parametrization the reference geometry *is* just a quadrilateral,
-so its tessellation — surface triangles, and the element edges that give
-[`meshplot`](@ref) its wireframe — can simply be reused:
+A [`FerriteViz.ReferenceTessellation`](@ref) has three parts, all in
+*reference* space: the vertices, the triangles indexing into them, and the
+wireframe edges drawn by [`meshplot`](@ref). Vertex indices refer to
+positions in the reference square, not to cell nodes — the interpolation
+above is what ties the two together. The four corners plus a centre vertex
+give a fan of four triangles; the four sides are the cell edges:
 
 ```@example cohesive
-FerriteViz.reference_tessellation(::Type{RefCohesiveQuad}) =
-    FerriteViz.reference_tessellation(Ferrite.RefQuadrilateral)
+function FerriteViz.reference_tessellation(::Type{RefCohesiveQuad})
+    coords = [Vec((-1.0, -1.0)), Vec((1.0, -1.0)), Vec((1.0, 1.0)), Vec((-1.0, 1.0)),  # corners
+              Vec((0.0, 0.0))]                                                          # centre, vertex 5
+    triangles = [(1, 2, 5), (2, 3, 5), (3, 4, 5), (4, 1, 5)]   # fan around the centre
+    edges = [(1, 2), (2, 3), (3, 4), (4, 1)]                   # the wireframe
+    return FerriteViz.ReferenceTessellation(coords, triangles, edges)
+end
 nothing # hide
 ```
+
+Through the interpolation, reference edge `(2, 3)` runs from node 2 to node 4
+and edge `(4, 1)` from node 3 to node 1 — the cohesive `1 → 2 → 4 → 3` loop,
+without any renumbering in the tessellation itself.
+
+The tessellation is written out here to show what the extension point consists
+of. Whenever a custom shape's reference geometry coincides with one FerriteViz
+already knows — as it does here, since the cohesive cell is parametrized as a
+plain quadrilateral — the method can just as well forward to the existing
+tessellation:
+
+```julia
+FerriteViz.reference_tessellation(::Type{RefCohesiveQuad}) =
+    FerriteViz.reference_tessellation(Ferrite.RefQuadrilateral)
+```
+
+Both definitions are equivalent; the explicit one is the template for shapes
+that have no built-in counterpart.
 
 That is the entire extension. `FEData` and every representation now work for
 grids containing `CohesiveQuadrilateral`s — including the wireframe and the

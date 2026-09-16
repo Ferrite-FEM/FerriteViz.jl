@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Tutorial · FerriteViz</title><meta name="title" content="Tutorial · FerriteViz"/><meta property="og:title" content="Tutorial · FerriteViz"/><meta property="twitter:title" content="Tutorial · FerriteViz"/><meta name="description" content="Documentation for FerriteViz."/><meta property="og:description" content="Documentation for FerriteViz."/><meta property="twitter:description" content="Documentation for FerriteViz."/><script data-outdated-warner src="assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.050/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL="."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="assets/documenter.js"></script><script src="search_index.js"></script><script src="siteinfo.js"></script><script src="../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href="index.html">FerriteViz</a></span></div><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li><a class="tocitem" href="index.html">Home</a></li><li class="is-active"><a class="tocitem" href="tutorial.html">Tutorial</a><ul class="internal"><li><a class="tocitem" href="#Solve-a-Boundary-Value-Problem"><span>Solve a Boundary Value Problem</span></a></li><li><a class="tocitem" href="#Basics"><span>Basics</span></a></li></ul></li><li><a class="tocitem" href="atopics.html">Advanced Topics</a></li><li><a class="tocitem" href="api.html">API Reference</a></li><li><a class="tocitem" href="devdocs.html">Developer Documentation</a></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li class="is-active"><a href="tutorial.html">Tutorial</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href="tutorial.html">Tutorial</a></li></ul></nav><div class="docs-right"><a class="docs-navbar-link" href="https://github.com/Ferrite-FEM/FerriteViz.jl" title="View the repository on GitHub"><span class="docs-icon fa-brands"></span><span class="docs-label is-hidden-touch">GitHub</span></a><a class="docs-navbar-link" href="https://github.com/Ferrite-FEM/FerriteViz.jl/blob/master/docs/src/tutorial.md" title="Edit source on GitHub"><span class="docs-icon fa-solid"></span></a><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><h1 id="Tutorial"><a class="docs-heading-anchor" href="#Tutorial">Tutorial</a><a id="Tutorial-1"></a><a class="docs-heading-anchor-permalink" href="#Tutorial" title="Permalink"></a></h1><h2 id="Solve-a-Boundary-Value-Problem"><a class="docs-heading-anchor" href="#Solve-a-Boundary-Value-Problem">Solve a Boundary Value Problem</a><a id="Solve-a-Boundary-Value-Problem-1"></a><a class="docs-heading-anchor-permalink" href="#Solve-a-Boundary-Value-Problem" title="Permalink"></a></h2><p>Start with solving a boundary value problem as you would usually do with Ferrite. It is crucial that you safe your used DofHandler and solution vector because we need to pass those objects to <code>MakiePlotter</code>.</p><h2 id="Basics"><a class="docs-heading-anchor" href="#Basics">Basics</a><a id="Basics-1"></a><a class="docs-heading-anchor-permalink" href="#Basics" title="Permalink"></a></h2><div class="admonition is-success"><header class="admonition-header">Plotting Functions</header><div class="admonition-body"><p>Currently, <a href="api.html#FerriteViz.solutionplot"><code>FerriteViz.solutionplot</code></a>, <a href="api.html#FerriteViz.wireframe"><code>FerriteViz.wireframe</code></a>, <a href="api.html#FerriteViz.surface"><code>FerriteViz.surface</code></a>, <a href="api.html#FerriteViz.arrows"><code>FerriteViz.arrows</code></a> and their mutating analogues with <code>!</code> are defined for <code>MakiePlotter</code>. Due to the nature of the documentation we need <code>WGLMakie</code>, however, you can simply exchange any <code>WGLMakie</code> call by <code>GLMakie</code>.</p></div></div><h3 id="Mesh-utilities"><a class="docs-heading-anchor" href="#Mesh-utilities">Mesh utilities</a><a id="Mesh-utilities-1"></a><a class="docs-heading-anchor-permalink" href="#Mesh-utilities" title="Permalink"></a></h3><p>You can start by plotting your mesh</p><pre><code class="language-julia hljs">import FerriteViz
+using Ferrite
+import WGLMakie #activating the backend, switch to GLMakie or CairoMakie (for 2D) locally
+
+grid = generate_grid(Hexahedron,(3,3,3))
+FerriteViz.wireframe(grid,markersize=10,strokewidth=2)</code></pre><div>
+  <div id="c66cb611-37b5-410d-bd4d-6394e379b99b" data-jscall-id="root">
+    <div>
+      <script src="jsserve/js/JSServe.bundled.js" type="module"></script>
+      <div></div>
+    </div>
+    <span>
+      <script type="module">JSServe.lock_loading(() => JSServe.init_session('c66cb611-37b5-410d-bd4d-6394e379b99b', null, 'root'))</script>
+    </span>
+  </div>
+  <div id="bb1a912b-2eee-4b57-9793-f6a6aa1c5ed4" data-jscall-id="subsession-application-dom">
+    <div>
+      <div></div>
+    </div>
+    <div style="width: 100%; height: 100%" data-jscall-id="1">
+      <script type="module">    JSServe.lock_loading(() => {
+        return JSServe.fetch_binary('jsserve/bin/1a1a8243dc2775a4213555e8cc131e1846532381-5170207647031304816.bin').then(msgs=> JSServe.init_session('bb1a912b-2eee-4b57-9793-f6a6aa1c5ed4', msgs, 'sub'));
+    })
+</script>
+      <canvas style="display: block" data-jscall-id="2" tabindex="0"></canvas>
+    </div>
+  </div>
+</div><p>FerriteViz.jl also supports showing labels for <code>Ferrite.AbstractGrid</code> entities, such as node- and celllabels, as well as plotting cellsets.</p><pre><code class="language-julia hljs">grid = generate_grid(Quadrilateral,(3,3))
+addcellset!(grid,&quot;s1&quot;,Set((1,4,7)))
+addcellset!(grid,&quot;s2&quot;,Set((2,5,8)))
+addcellset!(grid,&quot;s3&quot;,Set((3,6,9)))
+FerriteViz.wireframe(grid,markersize=10,strokewidth=1,nodelabels=true,celllabels=true,cellsets=true)</code></pre><div id="d8783b56-470f-4649-9c17-1c354415539d" data-jscall-id="subsession-application-dom">
+  <div>
+    <div></div>
+  </div>
+  <div style="width: 100%; height: 100%" data-jscall-id="3">
+    <script type="module">    JSServe.lock_loading(() => {
+        return JSServe.fetch_binary('jsserve/bin/5f2c3dfd0199d0df1c0661ba77b96f576be2f3db-802582715107971143.bin').then(msgs=> JSServe.init_session('d8783b56-470f-4649-9c17-1c354415539d', msgs, 'sub'));
+    })
+</script>
+    <canvas style="display: block" data-jscall-id="4" tabindex="0"></canvas>
+  </div>
+</div><h3 id="Solution-field-of-a-boundary-value-problem"><a class="docs-heading-anchor" href="#Solution-field-of-a-boundary-value-problem">Solution field of a boundary value problem</a><a id="Solution-field-of-a-boundary-value-problem-1"></a><a class="docs-heading-anchor-permalink" href="#Solution-field-of-a-boundary-value-problem" title="Permalink"></a></h3><p>If you solve some boundary value problem with Ferrite.jl keep in mind to safe your <code>dh::DofHandler</code> and solution vector <code>u::Vector{T}</code> in some variable. With them, we create the <code>MakiePlotter</code> struct that dispatches on the plotting functions.</p><pre><code class="language-julia hljs">include(&quot;ferrite-examples/incompressible-elasticity.jl&quot;) #defines variables dh_quadratic and u_quadratic
+
+plotter = FerriteViz.MakiePlotter(dh_quadratic,u_quadratic)
+FerriteViz.arrows(plotter)</code></pre><div id="3823a6ca-ec8c-489a-8599-95bd05097fcd" data-jscall-id="subsession-application-dom">
+  <div>
+    <div></div>
+  </div>
+  <div style="width: 100%; height: 100%" data-jscall-id="5">
+    <script type="module">    JSServe.lock_loading(() => {
+        return JSServe.fetch_binary('jsserve/bin/c0e0a3656dbec86dd0a3465694d68e8bb4d41af7-5164102376945539016.bin').then(msgs=> JSServe.init_session('3823a6ca-ec8c-489a-8599-95bd05097fcd', msgs, 'sub'));
+    })
+</script>
+    <canvas style="display: block" data-jscall-id="6" tabindex="0"></canvas>
+  </div>
+</div><p>Per default, all plotting functions grab the first field in the <code>DofHandler</code>, but of course you can plot a different field as well. The next plot will show the pressure instead of the displacement</p><pre><code class="language-julia hljs">FerriteViz.solutionplot(plotter,field=:p)</code></pre><div id="567f2428-ee5a-4168-bc38-f16598075f9d" data-jscall-id="subsession-application-dom">
+  <div>
+    <div></div>
+  </div>
+  <div style="width: 100%; height: 100%" data-jscall-id="7">
+    <script type="module">    JSServe.lock_loading(() => {
+        return JSServe.fetch_binary('jsserve/bin/1904ad9c0dbabfea15985a7200ca371ecc314501-8825202151603505814.bin').then(msgs=> JSServe.init_session('567f2428-ee5a-4168-bc38-f16598075f9d', msgs, 'sub'));
+    })
+</script>
+    <canvas style="display: block" data-jscall-id="8" tabindex="0"></canvas>
+  </div>
+</div><p>For certain 2D problems it makes sense to visualize the result as a <code>surface</code> plot. To showcase the combination with the mutating versions of the plotting functions, the <code>solutionplot</code> function is plotted below the <code>surface</code> plot</p><pre><code class="language-julia hljs">FerriteViz.surface(plotter)
+FerriteViz.solutionplot!(plotter,colormap=:magma)
+WGLMakie.current_figure()</code></pre><div id="d1ba0347-047e-40ab-aa62-0d5ba9b6158e" data-jscall-id="subsession-application-dom">
+  <div>
+    <div></div>
+  </div>
+  <div style="width: 100%; height: 100%" data-jscall-id="9">
+    <script type="module">    JSServe.lock_loading(() => {
+        return JSServe.fetch_binary('jsserve/bin/62c43b102f90ce092004a234915f94102df25333-18367309120429356511.bin').then(msgs=> JSServe.init_session('d1ba0347-047e-40ab-aa62-0d5ba9b6158e', msgs, 'sub'));
+    })
+</script>
+    <canvas style="display: block" data-jscall-id="10" tabindex="0"></canvas>
+  </div>
+</div><h3 id="Deformed-mesh-for-mechanical-boundary-value-problem"><a class="docs-heading-anchor" href="#Deformed-mesh-for-mechanical-boundary-value-problem">Deformed mesh for mechanical boundary value problem</a><a id="Deformed-mesh-for-mechanical-boundary-value-problem-1"></a><a class="docs-heading-anchor-permalink" href="#Deformed-mesh-for-mechanical-boundary-value-problem" title="Permalink"></a></h3><p>However, in structural mechanics we often would like to see the deformed configuration, which can be achieved by providing a <code>deformation_field::Symbol</code> as a keyword argument.</p><pre><code class="language-julia hljs">include(&quot;ferrite-examples/plasticity.jl&quot;) #only defines solving function
+u, dh, uhistory, σ, κ = solve()
+plotter = FerriteViz.MakiePlotter(dh,u)
+
+FerriteViz.solutionplot(plotter,colormap=:thermal,deformation_field=:u)
+FerriteViz.wireframe!(plotter,deformation_field=:u,markersize=10,strokewidth=1)
+WGLMakie.current_figure()</code></pre><div id="fc34a767-b0cd-42a0-99e3-c13800a9b73d" data-jscall-id="subsession-application-dom">
+  <div>
+    <div></div>
+  </div>
+  <div style="width: 100%; height: 100%" data-jscall-id="11">
+    <script type="module">    JSServe.lock_loading(() => {
+        return JSServe.fetch_binary('jsserve/bin/117a6aca0b8ff6db9fc072afd6a80d93f5089fbc-15448056232001569887.bin').then(msgs=> JSServe.init_session('fc34a767-b0cd-42a0-99e3-c13800a9b73d', msgs, 'sub'));
+    })
+</script>
+    <canvas style="display: block" data-jscall-id="12" tabindex="0"></canvas>
+  </div>
+</div><h3 id="Showing-per-cell-data"><a class="docs-heading-anchor" href="#Showing-per-cell-data">Showing per-cell data</a><a id="Showing-per-cell-data-1"></a><a class="docs-heading-anchor-permalink" href="#Showing-per-cell-data" title="Permalink"></a></h3><p>FerriteViz.jl also supports to plot cell data, such as the <strong>averaged</strong> von-Mises stress or the drag stress of the plasticity example.</p><pre><code class="language-julia hljs">u, dh, uhistory, σ, κ = solve()
+FerriteViz.cellplot(plotter,σ,colormap=:thermal,deformation_field=:u,deformation_scale=2.0)
+FerriteViz.wireframe!(plotter,deformation_field=:u,markersize=10,strokewidth=1,deformation_scale=2.0)
+WGLMakie.current_figure()</code></pre><div id="7805f2f6-866d-4ed5-9c58-95dafd275e8f" data-jscall-id="subsession-application-dom">
+  <div>
+    <div></div>
+  </div>
+  <div style="width: 100%; height: 100%" data-jscall-id="13">
+    <script type="module">    JSServe.lock_loading(() => {
+        return JSServe.fetch_binary('jsserve/bin/348223c853faecaed215ec0b43d4db5b1b75dd10-13149745782381413878.bin').then(msgs=> JSServe.init_session('7805f2f6-866d-4ed5-9c58-95dafd275e8f', msgs, 'sub'));
+    })
+</script>
+    <canvas style="display: block" data-jscall-id="14" tabindex="0"></canvas>
+  </div>
+</div><p>For a more granular investigation of the stress field consult the advanced tutorial.</p><h3 id="Interior-of-a-3D-domain"><a class="docs-heading-anchor" href="#Interior-of-a-3D-domain">Interior of a 3D domain</a><a id="Interior-of-a-3D-domain-1"></a><a class="docs-heading-anchor-permalink" href="#Interior-of-a-3D-domain" title="Permalink"></a></h3><p>For 3D problems we can also inspect the interior of the domain. Currenly we only have crinkle clipping implemented and it can be used as follows:</p><pre><code class="language-julia hljs">clip_plane = FerriteViz.ClipPlane(Vec((0.0,0.5,0.5)), 0.7)
+clipped_plotter = FerriteViz.crinkle_clip(plotter, clip_plane)
+FerriteViz.solutionplot(clipped_plotter,deformation_field=:u,colormap=:thermal,deformation_scale=2.0)
+WGLMakie.current_figure()</code></pre><div id="378395a6-2382-4b90-adb1-a3f836f8a5dd" data-jscall-id="subsession-application-dom">
+  <div>
+    <div></div>
+  </div>
+  <div style="width: 100%; height: 100%" data-jscall-id="15">
+    <script type="module">    JSServe.lock_loading(() => {
+        return JSServe.fetch_binary('jsserve/bin/3bf388a139b074e8eacdf973eb34ce0475021630-6377199300699279692.bin').then(msgs=> JSServe.init_session('378395a6-2382-4b90-adb1-a3f836f8a5dd', msgs, 'sub'));
+    })
+</script>
+    <canvas style="display: block" data-jscall-id="16" tabindex="0"></canvas>
+  </div>
+</div><p>Note that we can replace the plane withs some other object or a decision function. Such a function takes the grid and a cell index as input and returns a boolean which decides whether a cell is visible or not.</p><h3 id="What&#39;s-next?"><a class="docs-heading-anchor" href="#What&#39;s-next?">What&#39;s next?</a><a id="What&#39;s-next?-1"></a><a class="docs-heading-anchor-permalink" href="#What&#39;s-next?" title="Permalink"></a></h3><p>Further, this package provides an interactive viewer that you can call with <code>ferriteviewer(plotter)</code> and <code>ferriteviewer(plotter,u_history)</code> for time dependent views, respectively. If you want to live plot your solution while solving some finite element system, consider to take a look at the advanced topics page.</p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="index.html">« Home</a><a class="docs-footer-nextpage" href="atopics.html">Advanced Topics »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="auto">Automatic (OS)</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.1.2 on <span class="colophon-date" title="Friday 10 November 2023 13:39">Friday 10 November 2023</span>. Using Julia version 1.6.7.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>

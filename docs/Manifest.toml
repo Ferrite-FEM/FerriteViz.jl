@@ -451,19 +451,21 @@ version = "0.3.1"
 
 [[deps.Ferrite]]
 deps = ["EnumX", "ForwardDiff", "LinearAlgebra", "NearestNeighbors", "OrderedCollections", "Preferences", "Reexport", "SparseArrays", "Tensors", "WriteVTK"]
-git-tree-sha1 = "f6f82e13de587341d28bd267a705f0a3dba5b1aa"
+git-tree-sha1 = "ba6bba814bb9dcf6518f66b541d5c3cedf094ef3"
 uuid = "c061ca5d-56c9-439f-9c0e-210fe06d3992"
-version = "1.5.0"
+version = "1.6.0"
 
     [deps.Ferrite.extensions]
     FerriteBlockArrays = "BlockArrays"
     FerriteMetis = "Metis"
     FerriteSparseMatrixCSR = "SparseMatricesCSR"
+    FerriteVTKHDF = "VTKHDF"
 
     [deps.Ferrite.weakdeps]
     BlockArrays = "8e7c35d0-a365-5155-bbbb-fb81a777f24e"
     Metis = "2679e427-3c69-5b7f-982b-ece356f1e94b"
     SparseMatricesCSR = "a0a7dd2c-ebf4-11e9-1f05-cf50bc540ca1"
+    VTKHDF = "45d8cf6f-ab5f-45bc-ab92-77e36ab192e6"
 
 [[deps.FerriteViz]]
 deps = ["Ferrite", "GeometryBasics", "LinearAlgebra", "Makie", "ShaderAbstractions", "Tensors"]

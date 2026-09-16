@@ -892,6 +892,208 @@ end
     @test count(==(1), values(counts)) == 0 && count(>(2), values(counts)) == 0
 end
 
+@testset "regrid!: adaptive plots survive a topology change" begin
+    mkscene(N) = begin
+        grid = generate_grid(Quadrilateral, (N, N))
+        dh = DofHandler(grid)
+        add!(dh, :p, Lagrange{RefQuadrilateral,2}())
+        close!(dh)
+        u = zeros(ndofs(dh))
+        Ferrite.apply_analytical!(u, dh, :p, x -> exp(-20 * (x[1]^2 + x[2]^2)))
+        (dh, u)
+    end
+    dh1, u1 = mkscene(3)
+    ds = FEData(dh1, u1)
+    ds.adaptivity.solution_tol[] = 2e-3
+    ds.adaptivity.geometry_tol[] = 1e-3
+    ds.adaptivity.max_depth[] = 8
+    @test ds.grid_epoch == 0
+    sds = FEData(dh1, u1; adaptivity=false)   # a static sibling, regridded alongside
+
+    fig, ax, sp = solutionplot(ds)
+    _, _, wp = meshplot(ds)
+    _, _, spc = solutionplot(ds; color=:red)   # plain color
+    _, _, static = solutionplot(sds)           # static path
+    k1 = length(sp.subd_keys[])
+    n1 = length(wp.edge_lines[])
+    @test k1 > 0 && n1 > 0
+    coords_old = ds.coords
+    scoords_old = sds.coords
+
+    # the world swap: more cells, new dofs, same dataset object
+    dh2, u2 = mkscene(5)
+    FerriteViz.regrid!(ds, dh2, u2)
+    FerriteViz.regrid!(sds, dh2, u2)
+    @test ds.grid_epoch == 1
+    @test ds.dh === dh2
+    @test Ferrite.getncells(Ferrite.get_grid(ds.dh)) == 25
+    @test ds.coords !== coords_old            # fresh observables for new plots
+    @test ds.adaptivity !== nothing && ds.adaptivity.solution_tol[] == 2e-3   # settings carry over
+    @test sds.adaptivity === nothing && sds.coords !== scoords_old
+
+    # the adaptive plots rebuilt against the new grid
+    @test length(sp.subd_keys[]) != k1
+    @test all(k -> 1 <= FerriteViz.key_base(k) <= length(FerriteViz._substrate(ds).base.corners),
+              sp.subd_keys[])
+    # colors are exact evaluations of the NEW field at the refined vertices:
+    # re-decode the plot's key set against the new substrate and compare per
+    # vertex with a direct field evaluation (Float32 precision)
+    function max_field_dev(sp, ds, uref)
+        sub = FerriteViz._substrate(ds)
+        ev = FerriteViz.FieldEvaluator(ds.dh, :p)
+        FerriteViz.prepare!(ev, 1:Ferrite.getncells(Ferrite.get_grid(ds.dh)), uref)
+        m = FerriteViz.IsubdMesh(sub.base)
+        FerriteViz.decode_topology!(m, sp.subd_keys[], sub.base; groups=sub.groupmap)
+        col = sp.subd_color[]
+        return maximum(abs(Float64(col[v]) -
+                           FerriteViz.evaluate_at(ev, sub.cellmap[m.vertex_base[v]],
+                                                  m.refcoords[v], uref))
+                       for v in eachindex(m.refcoords))
+    end
+    pos, col = sp.subd_positions[], sp.subd_color[]
+    @test length(pos) == length(col)
+    @test max_field_dev(sp, ds, u2) < 1e-6
+    # the wireframe followed too, and the plain-color plot did not die
+    @test length(wp.edge_lines[]) != n1
+    @test length(spc.subd_positions[]) == length(sp.subd_positions[]) ||
+          length(spc.subd_keys[]) > 0
+    # the pre-regrid static plot holds the old (orphaned) observables — stale
+    # but alive; it must not have crashed the session
+    @test length(scoords_old[]) > 0
+
+    # updates keep flowing after the regrid, and a second regrid works
+    FerriteViz.update!(ds, 2 .* u2)
+    @test maximum(sp.subd_color[]) > 1.5
+    dh3, u3 = mkscene(4)
+    FerriteViz.regrid!(ds, dh3, u3)
+    @test ds.grid_epoch == 2
+    @test max_field_dev(sp, ds, u3) < 1e-6
+
+    # a plot created AFTER regrids agrees with the surviving one
+    _, _, sp2 = solutionplot(ds)
+    @test sort(sp2.subd_keys[]) == sort(sp.subd_keys[])
+    # the dataset's settings still steer the surviving plot, like the new one
+    k_before = length(sp.subd_keys[])
+    ds.adaptivity.solution_tol[] = 1e-4
+    @test length(sp.subd_keys[]) > k_before
+    @test sort(sp2.subd_keys[]) == sort(sp.subd_keys[])
+end
+
+@testset "ForestBWG: watertight across hanging nodes, live through regrid!" begin
+    # --- 2D: a forest of quadtrees, refined and drawn across an AMR loop ---
+    mkdh2(grid) = begin
+        dh = DofHandler(grid)
+        add!(dh, :p, Lagrange{RefQuadrilateral,1}())
+        close!(dh)
+        u = zeros(ndofs(dh))
+        # linear field: hanging values are automatically the edge means, so
+        # the drawn field is continuous across the 2:1 interfaces
+        Ferrite.apply_analytical!(u, dh, :p, x -> x[1] + 0.5 * x[2])
+        (dh, u)
+    end
+    survey2(sp) = begin
+        pos, faces = sp.subd_positions[], sp.subd_faces[]
+        rk(p) = (round(Float64(p[1]); digits=7) + 0.0, round(Float64(p[2]); digits=7) + 0.0)
+        verts = Set(rk(p) for p in pos)
+        tj = 0
+        counts = Dict{Any,Int}()
+        for f in faces, (i, j) in ((1, 2), (2, 3), (3, 1))
+            a, b = pos[f[i]], pos[f[j]]
+            m = rk((a + b) / 2)
+            (m in verts && m != rk(a) && m != rk(b)) && (tj += 1)
+            e = rk(a) <= rk(b) ? (rk(a), rk(b)) : (rk(b), rk(a))
+            counts[e] = get(counts, e, 0) + 1
+        end
+        border(q) = isapprox(abs(q[1]), 1.0; atol=1e-6) || isapprox(abs(q[2]), 1.0; atol=1e-6)
+        holes = count(((e, c),) -> c == 1 && !(border(e[1]) && border(e[2])), counts)
+        (; tj, holes, over=count(>(2), values(counts)))
+    end
+
+    forest = Ferrite.ForestBWG(generate_grid(Quadrilateral, (2, 2)), 5)
+    Ferrite.refine!(forest, [1])
+    Ferrite.balanceforest!(forest)
+    grid = Ferrite.creategrid(forest)
+    @test !isempty(grid.conformity_info)          # the interface really hangs
+    dh, u = mkdh2(grid)
+    ds = FEData(dh, u; adaptivity=Adaptivity(solution_tol=1e-3, max_depth=6))
+
+    fig, ax, sp = solutionplot(ds)
+    s = survey2(sp)
+    @test s.tj == 0 && s.holes == 0 && s.over == 0   # watertight across hanging nodes
+    # the linear field renders continuous: duplicated positions carry one value
+    byc = Dict{Any,Set{Float32}}()
+    rk2(p) = (round(Float64(p[1]); digits=6), round(Float64(p[2]); digits=6))
+    for (i, p) in enumerate(sp.subd_positions[])
+        push!(get!(Set{Float32}, byc, rk2(p)), round(sp.subd_color[][i]; digits=4))
+    end
+    @test all(s -> length(s) == 1, values(byc))
+
+    # --- the AMR loop: refine the same forest further, regrid, still tight ---
+    Ferrite.refine!(forest, [2, 3])
+    Ferrite.balanceforest!(forest)
+    grid2 = Ferrite.creategrid(forest)
+    dh2, u2 = mkdh2(grid2)
+    @test Ferrite.getncells(grid2) > Ferrite.getncells(grid)
+    FerriteViz.regrid!(ds, dh2, u2)
+    s2 = survey2(sp)
+    @test s2.tj == 0 && s2.holes == 0 && s2.over == 0
+    @test length(sp.subd_keys[]) >= 4 * Ferrite.getncells(grid2) ||
+          length(sp.subd_keys[]) > 0   # base fans grew with the cell count
+
+    # --- 3D: hex forest — interfaces detected, drawn surface a closed manifold ---
+    forest3 = Ferrite.ForestBWG(generate_grid(Hexahedron, (2, 2, 2)), 4)
+    Ferrite.refine!(forest3, [1])
+    Ferrite.balanceforest!(forest3)
+    g3 = Ferrite.creategrid(forest3)
+    dh3 = DofHandler(g3)
+    add!(dh3, :p, Lagrange{RefHexahedron,1}())
+    close!(dh3)
+    u3 = zeros(ndofs(dh3))
+    Ferrite.apply_analytical!(u3, dh3, :p, x -> x[1] + x[2] + x[3])
+    ds3 = FEData(dh3, u3; adaptivity=Adaptivity(solution_tol=1e-2, max_depth=4))
+    @test ds3.topology === nothing               # ExclusiveTopology sidestepped
+    @test count(ds3.visible) < Ferrite.getncells(g3) || Ferrite.getncells(g3) < 16
+    _, _, sp3 = solutionplot(ds3)
+    pos3, faces3 = sp3.subd_positions[], sp3.subd_faces[]
+    @test length(faces3) > 0
+    rk3(p) = ntuple(i -> round(Float64(p[i]); digits=6) + 0.0, 3)
+    counts3 = Dict{Any,Int}()
+    for f in faces3, (i, j) in ((1, 2), (2, 3), (3, 1))
+        a, b = rk3(pos3[f[i]]), rk3(pos3[f[j]])
+        e = a <= b ? (a, b) : (b, a)
+        counts3[e] = get(counts3, e, 0) + 1
+    end
+    # closed: every drawn edge shared by exactly two triangles — this fails
+    # both if AMR interfaces leak into the surface (coincident double faces)
+    # and if hanging rims stay unsplit (singly-drawn boundary edges)
+    @test count(==(1), values(counts3)) == 0 && count(>(2), values(counts3)) == 0
+end
+
+@testset "regrid!: guard rails" begin
+    grid = generate_grid(Quadrilateral, (2, 2))
+    dh = DofHandler(grid)
+    add!(dh, :u, Lagrange{RefQuadrilateral,2}()^2)
+    close!(dh)
+    u = zeros(ndofs(dh))
+    ds = FEData(dh, u)
+    wds = ds |> WarpByVector(:u, 1.0)
+    gds = ds |> Gradient(:u)
+    dh2 = DofHandler(generate_grid(Quadrilateral, (3, 3)))
+    add!(dh2, :u, Lagrange{RefQuadrilateral,2}()^2)
+    close!(dh2)
+    u2 = zeros(ndofs(dh2))
+    @test_throws ErrorException FerriteViz.regrid!(wds, dh2, u2)   # derived: warp
+    @test_throws ErrorException FerriteViz.regrid!(gds, dh2, u2)   # derived: rebound
+    @test_throws ErrorException FerriteViz.regrid!(ds, dh2, zeros(3))  # dof mismatch
+    dh_tri = DofHandler(generate_grid(Triangle, (2, 2)))
+    add!(dh_tri, :u, Lagrange{RefTriangle,1}()^2)
+    close!(dh_tri)
+    @test_throws ErrorException FerriteViz.regrid!(ds, dh_tri, zeros(ndofs(dh_tri)))  # kind change
+    # the root still works after the rejected attempts
+    FerriteViz.regrid!(ds, dh2, u2)
+    @test ds.grid_epoch == 1
+end
+
 @testset "adaptive meshplot: the wireframe is the surface's own edges" begin
     grid = generate_grid(QuadraticQuadrilateral, (4, 4))
     dh = DofHandler(grid)

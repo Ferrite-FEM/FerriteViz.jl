@@ -234,12 +234,93 @@ function _is_surface_facet(ds::FEData, cell_id::Int, facet::Int)
     return !ds.solid[first(neighbours)[1]]
 end
 
+# The hanging-node record of an adaptively refined (non-conforming) grid:
+# hanging node id -> its 2 (edge midpoint) or 4 (face centre) master node
+# ids, or `nothing` on a conforming grid. Reads the documented field of
+# Ferrite's NonConformingGrid; once the ForestBWG facade (Ferrite#1413)
+# provides an accessor, this indirection points there instead.
+_conformity_info(grid) = nothing
+_conformity_info(grid::Ferrite.NonConformingGrid) = grid.conformity_info
+
+# The conformity record, inverted for the base construction: sorted master
+# pair -> the hanging node on that element edge, and sorted master quadruple
+# -> the hanging node at that face's centre.
+function _hanging_maps(ci)
+    edges = Dict{NTuple{2,Int},Int}()
+    faces = Dict{NTuple{4,Int},Int}()
+    for (h, masters) in ci
+        if length(masters) == 2
+            edges[minmax(Int(masters[1]), Int(masters[2]))] = Int(h)
+        elseif length(masters) == 4
+            faces[NTuple{4,Int}(sort!(Int.(masters)))] = Int(h)
+        end
+    end
+    return edges, faces
+end
+_hanging_maps(::Nothing) = (Dict{NTuple{2,Int},Int}(), Dict{NTuple{4,Int},Int}())
+
+_hanging_on(edges::Dict{NTuple{2,Int},Int}, a::Int, b::Int) = get(edges, minmax(a, b), 0)
+
+# Interior facets of a non-conforming grid, by node identity. Exact node-set
+# matches pair conforming interfaces; across a 2:1 refinement-level jump the
+# fine facet's node set differs from the coarse one's, but replacing each
+# hanging node by its masters recovers exactly the coarse corner set — so the
+# fine facets match the coarse facet through that coarsening, and both sides
+# are interior. (ExclusiveTopology sees only raw node sets here and calls
+# every AMR interface "boundary", which would draw both coincident facets.)
+function _amr_interior_facets(grid::Ferrite.NonConformingGrid)
+    hang = _conformity_info(grid)
+    exact = Dict{Vector{Int},Tuple{Int,Int}}()
+    interior = Set{Tuple{Int,Int}}()
+    facets = Tuple{Int,Int,Vector{Int}}[]
+    for (cell_id, cell) in enumerate(Ferrite.getcells(grid))
+        for (f, face) in enumerate(Ferrite.reference_faces(getrefshape(cell)))
+            nodes = sort!(Int[cell.nodes[v] for v in face])
+            push!(facets, (cell_id, f, nodes))
+            if haskey(exact, nodes)                      # conforming pair
+                push!(interior, (cell_id, f), exact[nodes])
+            else
+                exact[nodes] = (cell_id, f)
+            end
+        end
+    end
+    for (cell_id, f, nodes) in facets
+        (cell_id, f) in interior && continue
+        coarse = Set{Int}()
+        anyhanging = false
+        for n in nodes
+            masters = get(hang, n, nothing)
+            if masters === nothing
+                push!(coarse, n)
+            else
+                anyhanging = true
+                union!(coarse, Int.(masters))
+            end
+        end
+        anyhanging || continue
+        partner = get(exact, sort!(collect(coarse)), nothing)
+        partner === nothing && continue
+        push!(interior, (cell_id, f), partner)
+    end
+    return interior
+end
+
+# One surface query per base build: topology-based on conforming grids,
+# conformity-aware facet matching on non-conforming (AMR) ones.
+function _surface_oracle(ds::FEData)
+    grid = Ferrite.get_grid(ds.dh)
+    if grid isa Ferrite.NonConformingGrid && Ferrite.getspatialdim(grid) > 2
+        interior = _amr_interior_facets(grid)
+        return (cell, f) -> !((cell, f) in interior)
+    end
+    return (cell, f) -> _is_surface_facet(ds, cell, f)
+end
+
 # One centre fan of a convex polygon given by its rim vertices in order:
 # (v[i+1], centre, v[i]) keeps the rim's winding while making the rim edge the
 # triangle's split edge, which is what the conforming refinement needs.
-function _push_fan!(corners, cornergids, cellmap, cell_id, rim, rimgids, counter)
-    centre = sum(rim) / length(rim)
-    centre_gid = (counter[] -= 1)
+function _push_fan!(corners, cornergids, cellmap, cell_id, rim, rimgids, counter;
+                    centre=sum(rim) / length(rim), centre_gid=(counter[] -= 1))
     for i in eachindex(rim)
         j = mod1(i + 1, length(rim))
         push!(corners, (rim[j], centre, rim[i]))
@@ -264,6 +345,13 @@ function _isubd_base_cells(ds::FEData)
     cornergids = NTuple{3,Int}[]
     cellmap = Int[]
     counter = Ref(0)
+    # Hanging nodes of a non-conforming (AMR) grid: the coarse side of a 2:1
+    # interface splits its rim at them, so both sides carry the same rim
+    # segments with the same *node* ids — the exact-gid pairing then closes
+    # the interface like any conforming edge, and the drawn surface stays
+    # watertight across refinement levels.
+    hangedges, hangfaces = _hanging_maps(_conformity_info(grid))
+    issurf = _surface_oracle(ds)
     for (cell_id, cell) in enumerate(cells)
         ds.visible[cell_id] || continue
         Ferrite.getrefdim(Ferrite.geometric_interpolation(typeof(cell))) == refdim ||
@@ -284,23 +372,46 @@ function _isubd_base_cells(ds::FEData)
                       "refinement rests on. This tessellation lists none — construct the dataset " *
                       "with adaptivity=false instead.")
             gids = _vertex_gids(cell, tess.coords, counter)
-            rim = unique(Iterators.flatten(tess.edges))
-            centre = sum(tess.coords[i] for i in rim) / length(rim)
-            centre_gid = (counter[] -= 1)
+            # walk the element edges in ring order, inserting hanging midpoints
+            rimξ = eltype(tess.coords)[]
+            rimg = Int[]
             for (a, b) in tess.edges
-                # (b, centre, a) keeps the fan's winding while making the
-                # element edge (b, a) the triangle's split edge
-                push!(corners, (tess.coords[b], centre, tess.coords[a]))
-                push!(cornergids, (gids[b], centre_gid, gids[a]))
-                push!(cellmap, cell_id)
+                push!(rimξ, tess.coords[a])
+                push!(rimg, gids[a])
+                h = _hanging_on(hangedges, gids[a], gids[b])
+                if h != 0
+                    push!(rimξ, (tess.coords[a] + tess.coords[b]) / 2)
+                    push!(rimg, h)
+                end
             end
+            _push_fan!(corners, cornergids, cellmap, cell_id, rimξ, rimg, counter)
         elseif refdim == 3
             vcoords = Ferrite.reference_coordinates(Ferrite.Lagrange{refshape,1}())
             vgids = _vertex_gids(cell, vcoords, counter)
             for (f, face) in enumerate(Ferrite.reference_faces(refshape))
-                _is_surface_facet(ds, cell_id, f) || continue
-                _push_fan!(corners, cornergids, cellmap, cell_id,
-                           [vcoords[v] for v in face], [vgids[v] for v in face], counter)
+                issurf(cell_id, f) || continue
+                rimξ = eltype(vcoords)[]
+                rimg = Int[]
+                for (i, v) in enumerate(face)
+                    w = face[mod1(i + 1, length(face))]
+                    push!(rimξ, vcoords[v])
+                    push!(rimg, vgids[v])
+                    h = _hanging_on(hangedges, vgids[v], vgids[w])
+                    if h != 0
+                        push!(rimξ, (vcoords[v] + vcoords[w]) / 2)
+                        push!(rimg, h)
+                    end
+                end
+                # a hanging face centre (a clip may expose the coarse side of
+                # an AMR interface) is the natural fan centre, with its real id
+                hc = length(face) == 4 ?
+                     get(hangfaces, NTuple{4,Int}(sort!(Int[vgids[v] for v in face])), 0) : 0
+                if hc != 0
+                    _push_fan!(corners, cornergids, cellmap, cell_id, rimξ, rimg, counter;
+                               centre=sum(vcoords[v] for v in face) / length(face), centre_gid=hc)
+                else
+                    _push_fan!(corners, cornergids, cellmap, cell_id, rimξ, rimg, counter)
+                end
             end
         else
             error("adaptive tessellation draws surfaces of 2D and 3D reference shapes; " *
@@ -343,6 +454,7 @@ function _isubd_base_qp(ds::FEData, qp::QPPartition)
     edge_cuts = Dict{Tuple{Int,Int,Float64},Int}()
     regions_cache = Dict{Type,Any}()
     ngroups = 0
+    issurf = _surface_oracle(ds)
     for (cell_id, cell) in enumerate(cells)
         ds.visible[cell_id] || continue
         Ferrite.getrefdim(Ferrite.geometric_interpolation(typeof(cell))) == refdim ||
@@ -355,7 +467,7 @@ function _isubd_base_qp(ds::FEData, qp::QPPartition)
         refedges = Ferrite.reference_edges(refshape)
         local_pool = Dict{NTuple{refdim,Float64},Int}()
         for (fi, qpi, poly) in regions
-            refdim == 3 && !_is_surface_facet(ds, cell_id, fi) && continue
+            refdim == 3 && !issurf(cell_id, fi) && continue
             rimgids = [_qp_vertex_gid(ξ, refcorners, refedges, cell.nodes, local_pool,
                                       edge_cuts, counter) for ξ in poly]
             ngroups += 1
@@ -573,6 +685,11 @@ struct IsubdSubstrate{B<:IsubdBase,CC,W<:Vector}
     # from lookups instead of re-sampling the fields per key.
     dev_caches::Dict{Symbol,Dict{UInt64,Float64}}
     dev_epoch::Base.RefValue{Int}       # epoch the memos are valid for
+    # The observable listeners this substrate registered (epoch bumps on the
+    # solution and warp observables). `regrid!` detaches them via
+    # `_clear_substrate!` — otherwise every discarded substrate would stay
+    # alive through its listener on the dataset's long-lived `u`.
+    listeners::Vector{Any}
 end
 
 # The id bookkeeping of the base build works on exact Float64 reference
@@ -595,18 +712,18 @@ function _build_substrate(ds::FEData{dim}, ::Type{T}) where {dim,T}
     base = IsubdBase(_corners_as(corners, T), mapping, adjacency)
     epoch = Ref(0)
     bump(_) = (epoch[] += 1; nothing)
-    Makie.on(bump, ds.u)
+    listeners = Any[Makie.on(bump, ds.u)]
     for w in warps
-        w.u === ds.u || Makie.on(bump, w.u)
+        w.u === ds.u || push!(listeners, Makie.on(bump, w.u))
         # the deviation memos also depend on the warp's scale and field (the
         # coefficients do not, but one shared epoch is simpler than two, and
         # an occasional redundant prepare! is cheap)
-        Makie.on(bump, w.scale)
-        Makie.on(bump, w.name)
+        push!(listeners, Makie.on(bump, w.scale))
+        push!(listeners, Makie.on(bump, w.name))
     end
     return IsubdSubstrate(base, cellmap, groupmap, qpmap, edgemask, cellcoords, warps,
                           unique(cellmap), _grid_diagonal(grid), Dict{Symbol,FieldEvaluator}(),
-                          epoch, Dict{Symbol,Dict{UInt64,Float64}}(), Ref(-1))
+                          epoch, Dict{Symbol,Dict{UInt64,Float64}}(), Ref(-1), listeners)
 end
 
 # The dataset's substrate, built on first use. Deliberately behind a
@@ -638,6 +755,24 @@ end
 # The sample type every evaluation of this substrate runs in, recovered from
 # the base's reference-corner type.
 _sample_type(sub::IsubdSubstrate) = eltype(eltype(eltype(sub.base.corners)))
+
+# Drop the dataset's substrate and detach its observable listeners — the
+# `regrid!` half of the substrate's lifecycle (construction is `_substrate`).
+function _clear_substrate!(ds::FEData)
+    cached = ds.subd_cache[]
+    cached === nothing && return nothing
+    _off_substrate_listeners(cached)
+    ds.subd_cache[] = nothing
+    return nothing
+end
+
+function _off_substrate_listeners(sub::IsubdSubstrate)
+    for l in sub.listeners
+        Makie.Observables.off(l)
+    end
+    empty!(sub.listeners)
+    return nothing
+end
 
 # The substrate-wide evaluator of one dof field, shared (with its coefficient
 # buffers) by every plot sampling that field.
@@ -713,7 +848,8 @@ function _chain_node(sub::IsubdSubstrate, ds::FEData, src::FieldSource, ::Val{sd
         se = SourceEval(FieldEvaluator(src.dh, src.name, _sample_type(sub)), src.u, src.name, term)
         # its solution must invalidate the shared epoch too (duplicate
         # listeners from several plots only advance the counter faster)
-        src.u === ds.u || Makie.on(_ -> (sub.epoch[] += 1; nothing), src.u)
+        src.u === ds.u ||
+            push!(sub.listeners, Makie.on(_ -> (sub.epoch[] += 1; nothing), src.u))
     end
     leaf = function (cell::Int, ξ)
         v = evaluate_at(se.ev, cell, ξ, se.u[])
@@ -930,11 +1066,186 @@ function _warp_inputs!(graph, sub::IsubdSubstrate)
     return names
 end
 
+# ---------------------------------------------------------------------------
+# Regriddable wiring
+# ---------------------------------------------------------------------------
+#
+# A plot of a plain root dataset — no warps, no derivations, no quadrature
+# partition; exactly the datasets `regrid!` accepts — must not capture any
+# grid-derived object in its node closures. Everything grid-shaped lives in
+# an `AdaptiveState` that the key node revalidates against the dataset's
+# `grid_epoch` on every run: when `regrid!` moved it, the state rebuilds from
+# the fresh substrate (new base, new evaluator, keys reset to the new roots)
+# and the downstream nodes emit the new grid's buffers, which the mesh child
+# follows like any other refinement change. Derived datasets keep the
+# capture-style wiring below — they cannot regrid, and their extra graph
+# inputs (warp observables, chain sources, partition values) are fixed at
+# plot creation.
+mutable struct AdaptiveState
+    epoch::Int
+    sub::Any          # IsubdSubstrate; untyped across rebuilds (the mapping closure's type changes)
+    ev::Any           # FieldEvaluator, or nothing for plain colors
+    mesh_buf::Any     # IsubdMesh of the current base
+    keys::Vector{UInt64}
+    scratch::Vector{UInt64}
+    prev::Vector{UInt64}
+    span::Base.RefValue{NTuple{2,Float64}}   # (span, magnitude) of the drawn field
+end
+
+function _adaptive_state(ds::FEData, fname::Symbol, reduce::Bool)
+    st = AdaptiveState(-1, nothing, nothing, nothing, UInt64[], UInt64[], UInt64[], Ref((NaN, NaN)))
+    _ensure_state!(st, ds, fname, reduce)
+    return st
+end
+
+function _ensure_state!(st::AdaptiveState, ds::FEData, fname::Symbol, reduce::Bool)
+    st.epoch == ds.grid_epoch && return st
+    sub = _substrate(ds)
+    st.ev = fname === :none ? nothing : _state_evaluator(sub, ds, fname, reduce)
+    st.sub = sub
+    st.mesh_buf = _fresh_mesh_buffer(sub)
+    _reset_keys!(st, sub)
+    st.span[] = (NaN, NaN)
+    st.epoch = ds.grid_epoch
+    return st
+end
+
+function _state_evaluator(sub::IsubdSubstrate, ds::FEData, fname::Symbol, reduce::Bool)
+    fname in Ferrite.getfieldnames(ds.dh) ||
+        error("after regrid!, the color field :$fname no longer exists in the new dof handler — " *
+              "recreate the plot")
+    ev = _field_evaluator(sub, ds.dh, fname)
+    reduce || ev.ncomps == 1 ||
+        error("field :$fname has $(ev.ncomps) components; adaptive coloring needs a scalar " *
+              "(or :default, which reduces to the magnitude)")
+    return ev
+end
+
+_fresh_mesh_buffer(sub::IsubdSubstrate) = IsubdMesh(sub.base)
+
+function _reset_keys!(st::AdaptiveState, sub::IsubdSubstrate)
+    roots = root_keys(sub.base)
+    resize!(st.keys, length(roots))
+    copy!(st.keys, roots)
+    empty!(st.scratch)
+    empty!(st.prev)
+    return nothing
+end
+
+# The node bodies, as function barriers over the state's untyped fields. They
+# mirror the capture-style nodes below exactly; `inputs.solution_tol` is only
+# touched when a field is drawn, which is what lets the wireframe (whose
+# recipe has no such attribute) share `_keys_step!`.
+function _keys_step!(sub::IsubdSubstrate, st::AdaptiveState, ev, fname::Symbol, reduce::Bool,
+                     inputs, changed, cached)
+    _refresh_all!(sub, ev, inputs.subd_u)
+    T = _sample_type(sub)
+    geo = DeviationLoD(sub.base.mapping, max(Float64(inputs.geometry_tol), _tol_floor(T)) * sub.diag,
+                       _dev_cache(sub, :geometry))
+    lods = (geo,)
+    if ev !== nothing
+        probe = _scalar_probe(ev, sub.cellmap, inputs.subd_u; reduce)
+        if isnan(st.span[][1]) || changed.subd_u
+            st.span[] = _field_span(ev, sub.used_cells, inputs.subd_u; reduce)
+        end
+        tol = _solution_tol(Float64(inputs.solution_tol), st.span[], T)
+        lods = (lods..., DeviationLoD(probe, tol, _dev_cache(sub, fname)))
+    end
+    refine_keys!(st.keys, st.scratch, sub.base, CombinedLoD(lods);
+                 max_depth=Int(inputs.max_depth))
+    cached !== nothing && st.keys == st.prev && return nothing
+    copy!(st.prev, st.keys)
+    return (st.keys,)
+end
+
+function _topo_step!(sub::IsubdSubstrate, mesh_buf::IsubdMesh, keys::Vector{UInt64},
+                     faces_out::Vector{GeometryBasics.GLTriangleFace})
+    decode_topology!(mesh_buf, keys, sub.base; groups=sub.groupmap)
+    resize!(faces_out, length(mesh_buf.faces))
+    @inbounds for i in eachindex(mesh_buf.faces)
+        f = mesh_buf.faces[i]
+        faces_out[i] = GeometryBasics.GLTriangleFace(f[1], f[2], f[3])
+    end
+    return (mesh_buf.refcoords, faces_out)
+end
+
+function _positions_step!(sub::IsubdSubstrate, mesh_buf::IsubdMesh, ev, u, positions_out)
+    _refresh_all!(sub, ev, u)
+    decode_positions!(mesh_buf, sub.base)
+    return _render_positions!(positions_out, mesh_buf.positions)
+end
+
+function _color_step!(sub::IsubdSubstrate, mesh_buf::IsubdMesh, ev::FieldEvaluator, u,
+                      colors_out::Vector{Float32}; reduce::Bool)
+    _refresh_all!(sub, ev, u)
+    return _transfer_at!(colors_out, ev, sub.cellmap, mesh_buf, u; reduce)
+end
+
+function _edges_step!(sub::IsubdSubstrate, keys::Vector{UInt64}, u, segments)
+    _refresh_all!(sub, nothing, u)
+    return _element_edge_segments!(segments, keys, sub.base, sub.edgemask)
+end
+
+function _wire_regriddable_solutionplot!(SP, ds::FEData{dim}, fname::Symbol, reduce::Bool) where {dim}
+    graph = SP.attributes
+    ComputePipeline.add_input!(graph, :subd_u, ds.u)
+    # the Adaptivity config is the dataset's own and survives regrid!, so its
+    # observables are safe to wire once
+    _adaptivity_inputs!(graph, ds.adaptivity; solution=true)
+    st = _adaptive_state(ds, fname, reduce)
+    faces_out = GeometryBasics.GLTriangleFace[]
+    positions_out = GeometryBasics.Point{dim,Float32}[]
+    colors_out = Float32[]
+    ComputePipeline.register_computation!(graph, [:subd_u, :geometry_tol, :solution_tol, :max_depth],
+                                          [:subd_keys]) do inputs, changed, cached
+        _ensure_state!(st, ds, fname, reduce)
+        return _keys_step!(st.sub, st, st.ev, fname, reduce, inputs, changed, cached)
+    end
+    ComputePipeline.register_computation!(graph, [:subd_keys], [:subd_ξ, :subd_faces]) do inputs, changed, cached
+        return _topo_step!(st.sub, st.mesh_buf, inputs.subd_keys, faces_out)
+    end
+    Makie.map!(graph, [:subd_ξ, :subd_u], :subd_positions) do _ξ, uu
+        return _positions_step!(st.sub, st.mesh_buf, st.ev, uu, positions_out)
+    end
+    if fname === :none
+        colornode = SP.color   # plain color, converted by the mesh child
+    else
+        Makie.map!(graph, [:subd_ξ, :subd_u], :subd_color) do _ξ, u
+            return _color_step!(st.sub, st.mesh_buf, st.ev, u, colors_out; reduce)
+        end
+        colornode = SP.subd_color
+    end
+    return Makie.mesh!(SP, SP.attributes, SP.subd_positions, SP.subd_faces, color=colornode)
+end
+
+function _wire_regriddable_wireframe!(WF, ds::FEData{dim}) where {dim}
+    graph = WF.attributes
+    ComputePipeline.add_input!(graph, :subd_u, ds.u)
+    _adaptivity_inputs!(graph, ds.adaptivity; solution=false)
+    st = _adaptive_state(ds, :none, false)
+    ComputePipeline.register_computation!(graph, [:subd_u, :geometry_tol, :max_depth],
+                                          [:subd_keys]) do inputs, changed, cached
+        _ensure_state!(st, ds, :none, false)
+        return _keys_step!(st.sub, st, nothing, :none, false, inputs, changed, cached)
+    end
+    # Makie draws 2D/3D points; pad 1D grids with a zero y-coordinate
+    segments = GeometryBasics.Point{max(dim, 2),Float32}[]
+    Makie.map!(graph, [:subd_keys, :subd_u], :edge_lines) do keys, u
+        return _edges_step!(st.sub, keys, u, segments)
+    end
+    return nothing
+end
+
 # The adaptive branch of meshplot's plot!: same refinement machinery as the
 # surface, but only the geometry criterion — a wireframe has no field to
-# resolve, only a curve to follow. The outer function exists as a barrier past
-# the dataset's untyped substrate cache.
-_adaptive_wireframe!(WF, ds::FEData) = _wire_adaptive_wireframe!(WF, ds, _substrate(ds))
+# resolve, only a curve to follow. Plain root datasets get the regriddable
+# wiring; derived ones (warps, quadrature partitions) the capture-style one.
+function _adaptive_wireframe!(WF, ds::FEData)
+    if isempty(ds.deformation) && ds.qp_partition === nothing
+        return _wire_regriddable_wireframe!(WF, ds)
+    end
+    return _wire_adaptive_wireframe!(WF, ds, _substrate(ds))
+end
 
 function _wire_adaptive_wireframe!(WF, ds::FEData{dim}, sub::IsubdSubstrate) where {dim}
     graph = WF.attributes
@@ -1060,6 +1371,13 @@ function _adaptive_solutionplot!(SP, ds::FEData)
                   "array on the static tessellation and cannot be resampled. " *
                   "Color by a dof field, a derived quantity or a plain color.")
         end
+    end
+
+    # a plain root dataset gets the regriddable wiring (per-plot state
+    # revalidated against ds.grid_epoch, so the plot survives regrid!); the
+    # eager resolution above already validated the color
+    if chain === nothing && isempty(ds.deformation) && ds.qp_partition === nothing
+        return _wire_regriddable_solutionplot!(SP, ds, ev === nothing ? :none : fname, reduce)
     end
 
     # barrier past the dataset's untyped substrate cache: everything below
